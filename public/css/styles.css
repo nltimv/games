@@ -34,21 +34,31 @@ body {
   flex-direction: column;
   position: relative;
   overflow-x: hidden;
+  /* Establish a stacking context so the negative z-index background layers
+     below paint above body's own background instead of behind it. */
+  isolation: isolate;
 }
 
-/* Decorative ambient background: soft blurred color blobs + faint grid. */
-body::before,
-body::after {
-  content: '';
+/* Decorative ambient background: layered blurred blobs, a slow-spinning
+   aurora wash, a faint grid and twinkling star dots. All layers live inside
+   a single fixed wrapper so they scroll with nothing and never intercept
+   clicks (pointer-events: none, aria-hidden in markup). */
+.bg-decor {
   position: fixed;
-  z-index: -2;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.4;
+  inset: 0;
+  z-index: -3;
+  overflow: hidden;
   pointer-events: none;
 }
 
-body::before {
+.bg-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.4;
+}
+
+.bg-blob-a {
   top: -10%;
   left: -10%;
   width: 45vmax;
@@ -57,7 +67,7 @@ body::before {
   animation: float-blob 22s ease-in-out infinite;
 }
 
-body::after {
+.bg-blob-b {
   bottom: -15%;
   right: -10%;
   width: 50vmax;
@@ -66,11 +76,33 @@ body::after {
   animation: float-blob 26s ease-in-out infinite reverse;
 }
 
+.bg-blob-c {
+  top: 30%;
+  left: 55%;
+  width: 34vmax;
+  height: 34vmax;
+  opacity: 0.3;
+  background: radial-gradient(circle, var(--accent-3), transparent 65%);
+  animation: float-blob 19s ease-in-out infinite;
+  animation-delay: -6s;
+}
+
+.bg-aurora {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 130vmax;
+  height: 130vmax;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(from 0deg, var(--accent), var(--accent-2), var(--accent-3), var(--accent));
+  opacity: 0.05;
+  filter: blur(100px);
+  animation: spin-slow 70s linear infinite;
+}
+
 .bg-grid {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: -1;
-  pointer-events: none;
   background-image:
     linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
@@ -78,9 +110,33 @@ body::after {
   mask-image: radial-gradient(ellipse at top, black, transparent 85%);
 }
 
+.bg-stars {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.5px 1.5px at 10% 20%, rgba(255, 255, 255, 0.8), transparent 60%),
+    radial-gradient(1.5px 1.5px at 25% 65%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(2px 2px at 40% 30%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(1.5px 1.5px at 55% 80%, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(2px 2px at 70% 15%, rgba(255, 255, 255, 0.8), transparent 60%),
+    radial-gradient(1.5px 1.5px at 85% 55%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(1.5px 1.5px at 92% 85%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(2px 2px at 15% 90%, rgba(255, 255, 255, 0.5), transparent 60%);
+  animation: twinkle 5s ease-in-out infinite;
+}
+
 @keyframes float-blob {
   0%, 100% { transform: translate(0, 0) scale(1); }
   50% { transform: translate(6%, 8%) scale(1.12); }
+}
+
+@keyframes spin-slow {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.85; }
 }
 
 .site-header {
@@ -348,10 +404,14 @@ main {
 
 .site-footer {
   text-align: center;
-  padding: 2rem 1.5rem;
+  padding: 2rem 1.5rem 3rem;
   color: var(--muted);
   font-size: 0.85rem;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
 }
 
 .site-footer::before {
@@ -359,12 +419,39 @@ main {
   display: block;
   width: min(320px, 60%);
   height: 1px;
-  margin: 0 auto 1.5rem;
+  margin: 0 auto 0.25rem;
   background: linear-gradient(90deg, transparent, var(--border), transparent);
 }
 
-.site-footer .heart {
-  color: var(--accent-3);
+.site-footer p {
+  margin: 0;
+}
+
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.2rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.repo-link:hover,
+.repo-link:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(77, 208, 164, 0.5);
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.repo-link svg {
+  color: var(--accent);
 }
 
 .not-found {

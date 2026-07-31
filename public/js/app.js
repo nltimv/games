@@ -1,3 +1,7 @@
+// Keep the footer's copyright year current without hardcoding it.
+const yearEl = document.getElementById('year');
+if (yearEl) yearEl.textContent = new Date().getFullYear();
+
 // Fetches the game registry and renders a card per game on the lobby page.
 (async function loadGames() {
   const grid = document.getElementById('game-grid');
