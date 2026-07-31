@@ -32,6 +32,11 @@ podLabels: {}
 
 podSecurityContext:
   runAsNonRoot: true
+  # Explicit numeric UID/GID matching the "app" user baked into the image
+  # (see Dockerfile). Kubernetes cannot resolve non-numeric usernames to
+  # verify runAsNonRoot, so this must be numeric.
+  runAsUser: 1000
+  runAsGroup: 1000
   seccompProfile:
     type: RuntimeDefault
 
