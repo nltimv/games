@@ -1,0 +1,22 @@
+apiVersion: v2
+name: games-hub
+description: A Helm chart for deploying the Games Hub web application (a collection of browser-based games)
+type: application
+
+# This is the chart version. This number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+version: 0.1.0
+
+# This is the version number of the application being deployed. Overridden per-release by
+# CI, which sets image.tag to the built image's tag (e.g. the git SHA or version tag).
+appVersion: "1.0.0"
+
+home: https://github.com/OWNER/games
+sources:
+  - https://github.com/OWNER/games
+keywords:
+  - games
+  - web
+  - node
+maintainers:
+  - name: Games Hub maintainers

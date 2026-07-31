@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snake - Games Hub</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="stylesheet" href="/games/snake/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>🐍 Snake</h1>
+    <a class="back-link" href="/">&larr; Back to Games Hub</a>
+  </header>
+
+  <main class="snake-main">
+    <div class="hud">
+      <span>Score: <strong id="score">0</strong></span>
+      <span>Best: <strong id="best">0</strong></span>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="board" width="400" height="400"></canvas>
+      <div id="overlay" class="overlay">
+        <p id="overlay-message">Press an arrow key or tap Start to play</p>
+        <button id="start-btn" type="button">Start</button>
+      </div>
+    </div>
+
+    <div class="touch-controls" aria-hidden="false">
+      <button data-dir="up" aria-label="Move up">▲</button>
+      <div class="mid-row">
+        <button data-dir="left" aria-label="Move left">◀</button>
+        <button data-dir="down" aria-label="Move down">▼</button>
+        <button data-dir="right" aria-label="Move right">▶</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="/games/snake/game.js"></script>
+</body>
+</html>

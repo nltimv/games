@@ -1,0 +1,125 @@
+:root {
+  --bg: #12141c;
+  --surface: #1c1f2b;
+  --surface-hover: #262a3a;
+  --text: #eef0f5;
+  --muted: #9aa0b4;
+  --accent: #4dd0a4;
+  --accent-dark: #35a884;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-header {
+  padding: 2.5rem 1.5rem 1.5rem;
+  text-align: center;
+}
+
+.site-header h1 {
+  margin: 0 0 0.5rem;
+  font-size: 2.25rem;
+}
+
+.site-header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+main {
+  flex: 1;
+  padding: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.25rem;
+}
+
+.game-card {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 1.25rem;
+  text-decoration: none;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: transform 0.15s ease, background 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.game-card:hover,
+.game-card:focus-visible {
+  background: var(--surface-hover);
+  transform: translateY(-3px);
+  border-color: var(--accent);
+}
+
+.game-card .thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: #10131a;
+  object-fit: cover;
+}
+
+.game-card h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.game-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.game-card .controls {
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+
+.loading,
+.error {
+  color: var(--muted);
+  text-align: center;
+  grid-column: 1 / -1;
+}
+
+.site-footer {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.not-found {
+  text-align: center;
+  padding: 4rem 1rem;
+}
+
+.not-found h1 {
+  font-size: 4rem;
+  margin: 0;
+  color: var(--accent);
+}
+
+.not-found a {
+  color: var(--accent);
+}

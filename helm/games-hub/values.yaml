@@ -1,0 +1,117 @@
+# Default values for games-hub.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  # -- Container image repository. Override with e.g.
+  # `--set image.repository=ghcr.io/<owner>/<repo>` for your fork.
+  repository: ghcr.io/OWNER/games-hub
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created.
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account.
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template.
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# The application listens on this port inside the container (see server.js / Dockerfile).
+containerPort: 3000
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: games-hub.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+    # - secretName: games-hub-tls
+    #   hosts:
+    #     - games-hub.local
+
+# We set light default resource requests/limits so the chart is usable out of the box,
+# while remaining easy to override for your environment.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 15
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 3
+  periodSeconds: 10
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# -- Extra environment variables for the container, e.g.:
+# env:
+#   - name: NODE_ENV
+#     value: production
+env: []
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+  # - name: tmp
+  #   emptyDir: {}
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+  # - name: tmp
+  #   mountPath: /tmp
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
