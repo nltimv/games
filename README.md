@@ -80,7 +80,7 @@ helm upgrade --install games-hub helm/games-hub \
   --set image.tag=<version>
 
 # ...or install directly from the published OCI chart:
-helm upgrade --install games-hub oci://ghcr.io/<owner>/charts/games-hub \
+helm upgrade --install games-hub oci://ghcr.io/<owner>/helm/games-hub \
   --version <chart-version>
 ```
 
@@ -125,7 +125,7 @@ no push), and on manual dispatch:
   (on the default branch only).
 - **`package-and-push-chart`** lints the Helm chart, packages it (stamping
   `appVersion` from `package.json`), and pushes it as an OCI artifact to
-  `ghcr.io/<owner>/charts/games-hub`, tagged with the chart's `version`
+  `ghcr.io/<owner>/helm/games-hub`, tagged with the chart's `version`
   field in [`Chart.yaml`](helm/games-hub/Chart.yaml) — bump that whenever
   the chart templates/values change.
 

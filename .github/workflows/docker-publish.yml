@@ -113,4 +113,4 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           helm push "dist/games-hub-${{ steps.chartver.outputs.chart_version }}.tgz" \
-            "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts"
+            "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/helm"
