@@ -20,7 +20,7 @@ Includes **Snake** as the example game (arrow keys / WASD / swipe).
 │   └── games/snake/          # Example game (self-contained HTML/CSS/JS)
 ├── Dockerfile                 # Multi-stage, non-root, healthchecked image
 ├── helm/games-hub/            # Helm chart for Kubernetes deployment
-└── .github/workflows/         # CI: build & publish image to GHCR
+└── .github/workflows/         # CI: build & publish image + Helm chart to GHCR
 ```
 
 ## Adding a new game
@@ -66,15 +66,22 @@ exposes a `/healthz` endpoint used by the built-in `HEALTHCHECK`.
 
 ## Deploying with Helm
 
-A chart is provided at [`helm/games-hub`](helm/games-hub).
+A chart is provided at [`helm/games-hub`](helm/games-hub), and is also
+published as an OCI artifact to GHCR on every push to `main` (see
+[CI/CD](#cicd) below).
 
 ```bash
 helm lint helm/games-hub
 helm template games-hub helm/games-hub | less   # preview rendered manifests
 
+# Install from the local chart source:
 helm upgrade --install games-hub helm/games-hub \
   --set image.repository=ghcr.io/<owner>/<repo> \
-  --set image.tag=<tag>
+  --set image.tag=<version>
+
+# ...or install directly from the published OCI chart:
+helm upgrade --install games-hub oci://ghcr.io/<owner>/charts/games-hub \
+  --version <chart-version>
 ```
 
 Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
@@ -82,38 +89,49 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 | Value                | Default                    | Description                          |
 | --------------------- | --------------------------- | ------------------------------------ |
 | `image.repository`    | `ghcr.io/OWNER/games-hub`   | Container image to deploy            |
-| `image.tag`           | chart `appVersion`           | Image tag override                   |
+| `image.tag`           | chart `appVersion`           | Image tag override — set this to a published version, e.g. `1.0.0` |
 | `image.digest`        | `""`                         | Optional digest pin (`sha256:...`), appended as `repository:tag@digest` |
 | `service.port`        | `3000`                      | Service & container port             |
 | `ingress.enabled`      | `false`                      | Enable an Ingress resource            |
 | `autoscaling.enabled` | `false`                      | Enable a HorizontalPodAutoscaler      |
 | `resources`           | `50m/64Mi` req, `250m/128Mi` limit | Pod resource requests/limits   |
 
-> **Note on mutable tags:** if you deploy with a mutable tag such as `latest`
-> or `main`, set `image.digest` to the corresponding manifest digest (from
-> `docker inspect`/`skopeo inspect`/the registry UI). With
-> `imagePullPolicy: IfNotPresent` (the chart default), Kubernetes only checks
-> whether an image already exists locally under that `repository:tag`
-> string — it does **not** compare against the registry, so a node that
-> already cached an older build of `latest` will keep serving it forever,
-> even after the tag is updated. Pinning `image.digest` makes every deploy
-> immutable and guarantees a fresh pull when the digest changes. Tools like
-> [Renovate](https://docs.renovatebot.com/modules/manager/helm-values/) can
-> track this `image.tag`/`image.digest` pair automatically.
+> **Versioned tags vs. mutable tags:** the image is published with
+> immutable version tags (`1.0.0`, `1.0`, `1`) derived from
+> [`package.json`](package.json)'s `version` field — set `image.tag` to one
+> of these for a reproducible deploy; no `image.digest` pin is needed since
+> the tag itself never changes content. `image.digest` is still useful if
+> you deploy with a mutable tag such as `latest` or `main`: with
+> `imagePullPolicy: IfNotPresent` (the chart default), Kubernetes only
+> checks whether an image already exists locally under that
+> `repository:tag` string — it does **not** compare against the registry —
+> so a node that already cached an older build of `latest` will keep
+> serving it forever, even after the tag is updated. Pinning `image.digest`
+> makes that case immutable and guarantees a fresh pull when the digest
+> changes.
 
 ## CI/CD
 
 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
-builds a multi-arch (`linux/amd64`, `linux/arm64`) image on every push to
-`main` and on version tags (`v*.*.*`), and publishes it to the
-[GitHub Container Registry](https://ghcr.io) at
-`ghcr.io/<owner>/<repo>`. Pull requests build the image (to catch build
-failures) without pushing. Images are tagged with the branch name, semver
-(on tags), the short git SHA, and `latest` (on the default branch).
+runs two jobs on every push to `main`, on pull requests (build/lint only,
+no push), and on manual dispatch:
+
+- **`build-and-push`** builds a multi-arch (`linux/amd64`, `linux/arm64`)
+  image and publishes it to the
+  [GitHub Container Registry](https://ghcr.io) at `ghcr.io/<owner>/<repo>`.
+  Images are tagged with the app version, major.minor, and major (all read
+  from [`package.json`](package.json)'s `version` field — bump it to
+  publish a new version), the branch name, the short git SHA, and `latest`
+  (on the default branch only).
+- **`package-and-push-chart`** lints the Helm chart, packages it (stamping
+  `appVersion` from `package.json`), and pushes it as an OCI artifact to
+  `ghcr.io/<owner>/charts/games-hub`, tagged with the chart's `version`
+  field in [`Chart.yaml`](helm/games-hub/Chart.yaml) — bump that whenever
+  the chart templates/values change.
 
 No extra setup is required — the workflow authenticates using the
 automatically provisioned `GITHUB_TOKEN`. Make sure the repository's
 **Settings → Actions → General → Workflow permissions** allows
 "Read and write permissions" (or that packages write access is granted),
-and that the resulting package's visibility is set as desired under
+and that the resulting packages' visibility is set as desired under
 **Packages** on GitHub.
