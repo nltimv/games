@@ -160,7 +160,13 @@ body {
 }
 
 .site-header h1 {
-  margin: 0 0 0.6rem;
+  /* Shrink the box to the rendered text (instead of the full-width block)
+     so the gradient always maps onto the glyphs the same way, regardless
+     of viewport width. Without this, a wide desktop viewport stretches the
+     background box far past the text, leaving most of the color transition
+     in empty space and making the gradient barely visible. */
+  width: fit-content;
+  margin: 0 auto 0.6rem;
   font-size: clamp(2.1rem, 5vw, 3rem);
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -466,9 +472,12 @@ main {
 }
 
 .not-found h1 {
+  /* Shrink-wrap the box to the text so the gradient maps consistently
+     across viewport widths (see .site-header h1 for the full rationale). */
+  width: fit-content;
+  margin: 0.5rem auto 0;
   font-size: clamp(4rem, 16vw, 7rem);
   font-weight: 800;
-  margin: 0.5rem 0 0;
   background: linear-gradient(120deg, var(--accent), var(--accent-2));
   -webkit-background-clip: text;
   background-clip: text;
