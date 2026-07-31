@@ -83,10 +83,23 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 | --------------------- | --------------------------- | ------------------------------------ |
 | `image.repository`    | `ghcr.io/OWNER/games-hub`   | Container image to deploy            |
 | `image.tag`           | chart `appVersion`           | Image tag override                   |
+| `image.digest`        | `""`                         | Optional digest pin (`sha256:...`), appended as `repository:tag@digest` |
 | `service.port`        | `3000`                      | Service & container port             |
 | `ingress.enabled`      | `false`                      | Enable an Ingress resource            |
 | `autoscaling.enabled` | `false`                      | Enable a HorizontalPodAutoscaler      |
 | `resources`           | `50m/64Mi` req, `250m/128Mi` limit | Pod resource requests/limits   |
+
+> **Note on mutable tags:** if you deploy with a mutable tag such as `latest`
+> or `main`, set `image.digest` to the corresponding manifest digest (from
+> `docker inspect`/`skopeo inspect`/the registry UI). With
+> `imagePullPolicy: IfNotPresent` (the chart default), Kubernetes only checks
+> whether an image already exists locally under that `repository:tag`
+> string — it does **not** compare against the registry, so a node that
+> already cached an older build of `latest` will keep serving it forever,
+> even after the tag is updated. Pinning `image.digest` makes every deploy
+> immutable and guarantees a fresh pull when the digest changes. Tools like
+> [Renovate](https://docs.renovatebot.com/modules/manager/helm-values/) can
+> track this `image.tag`/`image.digest` pair automatically.
 
 ## CI/CD
 

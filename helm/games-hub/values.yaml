@@ -11,6 +11,17 @@ image:
   pullPolicy: IfNotPresent
   # -- Overrides the image tag whose default is the chart appVersion.
   tag: ""
+  # -- Optional image digest (e.g. "sha256:abcdef...") to pin the exact image
+  # content, appended to the tag as `repository:tag@digest`. Strongly
+  # recommended when `tag` is a mutable value like "latest" or "main":
+  # without a digest pin, `imagePullPolicy: IfNotPresent` can cause nodes to
+  # keep serving a stale cached image even after the registry tag is updated,
+  # since Kubernetes only checks whether that repo:tag string already exists
+  # locally, not whether its content changed. Pinning a digest here (kept in
+  # sync automatically by tools like Renovate, which understands this
+  # `image.tag`/`image.digest` convention) makes every deploy immutable and
+  # reproducible, and forces a real re-pull whenever it changes.
+  digest: ""
 
 imagePullSecrets: []
 nameOverride: ""
