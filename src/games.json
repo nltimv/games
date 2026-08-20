@@ -16,5 +16,14 @@
     "thumbnail": "/games/minesweeper/thumbnail.svg",
     "genre": "Puzzle",
     "controls": "Click to reveal, right-click to flag; tap and long-press on touch devices"
+  },
+  {
+    "id": "pipelines",
+    "title": "Pipelines",
+    "description": "Connect every pair of matching dots and fill the whole grid without crossing a single pipe.",
+    "path": "/games/pipelines/",
+    "thumbnail": "/games/pipelines/thumbnail.svg",
+    "genre": "Puzzle",
+    "controls": "Drag from a dot to draw a pipe; arrow keys also work"
   }
 ]

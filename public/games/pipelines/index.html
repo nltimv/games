@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pipelines - Games Hub</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚰</text></svg>" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="stylesheet" href="/games/pipelines/style.css" />
+</head>
+<body>
+  <div class="bg-decor" aria-hidden="true">
+    <div class="bg-blob bg-blob-a"></div>
+    <div class="bg-blob bg-blob-b"></div>
+    <div class="bg-blob bg-blob-c"></div>
+    <div class="bg-aurora"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-stars"></div>
+  </div>
+  <header class="site-header">
+    <h1>🚰 Pipelines</h1>
+    <a class="back-link" href="/">&larr; Back to Games Hub</a>
+  </header>
+
+  <main class="pl-main">
+    <div class="hud">
+      <span>Level: <strong id="level">1</strong></span>
+      <span>Moves: <strong id="moves">0</strong></span>
+      <span>Flows: <strong id="flows">0/5</strong></span>
+      <span>Fill: <strong id="fill">0%</strong></span>
+    </div>
+
+    <div class="pl-board-wrap">
+      <canvas id="board" class="pl-board" aria-hidden="true"></canvas>
+      <div id="keys" class="pl-keys" role="grid" aria-label="Pipe grid"></div>
+      <div id="overlay" class="overlay hidden">
+        <p id="overlay-message"></p>
+        <button id="start-btn" type="button">Next level</button>
+      </div>
+    </div>
+
+    <div class="pl-controls">
+      <button id="undo-btn" type="button">Undo</button>
+      <button id="hint-btn" type="button">Hint (2)</button>
+      <button id="reset-btn" type="button">Reset level</button>
+    </div>
+
+    <p class="pl-hint">
+      Drag from a dot to draw a pipe to its matching dot. Fill every cell to
+      finish the level. Pipes you cross are only cut once you let go. Keyboard:
+      tab to the grid, press Enter on a dot, then use the arrow keys.
+    </p>
+  </main>
+
+  <script src="/games/pipelines/game.js"></script>
+</body>
+</html>

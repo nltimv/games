@@ -1,0 +1,106 @@
+.pl-main {
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.pl-board-wrap {
+  position: relative;
+  width: min(92vw, 420px);
+  aspect-ratio: 1;
+  padding: 6px;
+  background: #10131a;
+  border-radius: 10px;
+  border: 2px solid var(--surface-hover);
+}
+
+.pl-board {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  /* Drawing a pipe is a drag, so the browser must not claim it as a scroll. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* An invisible grid of real buttons sits over the canvas purely to carry
+   keyboard focus and screen-reader labels. Pointer events pass straight
+   through to the canvas, which owns all mouse and touch input. */
+.pl-keys {
+  position: absolute;
+  inset: 6px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  pointer-events: none;
+}
+
+.pl-keys button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+.pl-keys button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -4px;
+  border-radius: 6px;
+}
+
+.pl-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pl-controls button {
+  border: 1px solid var(--surface-hover);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.5rem 1.1rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.pl-controls button:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.pl-controls button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pl-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pl-controls button:disabled:hover {
+  background: var(--surface);
+  border-color: var(--surface-hover);
+}
+
+.pl-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  max-width: 34rem;
+  margin: 0;
+}
+
+@media (max-width: 639px) {
+  .hud {
+    gap: 1rem;
+    font-size: 0.95rem;
+  }
+}
