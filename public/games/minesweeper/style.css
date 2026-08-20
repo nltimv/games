@@ -1,0 +1,174 @@
+.ms-main {
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.ms-difficulty {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.ms-difficulty button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.ms-difficulty button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.ms-difficulty button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08130f;
+  font-weight: 600;
+}
+
+.hud .ms-face {
+  border: 1px solid var(--surface-hover);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 0.1rem 0.5rem;
+  font-size: 1.2rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.hud .ms-face:hover {
+  background: var(--surface-hover);
+}
+
+.ms-board-wrap {
+  position: relative;
+  /* Expert is 30 columns wide, so the board scrolls rather than the page. */
+  overflow-x: auto;
+  max-width: 100%;
+  padding: 6px;
+  background: #10131a;
+  border-radius: 10px;
+  border: 2px solid var(--surface-hover);
+}
+
+.ms-board {
+  --cell: 26px;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), var(--cell));
+  gap: 2px;
+  line-height: 1;
+}
+
+.cell {
+  width: var(--cell);
+  height: var(--cell);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-hover);
+  color: var(--text);
+  font-family: inherit;
+  font-size: calc(var(--cell) * 0.58);
+  font-weight: 700;
+  cursor: pointer;
+  /* Keep long-press from triggering text selection or the iOS callout menu. */
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.cell:hover:not(.revealed) {
+  background: var(--surface-solid);
+  border-color: var(--accent-2);
+}
+
+.cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.cell.revealed {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: transparent;
+  cursor: default;
+}
+
+.cell.flagged {
+  background: var(--surface);
+}
+
+.cell.mine {
+  background: rgba(255, 138, 101, 0.15);
+}
+
+.cell.exploded {
+  background: #b8402f;
+}
+
+.cell.wrong-flag {
+  background: rgba(255, 138, 101, 0.12);
+  text-decoration: line-through;
+}
+
+/* Classic number palette, lifted toward the light end so it reads on the
+   dark board rather than the original Windows grey. */
+.cell.n1 { color: #7c9eff; }
+.cell.n2 { color: #4dd0a4; }
+.cell.n3 { color: #ff8a65; }
+.cell.n4 { color: #c084fc; }
+.cell.n5 { color: #f4c343; }
+.cell.n6 { color: #4dd0e1; }
+.cell.n7 { color: #eef0f5; }
+.cell.n8 { color: #9aa0b4; }
+
+.ms-flag-toggle {
+  border: 1px solid var(--surface-hover);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.ms-flag-toggle[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08130f;
+  font-weight: 600;
+}
+
+.ms-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  max-width: 34rem;
+  margin: 0;
+}
+
+@media (max-width: 639px) {
+  .ms-board {
+    --cell: 22px;
+  }
+
+  .hud {
+    gap: 1rem;
+    font-size: 0.95rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .ms-flag-toggle {
+    display: none;
+  }
+}

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#151a24"/>
+      <stop offset="100%" stop-color="#0c0e14"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c9eff"/>
+      <stop offset="100%" stop-color="#5b7ae0"/>
+    </linearGradient>
+    <radialGradient id="mine-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff8a65" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ff8a65" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)"/>
+  <circle cx="160" cy="70" r="140" fill="#7c9eff" opacity="0.06"/>
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.04" stroke-width="1">
+    <path d="M0 30H320M0 60H320M0 90H320M0 120H320M0 150H320"/>
+    <path d="M40 0V180M80 0V180M120 0V180M160 0V180M200 0V180M240 0V180M280 0V180"/>
+  </g>
+
+  <!-- Revealed cells showing their neighbour counts -->
+  <g>
+    <rect x="40" y="36" width="28" height="28" rx="6" fill="#ffffff" fill-opacity="0.05"/>
+    <text x="54" y="56" font-family="Segoe UI, sans-serif" font-size="17" font-weight="700" fill="#7c9eff" text-anchor="middle">1</text>
+    <rect x="72" y="36" width="28" height="28" rx="6" fill="#ffffff" fill-opacity="0.05"/>
+    <text x="86" y="56" font-family="Segoe UI, sans-serif" font-size="17" font-weight="700" fill="#4dd0a4" text-anchor="middle">2</text>
+    <rect x="40" y="68" width="28" height="28" rx="6" fill="#ffffff" fill-opacity="0.05"/>
+    <text x="54" y="88" font-family="Segoe UI, sans-serif" font-size="17" font-weight="700" fill="#ff8a65" text-anchor="middle">3</text>
+    <rect x="72" y="68" width="28" height="28" rx="6" fill="url(#tile)" fill-opacity="0.85"/>
+  </g>
+
+  <!-- Flagged cell -->
+  <g>
+    <rect x="130" y="52" width="30" height="30" rx="7" fill="url(#tile)" fill-opacity="0.8"/>
+    <path d="M141 74V58" stroke="#0c0e14" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M142 58L153 62L142 66Z" fill="#0c0e14"/>
+  </g>
+
+  <!-- Mine -->
+  <circle cx="230" cy="62" r="30" fill="url(#mine-glow)"/>
+  <g stroke="#ff6b6b" stroke-width="3" stroke-linecap="round">
+    <path d="M230 44V80M212 62H248M218 50L242 74M242 50L218 74"/>
+  </g>
+  <circle cx="230" cy="62" r="11" fill="#ff6b6b"/>
+
+  <text x="160" y="152" font-family="Segoe UI, sans-serif" font-size="22" font-weight="700" fill="#eef0f5" text-anchor="middle">Minesweeper</text>
+</svg>

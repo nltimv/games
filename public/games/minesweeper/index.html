@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minesweeper - Games Hub</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💣</text></svg>" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="stylesheet" href="/games/minesweeper/style.css" />
+</head>
+<body>
+  <div class="bg-decor" aria-hidden="true">
+    <div class="bg-blob bg-blob-a"></div>
+    <div class="bg-blob bg-blob-b"></div>
+    <div class="bg-blob bg-blob-c"></div>
+    <div class="bg-aurora"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-stars"></div>
+  </div>
+  <header class="site-header">
+    <h1>💣 Minesweeper</h1>
+    <a class="back-link" href="/">&larr; Back to Games Hub</a>
+  </header>
+
+  <main class="ms-main">
+    <div class="ms-difficulty" role="group" aria-label="Difficulty">
+      <button type="button" data-difficulty="beginner" aria-pressed="true">Beginner</button>
+      <button type="button" data-difficulty="intermediate" aria-pressed="false">Intermediate</button>
+      <button type="button" data-difficulty="expert" aria-pressed="false">Expert</button>
+    </div>
+
+    <div class="hud">
+      <span>Mines: <strong id="mines-left">0</strong></span>
+      <button id="reset-btn" class="ms-face" type="button" aria-label="New game">🙂</button>
+      <span>Time: <strong id="timer">0</strong></span>
+      <span>Best: <strong id="best">--</strong></span>
+    </div>
+
+    <div class="ms-board-wrap">
+      <div id="board" class="ms-board" role="grid" aria-label="Minefield"></div>
+      <div id="overlay" class="overlay">
+        <p id="overlay-message">Reveal a cell or tap Start to play</p>
+        <button id="start-btn" type="button">Start</button>
+      </div>
+    </div>
+
+    <button id="flag-toggle" class="ms-flag-toggle" type="button" aria-pressed="false">
+      🚩 Flag mode: off
+    </button>
+
+    <p class="ms-hint">
+      Click to reveal, right-click to flag. Click a number with all its mines flagged to clear around it.
+    </p>
+  </main>
+
+  <script src="/games/minesweeper/game.js"></script>
+</body>
+</html>

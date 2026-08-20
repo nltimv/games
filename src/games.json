@@ -7,5 +7,14 @@
     "thumbnail": "/games/snake/thumbnail.svg",
     "genre": "Arcade",
     "controls": "Arrow keys / WASD, or swipe on touch devices"
+  },
+  {
+    "id": "minesweeper",
+    "title": "Minesweeper",
+    "description": "Clear the minefield without detonating a single mine. Numbers reveal how many mines hide next door.",
+    "path": "/games/minesweeper/",
+    "thumbnail": "/games/minesweeper/thumbnail.svg",
+    "genre": "Puzzle",
+    "controls": "Click to reveal, right-click to flag; tap and long-press on touch devices"
   }
 ]

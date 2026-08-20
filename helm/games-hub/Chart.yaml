@@ -5,11 +5,11 @@ type: application
 
 # This is the chart version. This number should be incremented each time you make changes
 # to the chart and its templates, including the app version.
-version: 0.1.1
+version: 1.0.1
 
 # This is the version number of the application being deployed. Overridden per-release by
 # CI, which sets image.tag to the built image's tag (e.g. the git SHA or version tag).
-appVersion: "1.0.0"
+appVersion: "1.0.1"
 
 home: https://github.com/OWNER/games
 sources:
