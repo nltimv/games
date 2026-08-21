@@ -23,7 +23,6 @@
   let cellCount = size * size;
 
   const LEVEL_KEY = 'pipelines-level';
-  const SOLVED_KEY = 'pipelines-solved';
 
   // Sixteen hues that stay distinguishable against the hub's --bg (#0b0d14).
   // A level uses the first `colors` of them, so the order runs most-separated
@@ -740,10 +739,9 @@
   let lastMovedColor = -1;
   let moves = 0;
   let hintsLeft = hintsFor(size);
-  let undoStack = [];
+  let undoState = null;
   let solved = false;
   let level = 1;
-  let totalSolved = 0;
 
   // Building a level means searching for one that has a single solution, which
   // on the biggest boards is a second or so of work. That happens in a worker
@@ -794,7 +792,7 @@
     lastMovedColor = -1;
     moves = 0;
     hintsLeft = hintsFor(size);
-    undoStack = [];
+    undoState = null;
     solved = false;
     hideOverlay();
     refresh();
@@ -835,25 +833,24 @@
 
   // ------------------------------------------------------------------- undo
 
+  // One step back, not a history: taking a move back is a correction, and a
+  // player who wants to walk the whole board back has Reset. The snapshot is
+  // spent by using it, so Undo goes quiet until there is something new to undo.
   function pushUndo() {
-    // useHint() pushes before spending, so the snapshot always holds the
-    // pre-hint budget and undoing a hint hands it back.
-    undoStack.push({
+    undoState = {
       paths: paths.map((p) => p.slice()),
       moves: moves,
       lastMovedColor: lastMovedColor,
-      hintsLeft: hintsLeft,
-    });
-    if (undoStack.length > 64) undoStack.shift();
+    };
   }
 
   function undo() {
-    if (solved || !undoStack.length) return;
-    const state = undoStack.pop();
+    if (solved || !undoState) return;
+    const state = undoState;
+    undoState = null;
     paths = state.paths.map((p) => p.slice());
     moves = state.moves;
     lastMovedColor = state.lastMovedColor;
-    hintsLeft = state.hintsLeft;
     activeColor = -1;
     owner.fill(-1);
     displaced.fill(-1);
@@ -901,9 +898,22 @@
     return false;
   }
 
+  // Letting go one cell short of the matching dot reads as "and done", so the
+  // last step is taken for the player rather than leaving a pipe a cell shy of
+  // finished. Only ever the pipe's own dot, and only from right beside it.
+  function snapToDot(color) {
+    const p = paths[color];
+    if (!p.length) return;
+    const head = p[p.length - 1];
+    const target = otherEnd(color, p[0]);
+    if (head === target || !areAdjacent(head, target)) return;
+    tryStep(color, target);
+  }
+
   // Apply the cuts that were deferred while the pipe was being dragged.
   function commitGesture() {
     if (activeColor < 0) return;
+    snapToDot(activeColor);
     displaced.fill(-1);
     for (let c = 0; c < paths.length; c += 1) {
       if (c === activeColor) continue;
@@ -945,9 +955,10 @@
     if (target < 0) return;
 
     commitGesture();
-    // A hint is always its own move and its own undo step, whatever the
-    // player happened to be touching beforehand.
-    pushUndo();
+    // A hint cannot be taken back -- undoing one would hand back a pipe the
+    // player has already seen the answer to -- so it spends whatever step was
+    // waiting rather than adding one.
+    undoState = null;
     moves += 1;
 
     const seg = puzzle.solution[target];
@@ -1038,17 +1049,22 @@
 
   // The win condition is a rule, not a comparison against the stored solution:
   // a level that exhausted the generator's budget has more than one solution.
+  // Every pipe drawn once, in one move, with no hint spent: the level solved
+  // the way it was meant to be. Re-grabbing a pipe to reshape it stays part of
+  // the same move, so this asks for a clean run rather than a flawless drag.
+  function wasPerfect() {
+    return moves === paths.length && hintsLeft === hintsFor(size);
+  }
+
   function checkWin() {
     if (solved) return;
     if (connectedCount() !== paths.length) return;
     if (filledCells() !== cellCount) return;
     solved = true;
-    totalSolved += 1;
-    writeStorage(SOLVED_KEY, String(totalSolved));
-    showOverlay(
-      'Level ' + level + ' solved in ' + moves + ' move' + (moves === 1 ? '' : 's') +
-        '. ' + totalSolved + ' cleared in total.'
-    );
+    showOverlay({
+      perfect: wasPerfect(),
+      detail: 'Level ' + level + ' in ' + moves + ' move' + (moves === 1 ? '' : 's'),
+    });
   }
 
   // ------------------------------------------------------------------ storage
@@ -1131,6 +1147,9 @@
   const sizeEl = document.getElementById('size');
   const overlay = document.getElementById('overlay');
   const spinner = document.getElementById('spinner');
+  const overlayTitle = document.getElementById('overlay-title');
+  const perfectBadge = document.getElementById('overlay-perfect');
+  const overlayDetail = document.getElementById('overlay-detail');
   const overlayMessage = document.getElementById('overlay-message');
   const startBtn = document.getElementById('start-btn');
   const resetBtn = document.getElementById('reset-btn');
@@ -1171,18 +1190,31 @@
     }
   }
 
-  function showOverlay(message) {
-    overlayMessage.textContent = message;
+  function showOverlay(result) {
+    // The headline and the badge are decoration; the live region carries the
+    // whole outcome as one sentence so it is announced once, not in pieces.
+    overlayTitle.hidden = false;
+    perfectBadge.hidden = !result.perfect;
+    overlayMessage.textContent =
+      (result.perfect ? 'Complete, and perfect. ' : 'Complete. ') + result.detail + '.';
     spinner.hidden = true;
     startBtn.hidden = false;
     overlay.classList.remove('hidden');
+    overlay.classList.add('pl-overlay-win');
+    overlayDetail.textContent = result.detail;
   }
 
   function showLoading(nextLevel) {
-    overlayMessage.textContent = 'Building level ' + nextLevel + '\u2026';
+    overlayTitle.hidden = true;
+    perfectBadge.hidden = true;
+    // pl-detail is the visible line in both states; pl-announce is only ever
+    // read out.
+    overlayDetail.textContent = 'Building level ' + nextLevel + '\u2026';
+    overlayMessage.textContent = 'Building level ' + nextLevel + '.';
     spinner.hidden = false;
     startBtn.hidden = true;
     overlay.classList.remove('hidden');
+    overlay.classList.remove('pl-overlay-win');
     // The board is not built yet, but its level and size are known, and the
     // readouts left over from the last one would be a lie about this one.
     const nextSize = sizeForLevel(nextLevel);
@@ -1201,6 +1233,7 @@
 
   function hideOverlay() {
     overlay.classList.add('hidden');
+    overlay.classList.remove('pl-overlay-win');
   }
 
   // ------------------------------------------------------------------ loading
@@ -1464,7 +1497,7 @@
     }
     hintBtn.textContent = 'Hint (' + hintsLeft + ')';
     hintBtn.disabled = solved || hintsLeft === 0;
-    undoBtn.disabled = solved || undoStack.length === 0;
+    undoBtn.disabled = solved || !undoState;
     resetBtn.disabled = false;
     checkWin();
   }
@@ -1609,7 +1642,6 @@
     window.addEventListener('resize', resize);
   }
 
-  totalSolved = readInt(SOLVED_KEY, 0, 0);
   loadPuzzle(readInt(LEVEL_KEY, 1, 1)).then(resize);
 
   // Handy from the browser console, and used by the generator test harness.
