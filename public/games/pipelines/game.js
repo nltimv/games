@@ -4,11 +4,18 @@
 (function () {
   'use strict';
 
-  // Boards run from 5x5 up to 12x12 and the size is part of the level, so
+  // Boards run from 5x5 up to 11x11 and the size is part of the level, so
   // everything that depends on the geometry is rebuilt per puzzle instead of
   // being baked in as a constant.
+  //
+  // The ceiling is 11 because that is as far as a level can be *proven*. A
+  // 12x12 plays fine, but counting its solutions does not finish inside any
+  // budget worth spending -- not in a page load, and not in two minutes of
+  // server time either -- so shipping one means shipping a level nobody has
+  // checked. Uniqueness at that size wants pipes of five or six cells, which
+  // works out at more pipes than a player can tell apart by colour.
   const MIN_SIZE = 5;
-  const MAX_SIZE = 12;
+  const MAX_SIZE = 11;
   const SIZE_SPAN = MAX_SIZE - MIN_SIZE + 1;
   const MAX_CELLS = MAX_SIZE * MAX_SIZE;
 
@@ -453,7 +460,7 @@
   // Golden-ratio (R1) low-discrepancy sequence. Successive levels land far
   // apart in the range and every value comes up about equally often over any
   // stretch of play -- which plain hashing does not give you, since random
-  // draws clump and four 12x12 boards in a row would be perfectly likely.
+  // draws clump and four 11x11 boards in a row would be perfectly likely.
   const PHI_INV = 0.6180339887498949;
   const SIZE_PHASE = 0.44; // chosen so level 1 opens on a 5x5
   // Pipe count walks its own sequence, on a different irrational step. Sharing
@@ -469,8 +476,8 @@
 
   function sizeForLevel(level) {
     const quasiSize = MIN_SIZE + Math.floor(quasi(level, SIZE_PHASE) * SIZE_SPAN);
-    // Ease the first levels in rather than opening the game on a 12x12 wall.
-    // Only levels 1-7 are capped, so the sequence is untouched from there on.
+    // Ease the first levels in rather than opening the game on an 11x11 wall.
+    // Only levels 1-6 are capped, so the sequence is untouched from there on.
     return Math.min(quasiSize, MIN_SIZE + level - 1, MAX_SIZE);
   }
 
@@ -553,7 +560,7 @@
   // the climb, the cut, the colour shuffle. Tables built by another version
   // are ignored rather than trusted, since their promise of a single solution
   // was made about boards this code no longer builds.
-  const GENERATOR_VERSION = 1;
+  const GENERATOR_VERSION = 2;
   function seedFor(level, colors, attempt) {
     return mix32(mix32(level * 0x9e3779b1 + colors) + attempt);
   }
@@ -626,18 +633,16 @@
     };
   }
 
-  // Verifying a level means counting its solutions, and that is affordable up
-  // to 11x11 now that the climb hands the counter well-formed boards. A 12x12
-  // is another matter: the counter regularly cannot decide one inside any
-  // budget a browser can spare, so those levels fall back on the cut alone --
-  // unless a pre-built seed says otherwise, which is what the offline builder
-  // is for.
+  // How many boards to look at before settling. Every size in range can be
+  // verified here -- the climb hands the counter well-formed boards, which is
+  // what brought 10x10 and 11x11 inside reach -- but the cost per candidate
+  // climbs steeply with the board, so the bigger ones get fewer tries and lean
+  // on the pre-built seed table for their sparsest levels.
   function budgetFor(boardSize) {
-    if (boardSize <= 8) return { attempts: 120, verify: true };
-    if (boardSize <= 9) return { attempts: 48, verify: true };
-    if (boardSize <= 10) return { attempts: 24, verify: true };
-    if (boardSize <= 11) return { attempts: 14, verify: true };
-    return { attempts: 6, verify: false };
+    if (boardSize <= 8) return { attempts: 120 };
+    if (boardSize <= 9) return { attempts: 48 };
+    if (boardSize <= 10) return { attempts: 24 };
+    return { attempts: 14 };
   }
 
   // A search that runs this deep is either a pathological candidate or a slow
@@ -645,10 +650,10 @@
   const SEARCH_BUDGET = 200000;
 
   // `recipe` is a pre-verified {size, colors, seed} from the seed table; with
-  // one there is nothing to search for, which is why a 12x12 can ship with a
-  // guarantee the browser could never establish on its own.
+  // one there is nothing to search for: the level arrives with no pause, and
+  // with a guarantee bought by more search time than a page load can spend.
   function generate(level, recipe) {
-    if (recipe) {
+    if (recipe && recipe.size >= MIN_SIZE && recipe.size <= MAX_SIZE) {
       const board = buildBoard(recipe.size, recipe.colors, recipe.seed);
       if (board) {
         board.level = level;
@@ -662,11 +667,7 @@
 
     const boardSize = sizeForLevel(level);
     const budget = budgetFor(boardSize);
-    // Without verification there is nothing to trade pipe length *for*, and a
-    // sparse board that cannot be checked is the one most likely to hide a
-    // shortcut -- so the unverifiable sizes play their well-formed dense end
-    // here. Their sparse levels are what the pre-built seed table is for.
-    const ladder = budget.verify ? pipeLadder(level, boardSize) : [pipeRange(boardSize).dense];
+    const ladder = pipeLadder(level, boardSize);
     const perRung = Math.max(3, Math.round(budget.attempts / ladder.length));
 
     let fallback = null;
@@ -679,7 +680,7 @@
         // Only touch-free boards are worth the counter's time: every board
         // that verified in testing was one, and a board with a shortcut in it
         // is exactly the kind the counter takes longest to give up on.
-        if (budget.verify && board.touches === 0) {
+        if (board.touches === 0) {
           const found = countSolutions(board.endA, board.endB, true, SEARCH_BUDGET);
           if (found === 1 && !solverAborted) {
             board.verified = true;
@@ -690,7 +691,6 @@
         // fallback: the segments are a full-coverage solution by construction,
         // so every candidate is completable.
         if (betterFallback(board, fallback)) fallback = board;
-        if (!budget.verify && fallback.touches === 0) return fallback;
       }
     }
     return fallback;
@@ -698,7 +698,7 @@
 
   // ------------------------------------------------------------ player state
 
-  // Two hints is plenty on a 5x5; a 12x12 has more than twice the pipes.
+  // Two hints is plenty on a 5x5; an 11x11 has three times the pipes.
   function hintsFor(boardSize) {
     return Math.max(2, Math.round(boardSize / 3));
   }
@@ -1095,10 +1095,10 @@
 
   const keys = [];
 
-  // Bigger boards get a bigger frame, so a 12x12 cell stays roughly a
+  // Bigger boards get a bigger frame, so an 11x11 cell stays roughly a
   // fingertip rather than shrinking to a quarter of a 5x5 one.
   function applyBoardSize() {
-    // The 70vh term matters on laptops: a 12x12 frame is otherwise tall
+    // The 70vh term matters on laptops: the biggest frame is otherwise tall
     // enough to push the controls below the fold.
     boardWrap.style.width = 'min(92vw, 70vh, ' + (330 + size * 20) + 'px)';
   }

@@ -116,15 +116,21 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 ## Pipelines seed tables
 
 Pipelines generates every level from the level number alone, and checks in the
-browser that the level it built has exactly one solution. That check gets
-expensive as the boards grow: an 11x11 takes a moment, and a 12x12 regularly
-cannot be decided inside any budget a page load can spare.
+browser that the level it built has exactly one solution. Every board size it
+ships can be checked that way -- which is exactly why the range stops at 11x11 --
+but the cost climbs steeply with the board, and an 11x11 can hold up a page load
+for a second or two while it searches.
 
-A level is a pure function of `(size, pipes, seed)`, so the search can be moved
+A level is a pure function of `(size, pipes, seed)`, so that search can be moved
 offline. `tools/build-seeds.js` hunts for seeds that produce single-solution
 boards and writes the winners to a binary table; the server hands them out and
-the browser rebuilds exactly those boards without repeating the search. The
-table is 8 bytes per level -- 80 KB for ten thousand levels, 8 MB for a million.
+the browser rebuilds exactly those boards without repeating the search. Levels
+arrive instantly, and the builder can spend seconds per level where the browser
+can spend milliseconds -- which is what gets the sparse, long-pipe boards
+verified instead of quietly traded for a denser one.
+
+The table is 8 bytes per level -- 80 KB for ten thousand levels, 8 MB for a
+million.
 
 Everything about it is optional. No table, no server, a table that stops short
 of the level being played, an unreachable API -- the game notices, generates
@@ -148,10 +154,8 @@ first board with a single solution -- sparse first, because few long pipes on a
 big board is both the interesting kind of level and the hard kind to pin down.
 A level that will not verify inside `--level-timeout` is still written, marked
 unverified, with the best-formed board found; it is always completable, it just
-has not been proven singular. Boards up to 11x11 verify readily. A 12x12 mostly
-does not, for a reason no amount of CPU fixes: uniqueness wants pipes of five or
-six cells, which at that size means far more pipes than a player can tell apart
-by colour.
+has not been proven singular. In practice that only happens to the sparsest
+targets on the biggest boards, and raising `--level-timeout` is what buys them.
 
 Workers are independent processes and levels are independent of each other, so
 the build scales with cores almost perfectly. Results are buffered and written a
@@ -195,7 +199,8 @@ volumeMounts:
 A seed only means anything to the code that produced it. `GENERATOR_VERSION` in
 `public/games/pipelines/game.js` is stamped into every table; bump it whenever a
 change would make `(size, pipes, seed)` describe a different board -- the chain
-mixing, the climb, the cut, the colour shuffle. The game ignores a table whose
+mixing, the climb, the cut, the colour shuffle -- or move the range of board
+sizes, since a table can then hold boards this build will not build. The game ignores a table whose
 version does not match its own and generates locally instead, rather than
 serving boards whose verification is no longer true of them. `npm run
 seeds:check` fails loudly on the same mismatch.

@@ -4,9 +4,10 @@
 //
 // A board is a pure function of (size, colours, seed), so verifying one offline
 // and recording its seed lets the browser rebuild exactly that board without
-// repeating the search. That is the only way the big boards get a guarantee:
-// counting the solutions of an 11x11 takes longer than a page load can spare,
-// and a 12x12 can take longer than a player would ever wait.
+// repeating the search. The browser can verify every size the game ships, but
+// only by spending a second or two on the biggest ones and by settling for a
+// denser board than the level asked for; a builder that can spend seconds per
+// level settles for neither.
 //
 // The search walks each level's pipe ladder from sparse to dense and keeps the
 // first board with exactly one solution -- sparse first because few long pipes
