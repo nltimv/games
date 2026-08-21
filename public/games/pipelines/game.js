@@ -550,17 +550,9 @@
     return candidate.colors < incumbent.colors;
   }
 
-  // A board is a pure function of (size, colours, seed), which is the whole
-  // point: the offline builder searches this seed space for boards with a
-  // single solution, and the browser rebuilds the winning seed bit for bit
-  // instead of repeating the search.
-  //
-  // Which makes this constant load-bearing: bump it whenever a change would
-  // make (size, colours, seed) describe a different board -- the chain mixing,
-  // the climb, the cut, the colour shuffle. Tables built by another version
-  // are ignored rather than trusted, since their promise of a single solution
-  // was made about boards this code no longer builds.
-  const GENERATOR_VERSION = 2;
+  // A board is a pure function of (size, colours, seed), so a level is fully
+  // described by those three numbers: the search below tries seed after seed
+  // until one of them verifies, and level N is the same board every time.
   function seedFor(level, colors, attempt) {
     return mix32(mix32(level * 0x9e3779b1 + colors) + attempt);
   }
@@ -636,64 +628,90 @@
   // How many boards to look at before settling. Every size in range can be
   // verified here -- the climb hands the counter well-formed boards, which is
   // what brought 10x10 and 11x11 inside reach -- but the cost per candidate
-  // climbs steeply with the board, so the bigger ones get fewer tries and lean
-  // on the pre-built seed table for their sparsest levels.
+  // climbs steeply with the board, so the bigger ones get fewer tries.
+  //
+  // Generation runs in a worker, so these are only ever a wait behind a
+  // spinner, and usually not even that: the next level is built during play.
   function budgetFor(boardSize) {
     if (boardSize <= 8) return { attempts: 120 };
-    if (boardSize <= 9) return { attempts: 48 };
-    if (boardSize <= 10) return { attempts: 24 };
-    return { attempts: 14 };
+    if (boardSize <= 9) return { attempts: 60 };
+    if (boardSize <= 10) return { attempts: 44 };
+    return { attempts: 36 };
+  }
+
+  // The level's own target gets the lion's share of the budget, since that is
+  // the board the level is asking for; spreading the tries evenly spends most
+  // of them proving boards nobody asked for. The densest rung is kept fat too,
+  // as the way out: it is the one most likely to verify, and reaching it with
+  // two tries left is how a level ends up shipping unproven.
+  function triesForRung(budget, rung, rungs) {
+    if (rungs === 1) return budget.attempts;
+    if (rung === 0) return Math.max(4, Math.round(budget.attempts * 0.45));
+    if (rung === rungs - 1) return Math.max(4, Math.round(budget.attempts * 0.25));
+    return Math.max(2, Math.round((budget.attempts * 0.3) / (rungs - 2)));
   }
 
   // A search that runs this deep is either a pathological candidate or a slow
   // way of learning what the next candidate would tell us cheaply.
   const SEARCH_BUDGET = 200000;
 
-  // `recipe` is a pre-verified {size, colors, seed} from the seed table; with
-  // one there is nothing to search for: the level arrives with no pause, and
-  // with a guarantee bought by more search time than a page load can spend.
-  function generate(level, recipe) {
-    if (recipe && recipe.size >= MIN_SIZE && recipe.size <= MAX_SIZE) {
-      const board = buildBoard(recipe.size, recipe.colors, recipe.seed);
-      if (board) {
-        board.level = level;
-        board.verified = recipe.verified === true;
-        board.fromTable = true;
-        return board;
-      }
-      // Unreachable unless the table disagrees with this build of the
-      // generator; searching locally is better than failing to start a level.
-    }
+  // Some pipe counts simply cannot be cut touch-free on a board that size, and
+  // grinding through a rung's whole allowance to rediscover that is where the
+  // seconds go. Once this many boards in a row come out with a shortcut in
+  // them, take the rung as a dead end and move on to the next pipe count.
+  const RUNG_GIVE_UP = 8;
 
+  // Reached only when the whole ladder failed to prove anything, which is rare
+  // and worth a stubborn second look: the densest rung is the likeliest to
+  // verify, and an unproven level is exactly what all of this exists to avoid.
+  const LAST_RESORT = 40;
+
+  // Walks the level's pipe ladder until a board verifies, sparse rungs first.
+  // In the browser this runs in a worker (see the loading section), so the
+  // second or so the biggest boards can take is time the page spends animating
+  // rather than frozen.
+  function generate(level) {
     const boardSize = sizeForLevel(level);
     const budget = budgetFor(boardSize);
     const ladder = pipeLadder(level, boardSize);
-    const perRung = Math.max(3, Math.round(budget.attempts / ladder.length));
 
     let fallback = null;
-    for (let rung = 0; rung < ladder.length; rung += 1) {
-      const colors = ladder[rung];
-      for (let attempt = 0; attempt < perRung; attempt += 1) {
+
+    // Returns a verified board, or null having updated the fallback.
+    function tryRung(colors, from, tries) {
+      let barren = 0;
+      for (let attempt = from; attempt < from + tries; attempt += 1) {
         const board = buildBoard(boardSize, colors, seedFor(level, colors, attempt));
-        if (!board) continue;
+        if (!board) return null; // this pipe count does not fit the board
         board.level = level;
         // Only touch-free boards are worth the counter's time: every board
         // that verified in testing was one, and a board with a shortcut in it
         // is exactly the kind the counter takes longest to give up on.
         if (board.touches === 0) {
+          barren = 0;
           const found = countSolutions(board.endA, board.endB, true, SEARCH_BUDGET);
           if (found === 1 && !solverAborted) {
             board.verified = true;
             return board;
           }
+        } else if ((barren += 1) >= RUNG_GIVE_UP) {
+          return null;
         }
         // Whatever the search says, the best-formed candidate wins the
         // fallback: the segments are a full-coverage solution by construction,
         // so every candidate is completable.
         if (betterFallback(board, fallback)) fallback = board;
       }
+      return null;
     }
-    return fallback;
+
+    for (let rung = 0; rung < ladder.length; rung += 1) {
+      const found = tryRung(ladder[rung], 0, triesForRung(budget, rung, ladder.length));
+      if (found) return found;
+    }
+    const dense = ladder[ladder.length - 1];
+    const lastChance = tryRung(dense, budget.attempts, LAST_RESORT);
+    return lastChance || fallback;
   }
 
   // ------------------------------------------------------------ player state
@@ -722,27 +740,35 @@
   let level = 1;
   let totalSolved = 0;
 
-  // Loading is asynchronous only because the seed table might be: the recipe
-  // for the next level is usually already prefetched, in which case this runs
-  // to completion in one microtask and the board never blinks.
+  // Building a level means searching for one that has a single solution, which
+  // on the biggest boards is a second or so of work. That happens in a worker
+  // (see the loading section) so the spinner actually spins, and the level
+  // after this one is usually built during play and waiting by the time the
+  // player asks for it.
   let loadToken = 0;
 
   function loadPuzzle(nextLevel) {
     const token = (loadToken += 1);
-    const known = cachedRecipe(nextLevel);
-    if (known === undefined) showOverlay('Loading level ' + nextLevel + '\u2026', false);
-    return recipeFor(nextLevel).then((recipe) => {
+    const waiting = takeReadyBoard(nextLevel);
+    if (waiting) {
+      startLevel(waiting);
+      prepareNext(nextLevel + 1);
+      return Promise.resolve();
+    }
+    showLoading(nextLevel);
+    return requestBoard(nextLevel).then((board) => {
       if (token !== loadToken) return; // a later load already took over
-      startLevel(nextLevel, recipe);
-      prefetchFrom(nextLevel + 1);
+      startLevel(board);
+      prepareNext(nextLevel + 1);
     });
   }
 
-  function startLevel(nextLevel, recipe) {
-    level = nextLevel;
-    // generate() sets the geometry for the level, so the board frame and the
-    // key grid have to be resized before anything is drawn against it.
-    puzzle = generate(level, recipe);
+  function startLevel(board) {
+    level = board.level;
+    puzzle = board;
+    // A board built in the worker leaves this thread's geometry untouched, so
+    // set it up before anything is drawn or measured against the new size.
+    setSize(puzzle.size);
     applyBoardSize();
     rebuildKeys();
     resize();
@@ -844,7 +870,9 @@
   }
 
   function beginAt(cell) {
-    if (solved) return false;
+    // The very first level is still being built: there is no board to grab at
+    // yet, and the dot table is all zeroes rather than "no dot here".
+    if (!puzzle || solved) return false;
     // Settle any gesture still open (e.g. a pipe picked up with the keyboard
     // and then grabbed with the pointer) so deferred cuts never leak across.
     if (activeColor >= 0) commitGesture();
@@ -974,7 +1002,7 @@
   // Pointer moves can skip cells on a fast drag, so walk toward the target one
   // orthogonal step at a time rather than dropping the input.
   function stepToward(cell) {
-    if (activeColor < 0) return;
+    if (!puzzle || activeColor < 0) return;
     for (let guard = 0; guard < cellCount; guard += 1) {
       const p = paths[activeColor];
       const head = p[p.length - 1];
@@ -1044,10 +1072,13 @@
   // ------------------------------------------------------------------ dom/ui
 
   if (typeof document === 'undefined') {
-    // Loaded outside a browser (the generator test harness); skip the UI.
+    // No DOM: either the level worker (worker.js, which is the whole reason
+    // generation is kept free of the UI) or the node test harness. Either way,
+    // skip the UI and hand out the generator.
+    if (typeof self !== 'undefined' && typeof importScripts === 'function') {
+      self.pipelinesGenerator = { generate: generate, sizeForLevel: sizeForLevel };
+    }
     if (typeof module !== 'undefined' && module.exports) {
-      // The offline seed builder (tools/build-seeds.js) runs this exact code,
-      // so a board it verifies is the board the browser will rebuild.
       module.exports = {
         generate: generate,
         buildBoard: buildBoard,
@@ -1060,7 +1091,6 @@
         pipeLadder: pipeLadder,
         clampPipes: clampPipes,
         wasAborted: function () { return solverAborted; },
-        generatorVersion: GENERATOR_VERSION,
         limits: {
           minSize: MIN_SIZE,
           maxSize: MAX_SIZE,
@@ -1083,6 +1113,7 @@
   const fillEl = document.getElementById('fill');
   const sizeEl = document.getElementById('size');
   const overlay = document.getElementById('overlay');
+  const spinner = document.getElementById('spinner');
   const overlayMessage = document.getElementById('overlay-message');
   const startBtn = document.getElementById('start-btn');
   const resetBtn = document.getElementById('reset-btn');
@@ -1123,119 +1154,125 @@
     }
   }
 
-  function showOverlay(message, withButton) {
+  function showOverlay(message) {
     overlayMessage.textContent = message;
-    startBtn.hidden = withButton === false;
+    spinner.hidden = true;
+    startBtn.hidden = false;
     overlay.classList.remove('hidden');
+  }
+
+  function showLoading(nextLevel) {
+    overlayMessage.textContent = 'Building level ' + nextLevel + '\u2026';
+    spinner.hidden = false;
+    startBtn.hidden = true;
+    overlay.classList.remove('hidden');
+    // The board is not built yet, but its level and size are known, and the
+    // readouts left over from the last one would be a lie about this one.
+    const nextSize = sizeForLevel(nextLevel);
+    levelEl.textContent = String(nextLevel);
+    sizeEl.textContent = nextSize + '\u00d7' + nextSize;
+    movesEl.textContent = '0';
+    flowsEl.textContent = '\u2013';
+    fillEl.textContent = '\u2013';
+    hintBtn.textContent = 'Hint (' + hintsFor(nextSize) + ')';
+    // There is nothing to hint at, undo or reset yet, and on the very first
+    // level there is not even a puzzle for them to act on.
+    hintBtn.disabled = true;
+    undoBtn.disabled = true;
+    resetBtn.disabled = true;
   }
 
   function hideOverlay() {
     overlay.classList.add('hidden');
   }
 
-  // -------------------------------------------------------------- seed table
+  // ------------------------------------------------------------------ loading
 
-  // Levels can be pre-built: tools/build-seeds.js searches the seed space
-  // offline for boards with exactly one solution and records the winner, and
-  // the server hands them out from /api/pipelines/seeds. Since a board is a
-  // pure function of (size, colours, seed), rebuilding one here is exact.
-  //
-  // None of this is required. No server, no table, an old table that stops
-  // short of this level, a flaky connection -- each just means the generator
-  // searches for itself, which is what it did before the table existed.
-  const SEED_ENDPOINT = '/api/pipelines/seeds';
-  const PREFETCH = 24; // levels per request; a session is then a few requests
-  const FETCH_TIMEOUT = 2500;
+  // Generation is a search, and a search cannot be interrupted to repaint. Run
+  // on this thread it would freeze the page for as long as it takes -- and a
+  // CSS animation freezes with it, so the "loading" spinner would sit
+  // motionless, which is worse than no spinner at all. In a worker the page
+  // stays live and the wait is honest.
+  const WORKER_URL = 'worker.js';
 
-  const recipeCache = new Map(); // level -> recipe, or null for "not in the table"
-  let tableTotal = -1; // -1 until a response says otherwise
-  let tableOffline = typeof fetch !== 'function';
-  let fetchedThrough = 0; // highest level a completed window covered
-  let inFlight = null;
+  let worker = null;
+  let workerBroken = typeof Worker !== 'function';
+  let nextRequestId = 0;
+  const waitingRequests = new Map(); // request id -> resolve
+  const readyBoards = new Map(); // level -> board built ahead of being asked for
 
-  function cachedRecipe(level) {
-    return recipeCache.get(level);
-  }
-
-  function rememberWindow(from, count, payload) {
-    // A table built by a different generator describes different boards, and
-    // its verification says nothing about the ones this code would build --
-    // so it is not a table worth reading.
-    if (payload && payload.generator !== GENERATOR_VERSION) {
-      tableOffline = true;
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn('Pipelines: ignoring seed table built by generator v' + payload.generator +
-          ' (this build is v' + GENERATOR_VERSION + '); generating levels locally.');
-      }
-      return;
+  function ensureWorker() {
+    if (worker || workerBroken) return worker;
+    try {
+      worker = new Worker(WORKER_URL);
+      worker.onmessage = (event) => {
+        const resolve = waitingRequests.get(event.data.id);
+        if (!resolve) return;
+        waitingRequests.delete(event.data.id);
+        resolve(event.data.board);
+      };
+      worker.onerror = () => {
+        // Blocked, missing, or broken: fall back to this thread, where the
+        // level still gets built -- the page just stops painting while it is.
+        workerBroken = true;
+        worker = null;
+        const pendingResolves = [...waitingRequests.values()];
+        waitingRequests.clear();
+        for (const resolve of pendingResolves) resolve(null);
+      };
+    } catch (err) {
+      workerBroken = true;
+      worker = null;
     }
-    const levels = (payload && payload.levels) || [];
-    for (const record of levels) {
-      if (record && Number.isInteger(record.level)) recipeCache.set(record.level, record);
-    }
-    // Levels the response skipped are not in the table, and saying so stops
-    // the same gap being asked for again on every visit.
-    for (let level = from; level < from + count; level += 1) {
-      if (!recipeCache.has(level)) recipeCache.set(level, null);
-    }
-    if (payload && Number.isInteger(payload.total)) tableTotal = payload.total;
-    if (from + count - 1 > fetchedThrough) fetchedThrough = from + count - 1;
+    return worker;
   }
 
-  function fetchWindow(from, count) {
-    if (tableOffline) return Promise.resolve();
-    // One request at a time: the prefetch and a load that overtakes it would
-    // otherwise ask for overlapping windows.
-    if (inFlight) return inFlight;
-    const controller = typeof AbortController === 'function' ? new AbortController() : null;
-    const timer = setTimeout(() => controller && controller.abort(), FETCH_TIMEOUT);
-    const request = fetch(SEED_ENDPOINT + '?from=' + from + '&count=' + count, {
-      signal: controller ? controller.signal : undefined,
-      headers: { accept: 'application/json' },
-    })
-      .then((response) => {
-        if (response.status === 503) {
-          // The server is up but has no table; there is nothing to come back
-          // for this session.
-          tableOffline = true;
-          return null;
-        }
-        if (!response.ok) throw new Error('seed request failed: ' + response.status);
-        return response.json();
-      })
-      .then((payload) => {
-        if (payload) rememberWindow(from, count, payload);
-      })
-      .catch(() => {
-        // Offline, no such route (the game is on static hosting), a timeout --
-        // all the same answer: generate locally from here on.
-        tableOffline = true;
-      })
-      .then(() => {
-        clearTimeout(timer);
-        inFlight = null;
-      });
-    inFlight = request;
-    return request;
+  function generateHere(level) {
+    // Two frames of grace so the loading state is on screen before this thread
+    // stops answering. Only reached when the worker is unavailable.
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => setTimeout(() => resolve(generate(level)), 0));
+    });
   }
 
-  function recipeFor(level) {
-    const known = cachedRecipe(level);
-    if (known !== undefined) return Promise.resolve(known);
-    if (tableOffline || (tableTotal >= 0 && level > tableTotal)) return Promise.resolve(null);
-    return fetchWindow(level, PREFETCH).then(() => cachedRecipe(level) || null);
+  const buildsInFlight = new Map(); // level -> promise, so a level is built once
+
+  function requestBoard(level) {
+    const started = buildsInFlight.get(level);
+    // A level being built ahead and then asked for is the common case: share
+    // the build rather than starting a second one behind it.
+    if (started) return started;
+
+    const active = ensureWorker();
+    const build = (active
+      ? new Promise((resolve) => {
+        const id = (nextRequestId += 1);
+        waitingRequests.set(id, resolve);
+        active.postMessage({ id: id, level: level });
+      }).then((board) => board || generateHere(level))
+      : generateHere(level)
+    ).then((board) => {
+      buildsInFlight.delete(level);
+      return board;
+    });
+    buildsInFlight.set(level, build);
+    return build;
   }
 
-  // Warms the levels just ahead so "Next level" does not wait on the network.
-  // Only once the cached run is nearly used up, so playing through a session
-  // costs a request per window rather than one per level.
-  const LOOKAHEAD = 8;
+  // Build the next level while the player is busy with this one. By the time
+  // they press the button it is usually there, and the spinner never appears.
+  function prepareNext(level) {
+    if (readyBoards.has(level) || workerBroken) return;
+    readyBoards.clear(); // only ever one level ahead; anything else is stale
+    requestBoard(level).then((board) => {
+      if (board) readyBoards.set(level, board);
+    });
+  }
 
-  function prefetchFrom(level) {
-    if (tableOffline || inFlight) return;
-    if (level + LOOKAHEAD <= fetchedThrough) return;
-    if (tableTotal >= 0 && fetchedThrough >= tableTotal) return;
-    fetchWindow(Math.max(level, fetchedThrough + 1), PREFETCH);
+  function takeReadyBoard(level) {
+    const board = readyBoards.get(level);
+    if (board) readyBoards.delete(level);
+    return board;
   }
 
   // ---------------------------------------------------------------- rendering
@@ -1337,6 +1374,7 @@
     hintBtn.textContent = 'Hint (' + hintsLeft + ')';
     hintBtn.disabled = solved || hintsLeft === 0;
     undoBtn.disabled = solved || undoStack.length === 0;
+    resetBtn.disabled = false;
     checkWin();
   }
 
@@ -1487,9 +1525,10 @@
   window.pipelinesDebug = {
     generate: generate,
     buildBoard: buildBoard,
+    current: function () { return puzzle; },
+    readyCount: function () { return readyBoards.size; },
     countSolutions: countSolutions,
     difficultyFor: difficultyFor,
     sizeForLevel: sizeForLevel,
-    recipeCache: recipeCache,
   };
 })();

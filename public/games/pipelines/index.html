@@ -35,7 +35,8 @@
       <canvas id="board" class="pl-board" aria-hidden="true"></canvas>
       <div id="keys" class="pl-keys" role="grid" aria-label="Pipe grid"></div>
       <div id="overlay" class="overlay hidden">
-        <p id="overlay-message"></p>
+        <div id="spinner" class="pl-spinner" hidden aria-hidden="true"></div>
+        <p id="overlay-message" role="status" aria-live="polite"></p>
         <button id="start-btn" type="button">Next level</button>
       </div>
     </div>

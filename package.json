@@ -10,9 +10,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
-    "seeds:build": "node tools/build-seeds.js",
-    "seeds:check": "node tools/check-seeds.js"
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "express": "^4.21.2"

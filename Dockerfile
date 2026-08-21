@@ -22,9 +22,6 @@ COPY --chown=1000:1000 package.json ./
 COPY --chown=1000:1000 server.js ./
 COPY --chown=1000:1000 src ./src
 COPY --chown=1000:1000 public ./public
-# Lets the image double as the seed builder: `docker run ... node
-# tools/build-seeds.js --out /data/pipelines-seeds.bin`.
-COPY --chown=1000:1000 tools ./tools
 
 USER 1000:1000
 
