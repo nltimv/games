@@ -451,131 +451,247 @@
   // -------------------------------------------------------------- generation
 
   // Golden-ratio (R1) low-discrepancy sequence. Successive levels land far
-  // apart in the range and every size comes up about equally often over any
+  // apart in the range and every value comes up about equally often over any
   // stretch of play -- which plain hashing does not give you, since random
   // draws clump and four 12x12 boards in a row would be perfectly likely.
   const PHI_INV = 0.6180339887498949;
   const SIZE_PHASE = 0.44; // chosen so level 1 opens on a 5x5
+  // Pipe count walks its own sequence, on a different irrational step. Sharing
+  // the step and merely offsetting the phase would hold the two sequences a
+  // fixed distance apart forever, which amounts to deriving the pipe count from
+  // the board size: every 9x9 would come out with the same pipes.
+  const ROOT2_FRAC = 0.41421356237309515;
+  const PIPES_PHASE = 0.17;
 
-  function sizeForLevel(level) {
-    const t = (SIZE_PHASE + level * PHI_INV) % 1;
-    const quasi = MIN_SIZE + Math.floor(t * SIZE_SPAN);
-    // Ease the first levels in rather than opening the game on a 12x12 wall.
-    // Only levels 1-7 are capped, so the sequence is untouched from there on.
-    return Math.min(quasi, MIN_SIZE + level - 1, MAX_SIZE);
+  function quasi(level, phase, step) {
+    return (phase + level * (step === undefined ? PHI_INV : step)) % 1;
   }
 
-  function difficultyFor(level) {
-    const boardSize = sizeForLevel(level);
-    const cells = boardSize * boardSize;
-    // Colours are set by how long the pipes should be, not by the board area:
-    // pipes of five or six cells are what make a puzzle forced, and they get
-    // gently longer on the big boards, where holding sixteen colours apart is
-    // already work enough. That lands 5x5 on 5 pipes and 12x12 on 16, which is
-    // the density the genre settles on too.
-    const wanted = 5 + (boardSize - MIN_SIZE) * 0.5;
-    let colors = Math.round(cells / wanted);
-    // Counter-intuitively, fewer colours is the harder end: with full coverage
-    // forced, fewer colours means longer pipes and more routing freedom. So the
-    // level nudges the count either way rather than ramping in one direction,
-    // and two boards of the same size never feel like a repeat.
-    if (level % 3 === 0) colors -= 1;
-    if (level % 7 === 0) colors += 1;
-    if (colors < 4) colors = 4;
-    if (colors > MAX_COLORS) colors = MAX_COLORS;
+  function sizeForLevel(level) {
+    const quasiSize = MIN_SIZE + Math.floor(quasi(level, SIZE_PHASE) * SIZE_SPAN);
+    // Ease the first levels in rather than opening the game on a 12x12 wall.
+    // Only levels 1-7 are capped, so the sequence is untouched from there on.
+    return Math.min(quasiSize, MIN_SIZE + level - 1, MAX_SIZE);
+  }
 
+  // How long the pipes are is what really sets the difficulty: few long pipes
+  // on a big board are the hard, open-ended levels, many short ones are the
+  // tidy quick ones. Sweeping the target across each board's own range, rather
+  // than fixing a count per size, is what gives two boards of a size
+  // completely different characters.
+  const SHORTEST_PIPE = 5.5; // any shorter and it is join-the-dots
+  const LONGEST_PIPE = 1.15; // as a multiple of the board's side
+
+  function pipeRange(boardSize) {
+    const cells = boardSize * boardSize;
+    return {
+      sparse: clampPipes(Math.round(cells / (boardSize * LONGEST_PIPE)), cells),
+      dense: clampPipes(Math.round(cells / SHORTEST_PIPE), cells),
+    };
+  }
+
+  function pipesForLevel(level, boardSize) {
+    const range = pipeRange(boardSize);
+    const span = range.dense - range.sparse;
+    return range.sparse + Math.round(quasi(level, PIPES_PHASE, ROOT2_FRAC) * span);
+  }
+
+  // Sparse boards are the ones worth wanting and the ones hardest to pin down
+  // to a single solution, so a level asks for its target first and only trades
+  // pipe length for a guarantee if that target will not verify.
+  function pipeLadder(level, boardSize) {
+    const range = pipeRange(boardSize);
+    const ladder = [];
+    for (let colors = pipesForLevel(level, boardSize); colors <= range.dense; colors += 1) {
+      ladder.push(colors);
+    }
+    return ladder.length ? ladder : [range.dense];
+  }
+
+  function clampPipes(count, cells) {
+    if (count < 4) return 4;
+    if (count > MAX_COLORS) return MAX_COLORS;
+    // Every pipe needs two dots and at least one cell between them.
+    if (count * 3 > cells) return Math.floor(cells / 3);
+    return count;
+  }
+
+  // Bounds either side of the average, loose enough to leave the cut room to
+  // dodge touches but tight enough that no colour gets half the board
+  // (unforced) or a three-cell stub next to a monster.
+  function boundsFor(cells, colors) {
     const average = cells / colors;
     return {
-      size: boardSize,
-      colors: colors,
-      // Bounds either side of the average, loose enough to leave the cut room
-      // to dodge touches but tight enough that no colour gets half the board
-      // (unforced) or a three-cell stub next to a monster.
       minLen: Math.max(3, Math.round(average * 0.5)),
       maxLen: Math.max(6, Math.round(average * 2.2)),
     };
   }
 
-  // Verifying a level means counting its solutions, and that is only affordable
-  // while the pipes are short: the search is exponential in how much slack each
-  // pipe has. Up to 9x9 a candidate is checked in milliseconds and better than
-  // one in ten comes back unique, so the search pays for itself -- every level
-  // that size or under ships verified.
-  // From 10x10 up neither holds -- a single count can take a second and unique
-  // candidates all but vanish, because a board that big always leaves a
-  // shortcut somewhere unless it is cut into far more pipes than there are
-  // distinguishable colours. Those levels lean on the cut instead, which is
-  // what removes the shortcuts a player would actually notice, and are played
-  // as the genre plays them: connect every pair *and* fill the board.
+  function difficultyFor(level) {
+    const boardSize = sizeForLevel(level);
+    const colors = pipesForLevel(level, boardSize);
+    const bounds = boundsFor(boardSize * boardSize, colors);
+    return { size: boardSize, colors: colors, minLen: bounds.minLen, maxLen: bounds.maxLen };
+  }
+
+  // Preferring the sparsest board that still verifies: a board that could not
+  // be pinned to one solution is worth less than a slightly denser one that
+  // could, but among equals the longer pipes win.
+  function betterFallback(candidate, incumbent) {
+    if (!incumbent) return true;
+    if (candidate.touches !== incumbent.touches) return candidate.touches < incumbent.touches;
+    return candidate.colors < incumbent.colors;
+  }
+
+  // A board is a pure function of (size, colours, seed), which is the whole
+  // point: the offline builder searches this seed space for boards with a
+  // single solution, and the browser rebuilds the winning seed bit for bit
+  // instead of repeating the search.
+  //
+  // Which makes this constant load-bearing: bump it whenever a change would
+  // make (size, colours, seed) describe a different board -- the chain mixing,
+  // the climb, the cut, the colour shuffle. Tables built by another version
+  // are ignored rather than trusted, since their promise of a single solution
+  // was made about boards this code no longer builds.
+  const GENERATOR_VERSION = 1;
+  function seedFor(level, colors, attempt) {
+    return mix32(mix32(level * 0x9e3779b1 + colors) + attempt);
+  }
+
+  // Hill-climb the chain itself. A pipe that runs alongside itself can always
+  // be short-cut, so touch-free cuts are the ones worth verifying -- and on a
+  // big board a *random* chain essentially never admits one, however well the
+  // cut is chosen. Perturbing a good chain a little and keeping what does not
+  // get worse finds them in milliseconds where resampling never does.
+  const CLIMB_STEPS = 3;
+  // Give up on a chain that has stopped improving. A sparse board often cannot
+  // be cut touch-free at all, and grinding out the full iteration budget on
+  // one that is stuck costs more than starting again from another seed.
+  const CLIMB_PATIENCE = 150;
+
+  function climbCut(colors, minLen, maxLen, rnd, iterations) {
+    let best = cutChain(colors, minLen, maxLen, rnd);
+    if (best && best.touches === 0) return best;
+    let sinceGain = 0;
+    for (let i = 0; i < iterations; i += 1) {
+      backbite(rnd, CLIMB_STEPS);
+      const cut = cutChain(colors, minLen, maxLen, rnd);
+      if (!cut) continue;
+      if (best && cut.touches < best.touches) sinceGain = 0;
+      else if (++sinceGain > CLIMB_PATIENCE) break;
+      if (!best || cut.touches <= best.touches) {
+        best = cut;
+        if (best.touches === 0) break;
+      } else {
+        // Wander on from here rather than restarting: the chain that produced
+        // the best cut so far is not recoverable, but its neighbourhood is
+        // where the next good one lives.
+        backbite(rnd, CLIMB_STEPS);
+      }
+    }
+    return best;
+  }
+
+  const CLIMB_ITERATIONS = 600;
+
+  function buildBoard(boardSize, colors, seed) {
+    setSize(boardSize);
+    const bounds = boundsFor(cellCount, colors);
+    const rnd = mulberry32(seed);
+    initPath();
+    backbite(rnd, cellCount * 12);
+    const cut = climbCut(colors, bounds.minLen, bounds.maxLen, rnd, CLIMB_ITERATIONS);
+    if (!cut) return null;
+
+    // Shuffle which palette colour each piece gets, otherwise the chain order
+    // shows up as "red always sits next to orange".
+    const order = [];
+    for (let i = 0; i < cut.segments.length; i += 1) order.push(i);
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = (rnd() * (i + 1)) | 0;
+      const tmp = order[i];
+      order[i] = order[j];
+      order[j] = tmp;
+    }
+    const solution = order.map((i) => cut.segments[i]);
+    return {
+      size: boardSize,
+      colors: colors,
+      seed: seed,
+      touches: cut.touches,
+      verified: false,
+      endA: solution.map((seg) => seg[0]),
+      endB: solution.map((seg) => seg[seg.length - 1]),
+      solution: solution,
+    };
+  }
+
+  // Verifying a level means counting its solutions, and that is affordable up
+  // to 11x11 now that the climb hands the counter well-formed boards. A 12x12
+  // is another matter: the counter regularly cannot decide one inside any
+  // budget a browser can spare, so those levels fall back on the cut alone --
+  // unless a pre-built seed says otherwise, which is what the offline builder
+  // is for.
   function budgetFor(boardSize) {
-    if (boardSize <= 6) return { attempts: 400, strict: 400, verify: true };
-    if (boardSize <= 9) return { attempts: 240, strict: 40, verify: true };
-    return { attempts: 60, strict: 0, verify: false };
+    if (boardSize <= 8) return { attempts: 120, verify: true };
+    if (boardSize <= 9) return { attempts: 48, verify: true };
+    if (boardSize <= 10) return { attempts: 24, verify: true };
+    if (boardSize <= 11) return { attempts: 14, verify: true };
+    return { attempts: 6, verify: false };
   }
 
   // A search that runs this deep is either a pathological candidate or a slow
   // way of learning what the next candidate would tell us cheaply.
-  const SEARCH_BUDGET = 40000;
+  const SEARCH_BUDGET = 200000;
 
-  function generate(level) {
-    const difficulty = difficultyFor(level);
-    setSize(difficulty.size);
-    const rnd = mulberry32(mix32(level));
-    const budget = budgetFor(difficulty.size);
-    initPath();
-    backbite(rnd, cellCount * 12);
+  // `recipe` is a pre-verified {size, colors, seed} from the seed table; with
+  // one there is nothing to search for, which is why a 12x12 can ship with a
+  // guarantee the browser could never establish on its own.
+  function generate(level, recipe) {
+    if (recipe) {
+      const board = buildBoard(recipe.size, recipe.colors, recipe.seed);
+      if (board) {
+        board.level = level;
+        board.verified = recipe.verified === true;
+        board.fromTable = true;
+        return board;
+      }
+      // Unreachable unless the table disagrees with this build of the
+      // generator; searching locally is better than failing to start a level.
+    }
+
+    const boardSize = sizeForLevel(level);
+    const budget = budgetFor(boardSize);
+    // Without verification there is nothing to trade pipe length *for*, and a
+    // sparse board that cannot be checked is the one most likely to hide a
+    // shortcut -- so the unverifiable sizes play their well-formed dense end
+    // here. Their sparse levels are what the pre-built seed table is for.
+    const ladder = budget.verify ? pipeLadder(level, boardSize) : [pipeRange(boardSize).dense];
+    const perRung = Math.max(3, Math.round(budget.attempts / ladder.length));
 
     let fallback = null;
-    let fallbackTouches = Infinity;
-    for (let attempt = 0; attempt < budget.attempts; attempt += 1) {
-      backbite(rnd, cellCount * 3);
-      let cut = cutChain(difficulty.colors, difficulty.minLen, difficulty.maxLen, rnd);
-      // The bounds are derived from the average piece length so they always
-      // admit a split, but rounding at the extremes is not worth trusting: fall
-      // back on the widest bounds that can still fit this many pieces.
-      if (!cut) cut = cutChain(difficulty.colors, 2, cellCount - (difficulty.colors - 1) * 2, rnd);
-      if (!cut) continue;
-
-      // Shuffle which palette colour each piece gets, otherwise the chain
-      // order shows up as "red always sits next to orange".
-      const order = [];
-      for (let i = 0; i < cut.segments.length; i += 1) order.push(i);
-      for (let i = order.length - 1; i > 0; i -= 1) {
-        const j = (rnd() * (i + 1)) | 0;
-        const tmp = order[i];
-        order[i] = order[j];
-        order[j] = tmp;
-      }
-      const solution = order.map((i) => cut.segments[i]);
-      const endA = solution.map((seg) => seg[0]);
-      const endB = solution.map((seg) => seg[seg.length - 1]);
-      const puzzle = {
-        level: level,
-        size: difficulty.size,
-        colors: difficulty.colors,
-        touches: cut.touches,
-        verified: false,
-        endA: endA,
-        endB: endB,
-        solution: solution,
-      };
-
-      if (budget.verify) {
-        const strict = attempt < budget.strict;
-        const found = countSolutions(endA, endB, !strict, SEARCH_BUDGET);
-        if (found === 1 && !solverAborted) {
-          puzzle.verified = true;
-          return puzzle;
+    for (let rung = 0; rung < ladder.length; rung += 1) {
+      const colors = ladder[rung];
+      for (let attempt = 0; attempt < perRung; attempt += 1) {
+        const board = buildBoard(boardSize, colors, seedFor(level, colors, attempt));
+        if (!board) continue;
+        board.level = level;
+        // Only touch-free boards are worth the counter's time: every board
+        // that verified in testing was one, and a board with a shortcut in it
+        // is exactly the kind the counter takes longest to give up on.
+        if (budget.verify && board.touches === 0) {
+          const found = countSolutions(board.endA, board.endB, true, SEARCH_BUDGET);
+          if (found === 1 && !solverAborted) {
+            board.verified = true;
+            return board;
+          }
         }
+        // Whatever the search says, the best-formed candidate wins the
+        // fallback: the segments are a full-coverage solution by construction,
+        // so every candidate is completable.
+        if (betterFallback(board, fallback)) fallback = board;
+        if (!budget.verify && fallback.touches === 0) return fallback;
       }
-      // Whatever the search says, the fewest shortcuts wins the fallback: the
-      // segments are a full-coverage solution by construction, so every
-      // candidate is completable and this is picking the best-formed one.
-      if (cut.touches < fallbackTouches) {
-        fallbackTouches = cut.touches;
-        fallback = puzzle;
-      }
-      if (fallbackTouches === 0 && !budget.verify) return fallback;
     }
     return fallback;
   }
@@ -606,11 +722,27 @@
   let level = 1;
   let totalSolved = 0;
 
+  // Loading is asynchronous only because the seed table might be: the recipe
+  // for the next level is usually already prefetched, in which case this runs
+  // to completion in one microtask and the board never blinks.
+  let loadToken = 0;
+
   function loadPuzzle(nextLevel) {
+    const token = (loadToken += 1);
+    const known = cachedRecipe(nextLevel);
+    if (known === undefined) showOverlay('Loading level ' + nextLevel + '\u2026', false);
+    return recipeFor(nextLevel).then((recipe) => {
+      if (token !== loadToken) return; // a later load already took over
+      startLevel(nextLevel, recipe);
+      prefetchFrom(nextLevel + 1);
+    });
+  }
+
+  function startLevel(nextLevel, recipe) {
     level = nextLevel;
     // generate() sets the geometry for the level, so the board frame and the
     // key grid have to be resized before anything is drawn against it.
-    puzzle = generate(level);
+    puzzle = generate(level, recipe);
     applyBoardSize();
     rebuildKeys();
     resize();
@@ -914,12 +1046,28 @@
   if (typeof document === 'undefined') {
     // Loaded outside a browser (the generator test harness); skip the UI.
     if (typeof module !== 'undefined' && module.exports) {
+      // The offline seed builder (tools/build-seeds.js) runs this exact code,
+      // so a board it verifies is the board the browser will rebuild.
       module.exports = {
         generate: generate,
+        buildBoard: buildBoard,
         countSolutions: countSolutions,
+        seedFor: seedFor,
         difficultyFor: difficultyFor,
         sizeForLevel: sizeForLevel,
+        pipesForLevel: pipesForLevel,
+        pipeRange: pipeRange,
+        pipeLadder: pipeLadder,
+        clampPipes: clampPipes,
         wasAborted: function () { return solverAborted; },
+        generatorVersion: GENERATOR_VERSION,
+        limits: {
+          minSize: MIN_SIZE,
+          maxSize: MAX_SIZE,
+          maxColors: MAX_COLORS,
+          longestPipe: LONGEST_PIPE,
+          shortestPipe: SHORTEST_PIPE,
+        },
       };
     }
     return;
@@ -975,13 +1123,119 @@
     }
   }
 
-  function showOverlay(message) {
+  function showOverlay(message, withButton) {
     overlayMessage.textContent = message;
+    startBtn.hidden = withButton === false;
     overlay.classList.remove('hidden');
   }
 
   function hideOverlay() {
     overlay.classList.add('hidden');
+  }
+
+  // -------------------------------------------------------------- seed table
+
+  // Levels can be pre-built: tools/build-seeds.js searches the seed space
+  // offline for boards with exactly one solution and records the winner, and
+  // the server hands them out from /api/pipelines/seeds. Since a board is a
+  // pure function of (size, colours, seed), rebuilding one here is exact.
+  //
+  // None of this is required. No server, no table, an old table that stops
+  // short of this level, a flaky connection -- each just means the generator
+  // searches for itself, which is what it did before the table existed.
+  const SEED_ENDPOINT = '/api/pipelines/seeds';
+  const PREFETCH = 24; // levels per request; a session is then a few requests
+  const FETCH_TIMEOUT = 2500;
+
+  const recipeCache = new Map(); // level -> recipe, or null for "not in the table"
+  let tableTotal = -1; // -1 until a response says otherwise
+  let tableOffline = typeof fetch !== 'function';
+  let fetchedThrough = 0; // highest level a completed window covered
+  let inFlight = null;
+
+  function cachedRecipe(level) {
+    return recipeCache.get(level);
+  }
+
+  function rememberWindow(from, count, payload) {
+    // A table built by a different generator describes different boards, and
+    // its verification says nothing about the ones this code would build --
+    // so it is not a table worth reading.
+    if (payload && payload.generator !== GENERATOR_VERSION) {
+      tableOffline = true;
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('Pipelines: ignoring seed table built by generator v' + payload.generator +
+          ' (this build is v' + GENERATOR_VERSION + '); generating levels locally.');
+      }
+      return;
+    }
+    const levels = (payload && payload.levels) || [];
+    for (const record of levels) {
+      if (record && Number.isInteger(record.level)) recipeCache.set(record.level, record);
+    }
+    // Levels the response skipped are not in the table, and saying so stops
+    // the same gap being asked for again on every visit.
+    for (let level = from; level < from + count; level += 1) {
+      if (!recipeCache.has(level)) recipeCache.set(level, null);
+    }
+    if (payload && Number.isInteger(payload.total)) tableTotal = payload.total;
+    if (from + count - 1 > fetchedThrough) fetchedThrough = from + count - 1;
+  }
+
+  function fetchWindow(from, count) {
+    if (tableOffline) return Promise.resolve();
+    // One request at a time: the prefetch and a load that overtakes it would
+    // otherwise ask for overlapping windows.
+    if (inFlight) return inFlight;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = setTimeout(() => controller && controller.abort(), FETCH_TIMEOUT);
+    const request = fetch(SEED_ENDPOINT + '?from=' + from + '&count=' + count, {
+      signal: controller ? controller.signal : undefined,
+      headers: { accept: 'application/json' },
+    })
+      .then((response) => {
+        if (response.status === 503) {
+          // The server is up but has no table; there is nothing to come back
+          // for this session.
+          tableOffline = true;
+          return null;
+        }
+        if (!response.ok) throw new Error('seed request failed: ' + response.status);
+        return response.json();
+      })
+      .then((payload) => {
+        if (payload) rememberWindow(from, count, payload);
+      })
+      .catch(() => {
+        // Offline, no such route (the game is on static hosting), a timeout --
+        // all the same answer: generate locally from here on.
+        tableOffline = true;
+      })
+      .then(() => {
+        clearTimeout(timer);
+        inFlight = null;
+      });
+    inFlight = request;
+    return request;
+  }
+
+  function recipeFor(level) {
+    const known = cachedRecipe(level);
+    if (known !== undefined) return Promise.resolve(known);
+    if (tableOffline || (tableTotal >= 0 && level > tableTotal)) return Promise.resolve(null);
+    return fetchWindow(level, PREFETCH).then(() => cachedRecipe(level) || null);
+  }
+
+  // Warms the levels just ahead so "Next level" does not wait on the network.
+  // Only once the cached run is nearly used up, so playing through a session
+  // costs a request per window rather than one per level.
+  const LOOKAHEAD = 8;
+
+  function prefetchFrom(level) {
+    if (tableOffline || inFlight) return;
+    if (level + LOOKAHEAD <= fetchedThrough) return;
+    if (tableTotal >= 0 && fetchedThrough >= tableTotal) return;
+    fetchWindow(Math.max(level, fetchedThrough + 1), PREFETCH);
   }
 
   // ---------------------------------------------------------------- rendering
@@ -1206,8 +1460,11 @@
   // ------------------------------------------------------------------- boot
 
   startBtn.addEventListener('click', () => {
-    loadPuzzle(level + 1);
-    focusCell(0, false);
+    startBtn.disabled = true;
+    loadPuzzle(level + 1).then(() => {
+      startBtn.disabled = false;
+      focusCell(0, false);
+    });
   });
 
   hintBtn.addEventListener('click', useHint);
@@ -1224,14 +1481,15 @@
   }
 
   totalSolved = readInt(SOLVED_KEY, 0, 0);
-  loadPuzzle(readInt(LEVEL_KEY, 1, 1));
-  resize();
+  loadPuzzle(readInt(LEVEL_KEY, 1, 1)).then(resize);
 
   // Handy from the browser console, and used by the generator test harness.
   window.pipelinesDebug = {
     generate: generate,
+    buildBoard: buildBoard,
     countSolutions: countSolutions,
     difficultyFor: difficultyFor,
     sizeForLevel: sizeForLevel,
+    recipeCache: recipeCache,
   };
 })();

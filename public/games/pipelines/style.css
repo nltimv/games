@@ -56,6 +56,12 @@
   border-radius: 6px;
 }
 
+/* The overlay doubles as the "loading level" notice, where there is nothing
+   to press yet. */
+.pl-board-wrap .overlay button[hidden] {
+  display: none;
+}
+
 .pl-controls {
   display: flex;
   gap: 0.5rem;

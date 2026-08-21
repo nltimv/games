@@ -13,6 +13,9 @@ Includes **Snake** as the example game (arrow keys / WASD / swipe).
 .
 ├── server.js                 # Express server: static hosting + /api/games + /healthz
 ├── src/games.json            # Game registry (id, title, description, path, thumbnail)
+├── src/seed-table.js         # Binary format for pre-compiled Pipelines levels
+├── tools/build-seeds.js      # Builds a seed table (see "Pipelines seed tables")
+├── tools/check-seeds.js      # Re-verifies a sample of a built table
 ├── public/
 │   ├── index.html            # Lobby page
 │   ├── css/styles.css
@@ -109,6 +112,93 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 > serving it forever, even after the tag is updated. Pinning `image.digest`
 > makes that case immutable and guarantees a fresh pull when the digest
 > changes.
+
+## Pipelines seed tables
+
+Pipelines generates every level from the level number alone, and checks in the
+browser that the level it built has exactly one solution. That check gets
+expensive as the boards grow: an 11x11 takes a moment, and a 12x12 regularly
+cannot be decided inside any budget a page load can spare.
+
+A level is a pure function of `(size, pipes, seed)`, so the search can be moved
+offline. `tools/build-seeds.js` hunts for seeds that produce single-solution
+boards and writes the winners to a binary table; the server hands them out and
+the browser rebuilds exactly those boards without repeating the search. The
+table is 8 bytes per level -- 80 KB for ten thousand levels, 8 MB for a million.
+
+Everything about it is optional. No table, no server, a table that stops short
+of the level being played, an unreachable API -- the game notices, generates
+locally, and plays on.
+
+### Building a table
+
+```bash
+# 10k levels across every core; -h lists the knobs
+npm run seeds:build -- --levels 10000 --jobs 64
+
+# resume an interrupted build
+npm run seeds:build -- --levels 10000 --resume
+
+# re-verify a sample of what was built
+npm run seeds:check -- data/pipelines-seeds.bin --sample 200
+```
+
+Each level's search walks its pipe count from sparse to dense and keeps the
+first board with a single solution -- sparse first, because few long pipes on a
+big board is both the interesting kind of level and the hard kind to pin down.
+A level that will not verify inside `--level-timeout` is still written, marked
+unverified, with the best-formed board found; it is always completable, it just
+has not been proven singular. Boards up to 11x11 verify readily. A 12x12 mostly
+does not, for a reason no amount of CPU fixes: uniqueness wants pipes of five or
+six cells, which at that size means far more pipes than a player can tell apart
+by colour.
+
+Workers are independent processes and levels are independent of each other, so
+the build scales with cores almost perfectly. Results are buffered and written a
+chunk at a time (`--chunk`, default 4096 records), and Ctrl-C leaves a valid
+table holding everything finished so far.
+
+### Serving it
+
+The server reads the table once into memory and answers from there, re-checking
+the file's mtime every few seconds so a rebuild lands without a restart.
+
+```
+GET /api/pipelines/seeds?from=17&count=24   # a window; what the game asks for
+GET /api/pipelines/seeds/17                 # a single level
+```
+
+Both answer with the table's `total`, `buildId` and `generator`, are cacheable
+for an hour, and revalidate with an ETag. `503` means no table is deployed.
+
+Point the server at a table with `PIPELINES_SEEDS` (default
+`data/pipelines-seeds.bin`). In Kubernetes the chart's existing `volumes`,
+`volumeMounts` and `env` values are enough -- mount a PVC or ConfigMap and set
+the variable:
+
+```yaml
+env:
+  - name: PIPELINES_SEEDS
+    value: /data/pipelines-seeds.bin
+volumes:
+  - name: seeds
+    persistentVolumeClaim:
+      claimName: pipelines-seeds
+volumeMounts:
+  - name: seeds
+    mountPath: /data
+    readOnly: true
+```
+
+### When the generator changes
+
+A seed only means anything to the code that produced it. `GENERATOR_VERSION` in
+`public/games/pipelines/game.js` is stamped into every table; bump it whenever a
+change would make `(size, pipes, seed)` describe a different board -- the chain
+mixing, the climb, the cut, the colour shuffle. The game ignores a table whose
+version does not match its own and generates locally instead, rather than
+serving boards whose verification is no longer true of them. `npm run
+seeds:check` fails loudly on the same mismatch.
 
 ## CI/CD
 
