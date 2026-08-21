@@ -630,13 +630,18 @@
   // what brought 10x10 and 11x11 inside reach -- but the cost per candidate
   // climbs steeply with the board, so the bigger ones get fewer tries.
   //
-  // Generation runs in a worker, so these are only ever a wait behind a
-  // spinner, and usually not even that: the next level is built during play.
+  // These are generous because of what surrounds them: generation runs in a
+  // worker, the next level is built while the current one is played, and the
+  // winning seed is kept, so a level is only ever searched once per player.
+  // What the extra tries buy is sparser boards -- levels that keep the long
+  // pipes they asked for instead of trading them for a count that verifies
+  // sooner. Past roughly this point the returns stop: on an 11x11 four times
+  // this budget lands on the same boards, a few seconds slower.
   function budgetFor(boardSize) {
     if (boardSize <= 8) return { attempts: 120 };
-    if (boardSize <= 9) return { attempts: 60 };
-    if (boardSize <= 10) return { attempts: 44 };
-    return { attempts: 36 };
+    if (boardSize <= 9) return { attempts: 200 };
+    if (boardSize <= 10) return { attempts: 300 };
+    return { attempts: 400 };
   }
 
   // The level's own target gets the lion's share of the budget, since that is
@@ -659,12 +664,12 @@
   // grinding through a rung's whole allowance to rediscover that is where the
   // seconds go. Once this many boards in a row come out with a shortcut in
   // them, take the rung as a dead end and move on to the next pipe count.
-  const RUNG_GIVE_UP = 8;
+  const RUNG_GIVE_UP = 40;
 
   // Reached only when the whole ladder failed to prove anything, which is rare
   // and worth a stubborn second look: the densest rung is the likeliest to
   // verify, and an unproven level is exactly what all of this exists to avoid.
-  const LAST_RESORT = 40;
+  const LAST_RESORT = 80;
 
   // Walks the level's pipe ladder until a board verifies, sparse rungs first.
   // In the browser this runs in a worker (see the loading section), so the
@@ -1076,7 +1081,19 @@
     // generation is kept free of the UI) or the node test harness. Either way,
     // skip the UI and hand out the generator.
     if (typeof self !== 'undefined' && typeof importScripts === 'function') {
-      self.pipelinesGenerator = { generate: generate, sizeForLevel: sizeForLevel };
+      self.pipelinesGenerator = {
+        generate: generate,
+        sizeForLevel: sizeForLevel,
+        // Rebuilding a remembered level: the page keeps the seed, the worker
+        // keeps the geometry buffers, so this stays off the main thread too.
+        rebuild: function (level, recipe) {
+          const board = buildBoard(recipe[0], recipe[1], recipe[2]);
+          if (!board) return generate(level);
+          board.level = level;
+          board.verified = true; // nothing unverified is ever remembered
+          return board;
+        },
+      };
     }
     if (typeof module !== 'undefined' && module.exports) {
       module.exports = {
@@ -1195,6 +1212,67 @@
   // stays live and the wait is honest.
   const WORKER_URL = 'worker.js';
 
+  // Searching for a level is worth doing well once, not adequately every time,
+  // so the winning (size, pipes, seed) is kept: a level already played rebuilds
+  // from three numbers with no search at all. That is what pays for the search
+  // budgets above -- the sparse boards they buy cost their seconds once per
+  // player, not once per visit.
+  const BOARD_STORE_KEY = 'pipelines-boards';
+  // Bump when a change makes (size, pipes, seed) describe a different board --
+  // the chain mixing, the climb, the cut, the colour shuffle. Remembered seeds
+  // would otherwise rebuild into boards nobody verified.
+  const BOARD_STORE_VERSION = 1;
+  const BOARD_STORE_LIMIT = 2000;
+
+  const rememberedBoards = readBoardStore();
+
+  function readBoardStore() {
+    const store = new Map();
+    let parsed = null;
+    try {
+      parsed = JSON.parse(readStorage(BOARD_STORE_KEY) || 'null');
+    } catch (err) {
+      return store; // unreadable is the same as empty
+    }
+    if (!parsed || parsed.v !== BOARD_STORE_VERSION || !parsed.b) return store;
+    for (const key of Object.keys(parsed.b)) {
+      const level = Number(key);
+      const recipe = parsed.b[key];
+      // Storage is the player's to edit; nothing in here is trusted as far as
+      // building a board out of it without checking the shape first.
+      if (!Number.isInteger(level) || level < 1) continue;
+      if (!Array.isArray(recipe) || recipe.length !== 3) continue;
+      const [size, colors, seed] = recipe;
+      if (!Number.isInteger(size) || size < MIN_SIZE || size > MAX_SIZE) continue;
+      if (!Number.isInteger(colors) || colors < 4 || colors > MAX_COLORS) continue;
+      if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) continue;
+      store.set(level, recipe);
+    }
+    return store;
+  }
+
+  function writeBoardStore() {
+    // Oldest levels go first when the store is full: play only ever moves
+    // forward, so the low numbers are the ones nobody comes back to.
+    if (rememberedBoards.size > BOARD_STORE_LIMIT) {
+      const levels = [...rememberedBoards.keys()].sort((a, b) => a - b);
+      for (let i = 0; i < levels.length - BOARD_STORE_LIMIT; i += 1) {
+        rememberedBoards.delete(levels[i]);
+      }
+    }
+    const plain = {};
+    for (const [level, recipe] of rememberedBoards) plain[level] = recipe;
+    writeStorage(BOARD_STORE_KEY, JSON.stringify({ v: BOARD_STORE_VERSION, b: plain }));
+  }
+
+  function rememberBoard(board) {
+    // Only boards proven to have a single solution are worth keeping: a
+    // remembered fallback would freeze a compromise in place forever.
+    if (!board || !board.verified || rememberedBoards.has(board.level)) return;
+    rememberedBoards.set(board.level, [board.size, board.colors, board.seed]);
+    writeBoardStore();
+  }
+
   let worker = null;
   let workerBroken = typeof Worker !== 'function';
   let nextRequestId = 0;
@@ -1227,11 +1305,22 @@
     return worker;
   }
 
-  function generateHere(level) {
+  function buildRemembered(level, recipe) {
+    const board = buildBoard(recipe[0], recipe[1], recipe[2]);
+    if (!board) return null;
+    board.level = level;
+    board.verified = true; // nothing unverified is ever remembered
+    return board;
+  }
+
+  function generateHere(level, recipe) {
     // Two frames of grace so the loading state is on screen before this thread
-    // stops answering. Only reached when the worker is unavailable.
+    // stops answering. Only reached when the worker is unavailable -- and a
+    // remembered level is one board to build rather than a search.
     return new Promise((resolve) => {
-      requestAnimationFrame(() => setTimeout(() => resolve(generate(level)), 0));
+      requestAnimationFrame(() => setTimeout(() => {
+        resolve((recipe && buildRemembered(level, recipe)) || generate(level));
+      }, 0));
     });
   }
 
@@ -1243,16 +1332,18 @@
     // the build rather than starting a second one behind it.
     if (started) return started;
 
+    const recipe = rememberedBoards.get(level);
     const active = ensureWorker();
     const build = (active
       ? new Promise((resolve) => {
         const id = (nextRequestId += 1);
         waitingRequests.set(id, resolve);
-        active.postMessage({ id: id, level: level });
-      }).then((board) => board || generateHere(level))
-      : generateHere(level)
+        active.postMessage({ id: id, level: level, recipe: recipe });
+      }).then((board) => board || generateHere(level, recipe))
+      : generateHere(level, recipe)
     ).then((board) => {
       buildsInFlight.delete(level);
+      rememberBoard(board);
       return board;
     });
     buildsInFlight.set(level, build);
@@ -1527,6 +1618,8 @@
     buildBoard: buildBoard,
     current: function () { return puzzle; },
     readyCount: function () { return readyBoards.size; },
+    rememberedCount: function () { return rememberedBoards.size; },
+    forgetBoards: function () { rememberedBoards.clear(); writeBoardStore(); },
     countSolutions: countSolutions,
     difficultyFor: difficultyFor,
     sizeForLevel: sizeForLevel,

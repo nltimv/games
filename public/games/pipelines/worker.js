@@ -9,5 +9,11 @@ importScripts('game.js');
 
 self.onmessage = function (event) {
   const level = event.data.level;
-  self.postMessage({ id: event.data.id, board: self.pipelinesGenerator.generate(level) });
+  const recipe = event.data.recipe;
+  // A level the player has met before comes with the seed that won last time,
+  // which turns a search into a single board build.
+  const board = recipe
+    ? self.pipelinesGenerator.rebuild(level, recipe)
+    : self.pipelinesGenerator.generate(level);
+  self.postMessage({ id: event.data.id, board: board });
 };
