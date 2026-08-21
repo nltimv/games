@@ -10,7 +10,8 @@
 
 .pl-board-wrap {
   position: relative;
-  width: min(92vw, 420px);
+  /* Starting width only: the script widens the frame for bigger boards. */
+  width: min(92vw, 430px);
   aspect-ratio: 1;
   padding: 6px;
   background: #10131a;
@@ -31,7 +32,8 @@
 
 /* An invisible grid of real buttons sits over the canvas purely to carry
    keyboard focus and screen-reader labels. Pointer events pass straight
-   through to the canvas, which owns all mouse and touch input. */
+   through to the canvas, which owns all mouse and touch input. The row and
+   column counts are set by the script, since they change with the level. */
 .pl-keys {
   position: absolute;
   inset: 6px;

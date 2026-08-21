@@ -4,17 +4,24 @@
 (function () {
   'use strict';
 
-  const SIZE = 5;
-  const CELL_COUNT = SIZE * SIZE;
-  // Under the "no partial solution" filter only about 1% of 4-colour
-  // candidates qualify (4% at 5 colours, 12% at 6), so the budget has to be
-  // generous. At a 1% accept rate the chance of exhausting 5000 tries is
-  // e^-50, i.e. it never happens in practice.
-  const MAX_ATTEMPTS = 5000;
+  // Boards run from 5x5 up to 12x12 and the size is part of the level, so
+  // everything that depends on the geometry is rebuilt per puzzle instead of
+  // being baked in as a constant.
+  const MIN_SIZE = 5;
+  const MAX_SIZE = 12;
+  const SIZE_SPAN = MAX_SIZE - MIN_SIZE + 1;
+  const MAX_CELLS = MAX_SIZE * MAX_SIZE;
+
+  let size = MIN_SIZE;
+  let cellCount = size * size;
+
   const LEVEL_KEY = 'pipelines-level';
   const SOLVED_KEY = 'pipelines-solved';
 
-  // Six hues that stay distinguishable against the hub's --bg (#0b0d14).
+  // Sixteen hues that stay distinguishable against the hub's --bg (#0b0d14).
+  // A level uses the first `colors` of them, so the order runs most-separated
+  // first: a 5x5 gets the six the game shipped with, and only the biggest
+  // boards reach the entries that need a second look to tell apart.
   const PALETTE = [
     '#ff4d4d',
     '#4dd0a4',
@@ -22,25 +29,62 @@
     '#ffd54d',
     '#c47dff',
     '#ff9d4d',
+    '#ff6fb5',
+    '#3fe0e0',
+    '#a8e34d',
+    '#e8edf5',
+    '#d9a066',
+    '#7fd6ff',
+    '#ff5ce0',
+    '#2fa89b',
+    '#6f6bff',
+    '#8fa4c8',
   ];
-  const COLOR_NAMES = ['red', 'green', 'blue', 'yellow', 'purple', 'orange'];
+  const COLOR_NAMES = [
+    'red',
+    'green',
+    'blue',
+    'yellow',
+    'purple',
+    'orange',
+    'pink',
+    'cyan',
+    'lime',
+    'white',
+    'tan',
+    'sky',
+    'magenta',
+    'teal',
+    'indigo',
+    'slate',
+  ];
+  const MAX_COLORS = PALETTE.length;
 
   // ---------------------------------------------------------------- geometry
 
   // Flat adjacency table: NEIGHBOURS[cell * 4 + i] for i < NEIGHBOUR_COUNT[cell].
-  const NEIGHBOURS = new Int32Array(CELL_COUNT * 4).fill(-1);
-  const NEIGHBOUR_COUNT = new Int32Array(CELL_COUNT);
+  // Both are allocated for the biggest board and refilled on every size change,
+  // so no generation-time allocation happens per level.
+  const NEIGHBOURS = new Int32Array(MAX_CELLS * 4).fill(-1);
+  const NEIGHBOUR_COUNT = new Int32Array(MAX_CELLS);
 
-  for (let cell = 0; cell < CELL_COUNT; cell += 1) {
-    const row = (cell / SIZE) | 0;
-    const col = cell % SIZE;
-    let n = 0;
-    if (row > 0) NEIGHBOURS[cell * 4 + n++] = cell - SIZE;
-    if (row < SIZE - 1) NEIGHBOURS[cell * 4 + n++] = cell + SIZE;
-    if (col > 0) NEIGHBOURS[cell * 4 + n++] = cell - 1;
-    if (col < SIZE - 1) NEIGHBOURS[cell * 4 + n++] = cell + 1;
-    NEIGHBOUR_COUNT[cell] = n;
+  function setSize(next) {
+    size = next;
+    cellCount = next * next;
+    NEIGHBOURS.fill(-1);
+    for (let cell = 0; cell < cellCount; cell += 1) {
+      const row = (cell / size) | 0;
+      const col = cell % size;
+      let n = 0;
+      if (row > 0) NEIGHBOURS[cell * 4 + n++] = cell - size;
+      if (row < size - 1) NEIGHBOURS[cell * 4 + n++] = cell + size;
+      if (col > 0) NEIGHBOURS[cell * 4 + n++] = cell - 1;
+      if (col < size - 1) NEIGHBOURS[cell * 4 + n++] = cell + 1;
+      NEIGHBOUR_COUNT[cell] = n;
+    }
   }
+
+  setSize(MIN_SIZE);
 
   function areAdjacent(a, b) {
     for (let i = 0; i < NEIGHBOUR_COUNT[a]; i += 1) {
@@ -73,23 +117,23 @@
 
   // --------------------------------------------------- hamiltonian path chain
 
-  // A puzzle is built by carving one Hamiltonian path over all 25 cells into
+  // A puzzle is built by carving one Hamiltonian path over every cell into
   // contiguous segments, which makes full coverage true by construction.
-  const hamPath = new Int32Array(CELL_COUNT);
-  const hamPos = new Int32Array(CELL_COUNT);
+  const hamPath = new Int32Array(MAX_CELLS);
+  const hamPos = new Int32Array(MAX_CELLS);
 
   function initPath() {
     // Boustrophedon order (row 0 left to right, row 1 right to left, ...) is a
     // valid Hamiltonian path, so the chain always starts from a legal state.
     let i = 0;
-    for (let row = 0; row < SIZE; row += 1) {
-      for (let col = 0; col < SIZE; col += 1) {
-        const c = row % 2 === 0 ? col : SIZE - 1 - col;
-        hamPath[i] = row * SIZE + c;
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size; col += 1) {
+        const c = row % 2 === 0 ? col : size - 1 - col;
+        hamPath[i] = row * size + c;
         i += 1;
       }
     }
-    for (let k = 0; k < CELL_COUNT; k += 1) hamPos[hamPath[k]] = k;
+    for (let k = 0; k < cellCount; k += 1) hamPos[hamPath[k]] = k;
   }
 
   function reversePrefix(end) {
@@ -110,11 +154,11 @@
   // The "backbite" move: pick a neighbour u of the head, then reverse the
   // prefix ending just before u. The head lands next to u, so the result is
   // always another valid Hamiltonian path -- no backtracking and no failure
-  // case, unlike a DFS search which on a 5x5 grid also has to respect the
-  // bipartite parity of the endpoints.
+  // case, unlike a DFS search which on an odd-sided grid also has to respect
+  // the bipartite parity of the endpoints.
   function backbite(rnd, steps) {
     for (let s = 0; s < steps; s += 1) {
-      if (rnd() < 0.5) reversePrefix(CELL_COUNT); // let the far end move too
+      if (rnd() < 0.5) reversePrefix(cellCount); // let the far end move too
       const head = hamPath[0];
       const pick = (rnd() * NEIGHBOUR_COUNT[head]) | 0;
       const u = NEIGHBOURS[head * 4 + pick];
@@ -126,64 +170,237 @@
 
   // ----------------------------------------------------------------- cutting
 
-  // Uniform composition of CELL_COUNT into `count` parts of at least `minLen`.
-  // Choosing distinct dividers out of the slack keeps long segments reasonably
-  // likely; splitting the slack per-part instead would equalise the lengths.
-  function cutLengths(count, minLen, rnd) {
-    const poolSize = CELL_COUNT - count * minLen + count - 1;
-    const pool = [];
-    for (let i = 0; i < poolSize; i += 1) pool.push(i + 1);
-    for (let i = 0; i < count - 1; i += 1) {
-      const j = i + ((rnd() * (poolSize - i)) | 0);
-      const tmp = pool[i];
-      pool[i] = pool[j];
-      pool[j] = tmp;
-    }
-    const cuts = pool.slice(0, count - 1).sort((a, b) => a - b);
-
-    const lens = [];
-    let prev = 0;
-    for (let i = 0; i < count - 1; i += 1) {
-      lens.push(minLen + (cuts[i] - prev - 1));
-      prev = cuts[i];
-    }
-    lens.push(minLen + (poolSize - prev));
-    return lens;
+  // Where the chain gets cut decides the whole character of the puzzle. The
+  // thing to avoid is a pipe running alongside itself: two cells of one pipe
+  // side by side without being consecutive means the player can cut the corner
+  // between them, so the pair has a second, shorter route and the puzzle stops
+  // being forced. Random cuts produce these constantly on anything past a 5x5,
+  // so rather than generating and rejecting, the cut is *chosen* to minimise
+  // them: a small dynamic program over the chain finds the split into exactly
+  // `count` pieces of length [minLen, maxLen] with the fewest such touches.
+  //
+  // dpCost[j][e] is the best total for splitting the first e chain cells into
+  // j pipes, and dpFrom[j][e] remembers where the last piece started so the
+  // segments can be read back.
+  const segCost = new Float64Array(MAX_CELLS * (MAX_CELLS + 1));
+  // Which cells the piece being measured covers. Stamped with a counter that
+  // only ever goes up, so a piece never picks up marks left by an earlier one
+  // -- stamping with the start index would collide on the very next chain.
+  const segSeen = new Float64Array(MAX_CELLS);
+  let segStamp = 0;
+  const dpCost = [];
+  const dpFrom = [];
+  for (let j = 0; j <= MAX_COLORS; j += 1) {
+    dpCost.push(new Float64Array(MAX_CELLS + 1));
+    dpFrom.push(new Int32Array(MAX_CELLS + 1));
   }
+  const UNREACHABLE = Infinity;
 
-  function cutSegments(lens) {
-    const segments = [];
-    let offset = 0;
-    for (let i = 0; i < lens.length; i += 1) {
-      const seg = [];
-      for (let k = 0; k < lens[i]; k += 1) seg.push(hamPath[offset + k]);
-      segments.push(seg);
-      offset += lens[i];
+  function cutChain(count, minLen, maxLen, rnd) {
+    const stride = maxLen + 1;
+    // Touches inside one piece, counted as it grows: a cell that already has
+    // two neighbours in the piece adds one touch on top of its predecessor.
+    for (let start = 0; start < cellCount; start += 1) {
+      let touches = 0;
+      segStamp += 1;
+      const limit = Math.min(maxLen, cellCount - start);
+      for (let len = 1; len <= limit; len += 1) {
+        const cell = hamPath[start + len - 1];
+        const base = cell * 4;
+        let seen = 0;
+        for (let i = 0; i < NEIGHBOUR_COUNT[cell]; i += 1) {
+          if (segSeen[NEIGHBOURS[base + i]] === segStamp) seen += 1;
+        }
+        if (len > 1) touches += seen - 1;
+        segSeen[cell] = segStamp;
+        // The jitter is small enough that the sum over all the pieces stays
+        // below one touch, so it only ever breaks ties -- which it must, or
+        // every level of a given size would be cut the same way.
+        segCost[start * stride + len] =
+          len < minLen ? UNREACHABLE : touches + rnd() * (0.5 / count);
+      }
+      for (let len = limit + 1; len <= maxLen; len += 1) {
+        segCost[start * stride + len] = UNREACHABLE;
+      }
     }
-    return segments;
+
+    for (let end = 0; end <= cellCount; end += 1) dpCost[0][end] = UNREACHABLE;
+    dpCost[0][0] = 0;
+    for (let j = 1; j <= count; j += 1) {
+      for (let end = 0; end <= cellCount; end += 1) {
+        let best = UNREACHABLE;
+        let bestStart = -1;
+        for (let len = minLen; len <= maxLen && len <= end; len += 1) {
+          const start = end - len;
+          const total = dpCost[j - 1][start] + segCost[start * stride + len];
+          if (total < best) {
+            best = total;
+            bestStart = start;
+          }
+        }
+        dpCost[j][end] = best;
+        dpFrom[j][end] = bestStart;
+      }
+    }
+    if (dpCost[count][cellCount] === UNREACHABLE) return null;
+
+    const segments = [];
+    let end = cellCount;
+    for (let j = count; j >= 1; j -= 1) {
+      const start = dpFrom[j][end];
+      const seg = [];
+      for (let k = start; k < end; k += 1) seg.push(hamPath[k]);
+      segments.push(seg);
+      end = start;
+    }
+    segments.reverse();
+    // The jitter sums to less than 1, so flooring recovers the real count.
+    return { segments: segments, touches: Math.floor(dpCost[count][cellCount]) };
   }
 
   // ------------------------------------------------------------------ solver
 
   // Exhaustive DFS that counts routings, capped at 2 -- all we need to know is
-  // whether the puzzle has no, exactly one, or several solutions.
+  // whether the puzzle has no, exactly one, or several solutions. It runs in
+  // one of two modes:
   //
-  // Every routing that connects all pairs counts, *including* ones that leave
-  // cells empty. That is the property real Flow puzzles have: there is no way
-  // to join every pair except the one that also fills the board, so a player
-  // can never strand a gap. Counting only full-coverage routings would let
-  // through puzzles solvable at, say, 92% fill, which reads as a broken level.
+  //  * Strict (solverFull false) counts every routing that connects all pairs,
+  //    *including* ones that leave cells empty. That is the property real Flow
+  //    puzzles have: there is no way to join every pair except the one that
+  //    also fills the board, so a player can never strand a gap.
+  //  * Full (solverFull true) counts only routings that also cover every cell.
+  //    Winning already demands full coverage, so a single full-coverage
+  //    routing still means a single goal state; it just no longer rules out
+  //    connect-everything-but-leave-a-gap dead ends. Big boards fall back on
+  //    this bar because strict candidates get vanishingly rare as the grid
+  //    grows -- see generate().
   //
-  // Pruning (dead-end degree and stranded-region checks) is correct but
-  // measurably slower than plain search at only 25 cells; add it if the grid
-  // ever grows.
-  const solverBoard = new Int8Array(CELL_COUNT);
+  // Both modes prune on reachability: a colour that can no longer reach its
+  // partner through free cells kills the branch. Full mode adds the coverage
+  // prunes, which are only sound when every cell has to be used. On a 5x5 the
+  // pruning costs more than plain search saves, but from 7x7 up the search is
+  // hopeless without it.
+  const solverBoard = new Int8Array(MAX_CELLS);
+  const compId = new Int32Array(MAX_CELLS); // free-cell region per cell, -1 if taken
+  const compStack = new Int32Array(MAX_CELLS);
+  const compTouched = new Uint8Array(MAX_CELLS);
+  const cellLive = new Uint8Array(MAX_CELLS);
   let solverEndA = null;
   let solverEndB = null;
   let solverColors = 0;
   let solverCount = 0;
+  let solverFull = false;
+  let solverFree = 0;
+  let solverSteps = 0;
+  let solverBudget = 0;
+  let solverAborted = false;
+  let compCount = 0;
+
+  function labelFree() {
+    compCount = 0;
+    for (let i = 0; i < cellCount; i += 1) compId[i] = solverBoard[i] === -1 ? -2 : -1;
+    for (let start = 0; start < cellCount; start += 1) {
+      if (compId[start] !== -2) continue;
+      const id = compCount;
+      compCount += 1;
+      compId[start] = id;
+      compStack[0] = start;
+      let top = 1;
+      while (top > 0) {
+        top -= 1;
+        const cell = compStack[top];
+        const base = cell * 4;
+        for (let i = 0; i < NEIGHBOUR_COUNT[cell]; i += 1) {
+          const next = NEIGHBOURS[base + i];
+          if (compId[next] !== -2) continue;
+          compId[next] = id;
+          compStack[top] = next;
+          top += 1;
+        }
+      }
+    }
+  }
+
+  // Can a and b still be joined, using only cells that are free right now?
+  // Endpoints are occupied by their own dots, so the link has to go through a
+  // free region touching both -- or the two cells are already adjacent.
+  function linked(a, b) {
+    const baseA = a * 4;
+    const baseB = b * 4;
+    for (let i = 0; i < NEIGHBOUR_COUNT[a]; i += 1) {
+      const viaA = NEIGHBOURS[baseA + i];
+      if (viaA === b) return true;
+      const id = compId[viaA];
+      if (id < 0) continue;
+      for (let k = 0; k < NEIGHBOUR_COUNT[b]; k += 1) {
+        if (compId[NEIGHBOURS[baseB + k]] === id) return true;
+      }
+    }
+    return false;
+  }
+
+  // Mark a cell a pipe can still grow from, and the free regions it can reach.
+  function markLive(cell) {
+    cellLive[cell] = 1;
+    const base = cell * 4;
+    for (let i = 0; i < NEIGHBOUR_COUNT[cell]; i += 1) {
+      const id = compId[NEIGHBOURS[base + i]];
+      if (id >= 0) compTouched[id] = 1;
+    }
+  }
+
+  function blocked(color, head) {
+    labelFree();
+    if (!linked(head, solverEndB[color])) return true;
+    for (let c = color + 1; c < solverColors; c += 1) {
+      if (!linked(solverEndA[c], solverEndB[c])) return true;
+    }
+    if (!solverFull) return false;
+
+    for (let i = 0; i < compCount; i += 1) compTouched[i] = 0;
+    markLive(head);
+    markLive(solverEndB[color]);
+    for (let c = color + 1; c < solverColors; c += 1) {
+      markLive(solverEndA[c]);
+      markLive(solverEndB[c]);
+    }
+
+    // Only the head being drawn and the dots still to be joined can lead into
+    // free cells, so a region none of them touches can never be covered.
+    let dead = false;
+    for (let i = 0; i < compCount; i += 1) {
+      if (!compTouched[i]) { dead = true; break; }
+    }
+    // A covered cell is entered once and left once, so it needs two neighbours
+    // a pipe can still arrive from or continue into.
+    if (!dead) {
+      for (let cell = 0; cell < cellCount; cell += 1) {
+        if (compId[cell] < 0) continue;
+        const base = cell * 4;
+        let ways = 0;
+        for (let i = 0; i < NEIGHBOUR_COUNT[cell]; i += 1) {
+          const next = NEIGHBOURS[base + i];
+          if (compId[next] >= 0 || cellLive[next]) ways += 1;
+        }
+        if (ways < 2) { dead = true; break; }
+      }
+    }
+
+    cellLive[head] = 0;
+    cellLive[solverEndB[color]] = 0;
+    for (let c = color + 1; c < solverColors; c += 1) {
+      cellLive[solverEndA[c]] = 0;
+      cellLive[solverEndB[c]] = 0;
+    }
+    return dead;
+  }
 
   function solverExtend(color, head) {
+    solverSteps += 1;
+    if (solverSteps > solverBudget) {
+      solverAborted = true;
+      return;
+    }
     const base = head * 4;
     const target = solverEndB[color];
     for (let i = 0; i < NEIGHBOUR_COUNT[head]; i += 1) {
@@ -192,97 +409,198 @@
         // Every dot cell is pre-coloured, so this is the only way into an
         // endpoint: no path can ever run *through* a dot, its own or another's.
         if (color + 1 === solverColors) {
-          solverCount += 1;
+          if (!solverFull || solverFree === 0) solverCount += 1;
         } else {
           solverExtend(color + 1, solverEndA[color + 1]);
         }
       } else if (solverBoard[next] === -1) {
         solverBoard[next] = color;
-        solverExtend(color, next);
+        solverFree -= 1;
+        if (!blocked(color, next)) solverExtend(color, next);
+        solverFree += 1;
         solverBoard[next] = -1;
       }
       // The cap has to bail out at every level, not just the top: rejected
       // candidates can otherwise enumerate dozens of solutions for nothing.
-      if (solverCount >= 2) return;
+      if (solverCount >= 2 || solverAborted) return;
     }
   }
 
-  function countSolutions(endA, endB) {
+  // Returns the number of solutions found, capped at 2. A search that runs out
+  // of budget sets solverAborted and its count means nothing -- the caller
+  // treats that candidate as unverified rather than as unique.
+  function countSolutions(endA, endB, requireFull, budget) {
     solverEndA = endA;
     solverEndB = endB;
     solverColors = endA.length;
+    solverFull = requireFull === true;
+    solverBudget = budget === undefined ? Infinity : budget;
+    solverSteps = 0;
+    solverAborted = false;
     solverBoard.fill(-1);
+    solverFree = cellCount - solverColors * 2;
     for (let c = 0; c < solverColors; c += 1) {
       solverBoard[endA[c]] = c;
       solverBoard[endB[c]] = c;
     }
     solverCount = 0;
-    solverExtend(0, endA[0]);
+    if (!blocked(0, endA[0])) solverExtend(0, endA[0]);
     return solverCount;
   }
 
   // -------------------------------------------------------------- generation
 
-  function difficultyFor(level) {
-    if (level <= 3) return { colors: 6, minLen: 3 };
-    if (level <= 9) return { colors: 5, minLen: 4 };
-    // Counter-intuitively, fewer colours is harder: with full coverage forced,
-    // fewer colours means longer paths and more routing freedom. So mix the
-    // 4-colour boards in as the spikes rather than ramping down past them.
-    return { colors: level % 3 === 0 ? 4 : 5, minLen: 4 };
+  // Golden-ratio (R1) low-discrepancy sequence. Successive levels land far
+  // apart in the range and every size comes up about equally often over any
+  // stretch of play -- which plain hashing does not give you, since random
+  // draws clump and four 12x12 boards in a row would be perfectly likely.
+  const PHI_INV = 0.6180339887498949;
+  const SIZE_PHASE = 0.44; // chosen so level 1 opens on a 5x5
+
+  function sizeForLevel(level) {
+    const t = (SIZE_PHASE + level * PHI_INV) % 1;
+    const quasi = MIN_SIZE + Math.floor(t * SIZE_SPAN);
+    // Ease the first levels in rather than opening the game on a 12x12 wall.
+    // Only levels 1-7 are capped, so the sequence is untouched from there on.
+    return Math.min(quasi, MIN_SIZE + level - 1, MAX_SIZE);
   }
 
+  function difficultyFor(level) {
+    const boardSize = sizeForLevel(level);
+    const cells = boardSize * boardSize;
+    // Colours are set by how long the pipes should be, not by the board area:
+    // pipes of five or six cells are what make a puzzle forced, and they get
+    // gently longer on the big boards, where holding sixteen colours apart is
+    // already work enough. That lands 5x5 on 5 pipes and 12x12 on 16, which is
+    // the density the genre settles on too.
+    const wanted = 5 + (boardSize - MIN_SIZE) * 0.5;
+    let colors = Math.round(cells / wanted);
+    // Counter-intuitively, fewer colours is the harder end: with full coverage
+    // forced, fewer colours means longer pipes and more routing freedom. So the
+    // level nudges the count either way rather than ramping in one direction,
+    // and two boards of the same size never feel like a repeat.
+    if (level % 3 === 0) colors -= 1;
+    if (level % 7 === 0) colors += 1;
+    if (colors < 4) colors = 4;
+    if (colors > MAX_COLORS) colors = MAX_COLORS;
+
+    const average = cells / colors;
+    return {
+      size: boardSize,
+      colors: colors,
+      // Bounds either side of the average, loose enough to leave the cut room
+      // to dodge touches but tight enough that no colour gets half the board
+      // (unforced) or a three-cell stub next to a monster.
+      minLen: Math.max(3, Math.round(average * 0.5)),
+      maxLen: Math.max(6, Math.round(average * 2.2)),
+    };
+  }
+
+  // Verifying a level means counting its solutions, and that is only affordable
+  // while the pipes are short: the search is exponential in how much slack each
+  // pipe has. Up to 9x9 a candidate is checked in milliseconds and better than
+  // one in ten comes back unique, so the search pays for itself -- every level
+  // that size or under ships verified.
+  // From 10x10 up neither holds -- a single count can take a second and unique
+  // candidates all but vanish, because a board that big always leaves a
+  // shortcut somewhere unless it is cut into far more pipes than there are
+  // distinguishable colours. Those levels lean on the cut instead, which is
+  // what removes the shortcuts a player would actually notice, and are played
+  // as the genre plays them: connect every pair *and* fill the board.
+  function budgetFor(boardSize) {
+    if (boardSize <= 6) return { attempts: 400, strict: 400, verify: true };
+    if (boardSize <= 9) return { attempts: 240, strict: 40, verify: true };
+    return { attempts: 60, strict: 0, verify: false };
+  }
+
+  // A search that runs this deep is either a pathological candidate or a slow
+  // way of learning what the next candidate would tell us cheaply.
+  const SEARCH_BUDGET = 40000;
+
   function generate(level) {
-    const rnd = mulberry32(mix32(level));
     const difficulty = difficultyFor(level);
+    setSize(difficulty.size);
+    const rnd = mulberry32(mix32(level));
+    const budget = budgetFor(difficulty.size);
     initPath();
-    backbite(rnd, 300);
+    backbite(rnd, cellCount * 12);
 
     let fallback = null;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      backbite(rnd, 60);
-      const segments = cutSegments(cutLengths(difficulty.colors, difficulty.minLen, rnd));
-      // Shuffle which palette colour each segment gets, otherwise the chain
+    let fallbackTouches = Infinity;
+    for (let attempt = 0; attempt < budget.attempts; attempt += 1) {
+      backbite(rnd, cellCount * 3);
+      let cut = cutChain(difficulty.colors, difficulty.minLen, difficulty.maxLen, rnd);
+      // The bounds are derived from the average piece length so they always
+      // admit a split, but rounding at the extremes is not worth trusting: fall
+      // back on the widest bounds that can still fit this many pieces.
+      if (!cut) cut = cutChain(difficulty.colors, 2, cellCount - (difficulty.colors - 1) * 2, rnd);
+      if (!cut) continue;
+
+      // Shuffle which palette colour each piece gets, otherwise the chain
       // order shows up as "red always sits next to orange".
       const order = [];
-      for (let i = 0; i < segments.length; i += 1) order.push(i);
+      for (let i = 0; i < cut.segments.length; i += 1) order.push(i);
       for (let i = order.length - 1; i > 0; i -= 1) {
         const j = (rnd() * (i + 1)) | 0;
         const tmp = order[i];
         order[i] = order[j];
         order[j] = tmp;
       }
-      const solution = order.map((i) => segments[i]);
-
+      const solution = order.map((i) => cut.segments[i]);
       const endA = solution.map((seg) => seg[0]);
       const endB = solution.map((seg) => seg[seg.length - 1]);
-      const found = countSolutions(endA, endB);
-      const puzzle = { level: level, colors: difficulty.colors, endA: endA, endB: endB, solution: solution };
-      if (found === 1) return puzzle;
-      if (!fallback) fallback = puzzle;
+      const puzzle = {
+        level: level,
+        size: difficulty.size,
+        colors: difficulty.colors,
+        touches: cut.touches,
+        verified: false,
+        endA: endA,
+        endB: endB,
+        solution: solution,
+      };
+
+      if (budget.verify) {
+        const strict = attempt < budget.strict;
+        const found = countSolutions(endA, endB, !strict, SEARCH_BUDGET);
+        if (found === 1 && !solverAborted) {
+          puzzle.verified = true;
+          return puzzle;
+        }
+      }
+      // Whatever the search says, the fewest shortcuts wins the fallback: the
+      // segments are a full-coverage solution by construction, so every
+      // candidate is completable and this is picking the best-formed one.
+      if (cut.touches < fallbackTouches) {
+        fallbackTouches = cut.touches;
+        fallback = puzzle;
+      }
+      if (fallbackTouches === 0 && !budget.verify) return fallback;
     }
-    // Unreachable in practice (see MAX_ATTEMPTS). The segments are a valid
-    // full-coverage solution by construction, so even this path yields a
-    // level that can be completed -- just not one that forces full coverage.
     return fallback;
   }
 
   // ------------------------------------------------------------ player state
 
-  const HINTS_PER_LEVEL = 2;
+  // Two hints is plenty on a 5x5; a 12x12 has more than twice the pipes.
+  function hintsFor(boardSize) {
+    return Math.max(2, Math.round(boardSize / 3));
+  }
 
   let puzzle = null;
-  let dotColor = new Int8Array(CELL_COUNT); // colour at dot cells, -1 elsewhere
-  let owner = new Int8Array(CELL_COUNT); // colour of the drawn pipe, -1 if bare
+  // Board-sized state is allocated once for the largest board; only the first
+  // cellCount entries are live on any given level.
+  let dotColor = new Int8Array(MAX_CELLS); // colour at dot cells, -1 elsewhere
+  let owner = new Int8Array(MAX_CELLS); // colour of the drawn pipe, -1 if bare
   // While a pipe is being dragged it may pass over cells belonging to other
   // colours without destroying them; displaced[cell] remembers who held the
   // cell so backing off restores it, and the real cut is applied on release.
-  let displaced = new Int8Array(CELL_COUNT);
+  let displaced = new Int8Array(MAX_CELLS);
   let paths = []; // ordered cells per colour; [] until the player starts one
   let activeColor = -1;
   let lastMovedColor = -1;
   let moves = 0;
-  let hintsLeft = HINTS_PER_LEVEL;
+  let hintsLeft = hintsFor(size);
   let undoStack = [];
   let solved = false;
   let level = 1;
@@ -290,7 +608,12 @@
 
   function loadPuzzle(nextLevel) {
     level = nextLevel;
+    // generate() sets the geometry for the level, so the board frame and the
+    // key grid have to be resized before anything is drawn against it.
     puzzle = generate(level);
+    applyBoardSize();
+    rebuildKeys();
+    resize();
     dotColor.fill(-1);
     for (let c = 0; c < puzzle.endA.length; c += 1) {
       dotColor[puzzle.endA[c]] = c;
@@ -307,7 +630,7 @@
     activeColor = -1;
     lastMovedColor = -1;
     moves = 0;
-    hintsLeft = HINTS_PER_LEVEL;
+    hintsLeft = hintsFor(size);
     undoStack = [];
     solved = false;
     hideOverlay();
@@ -520,17 +843,17 @@
   // orthogonal step at a time rather than dropping the input.
   function stepToward(cell) {
     if (activeColor < 0) return;
-    for (let guard = 0; guard < CELL_COUNT; guard += 1) {
+    for (let guard = 0; guard < cellCount; guard += 1) {
       const p = paths[activeColor];
       const head = p[p.length - 1];
       if (head === cell) break;
-      const dRow = ((cell / SIZE) | 0) - ((head / SIZE) | 0);
-      const dCol = (cell % SIZE) - (head % SIZE);
+      const dRow = ((cell / size) | 0) - ((head / size) | 0);
+      const dCol = (cell % size) - (head % size);
       // head !== cell here, so the larger delta is always non-zero.
       const next =
         Math.abs(dCol) >= Math.abs(dRow)
           ? head + Math.sign(dCol)
-          : head + Math.sign(dRow) * SIZE;
+          : head + Math.sign(dRow) * size;
       if (!tryStep(activeColor, next)) break;
     }
     refresh();
@@ -538,7 +861,7 @@
 
   function filledCells() {
     let n = 0;
-    for (let i = 0; i < CELL_COUNT; i += 1) if (owner[i] >= 0) n += 1;
+    for (let i = 0; i < cellCount; i += 1) if (owner[i] >= 0) n += 1;
     return n;
   }
 
@@ -553,7 +876,7 @@
   function checkWin() {
     if (solved) return;
     if (connectedCount() !== paths.length) return;
-    if (filledCells() !== CELL_COUNT) return;
+    if (filledCells() !== cellCount) return;
     solved = true;
     totalSolved += 1;
     writeStorage(SOLVED_KEY, String(totalSolved));
@@ -591,11 +914,18 @@
   if (typeof document === 'undefined') {
     // Loaded outside a browser (the generator test harness); skip the UI.
     if (typeof module !== 'undefined' && module.exports) {
-      module.exports = { generate: generate, countSolutions: countSolutions, difficultyFor: difficultyFor, SIZE: SIZE };
+      module.exports = {
+        generate: generate,
+        countSolutions: countSolutions,
+        difficultyFor: difficultyFor,
+        sizeForLevel: sizeForLevel,
+        wasAborted: function () { return solverAborted; },
+      };
     }
     return;
   }
 
+  const boardWrap = document.getElementById('board-wrap');
   const canvas = document.getElementById('board');
   const ctx = canvas.getContext('2d');
   const keyLayer = document.getElementById('keys');
@@ -603,6 +933,7 @@
   const movesEl = document.getElementById('moves');
   const flowsEl = document.getElementById('flows');
   const fillEl = document.getElementById('fill');
+  const sizeEl = document.getElementById('size');
   const overlay = document.getElementById('overlay');
   const overlayMessage = document.getElementById('overlay-message');
   const startBtn = document.getElementById('start-btn');
@@ -615,13 +946,33 @@
   let focusIndex = 0;
 
   const keys = [];
-  for (let cell = 0; cell < CELL_COUNT; cell += 1) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.dataset.cell = String(cell);
-    btn.tabIndex = cell === 0 ? 0 : -1;
-    keyLayer.appendChild(btn);
-    keys.push(btn);
+
+  // Bigger boards get a bigger frame, so a 12x12 cell stays roughly a
+  // fingertip rather than shrinking to a quarter of a 5x5 one.
+  function applyBoardSize() {
+    // The 70vh term matters on laptops: a 12x12 frame is otherwise tall
+    // enough to push the controls below the fold.
+    boardWrap.style.width = 'min(92vw, 70vh, ' + (330 + size * 20) + 'px)';
+  }
+
+  // The invisible key grid is per-cell, so it is rebuilt whenever the board
+  // size changes. Buttons are reused where the counts overlap: recreating all
+  // of them would drop keyboard focus on every level change.
+  function rebuildKeys() {
+    while (keys.length > cellCount) keyLayer.removeChild(keys.pop());
+    for (let cell = keys.length; cell < cellCount; cell += 1) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.cell = String(cell);
+      keyLayer.appendChild(btn);
+      keys.push(btn);
+    }
+    keyLayer.style.gridTemplateColumns = 'repeat(' + size + ', 1fr)';
+    keyLayer.style.gridTemplateRows = 'repeat(' + size + ', 1fr)';
+    focusIndex = 0;
+    for (let cell = 0; cell < keys.length; cell += 1) {
+      keys[cell].tabIndex = cell === 0 ? 0 : -1;
+    }
   }
 
   function showOverlay(message) {
@@ -636,11 +987,11 @@
   // ---------------------------------------------------------------- rendering
 
   function centreX(cell) {
-    return (cell % SIZE) * cellSize + cellSize / 2;
+    return (cell % size) * cellSize + cellSize / 2;
   }
 
   function centreY(cell) {
-    return ((cell / SIZE) | 0) * cellSize + cellSize / 2;
+    return ((cell / size) | 0) * cellSize + cellSize / 2;
   }
 
   function draw() {
@@ -649,7 +1000,7 @@
 
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
     ctx.lineWidth = 1;
-    for (let i = 1; i < SIZE; i += 1) {
+    for (let i = 1; i < size; i += 1) {
       const at = Math.round(i * cellSize) + 0.5;
       ctx.beginPath();
       ctx.moveTo(at, 0);
@@ -707,8 +1058,8 @@
   }
 
   function describe(cell) {
-    const row = ((cell / SIZE) | 0) + 1;
-    const col = (cell % SIZE) + 1;
+    const row = ((cell / size) | 0) + 1;
+    const col = (cell % size) + 1;
     let what = 'empty';
     if (dotColor[cell] >= 0) {
       what = COLOR_NAMES[dotColor[cell]] + ' dot';
@@ -724,8 +1075,9 @@
     levelEl.textContent = String(level);
     movesEl.textContent = String(moves);
     flowsEl.textContent = connectedCount() + '/' + paths.length;
-    fillEl.textContent = Math.round((filledCells() / CELL_COUNT) * 100) + '%';
-    for (let cell = 0; cell < CELL_COUNT; cell += 1) {
+    fillEl.textContent = Math.round((filledCells() / cellCount) * 100) + '%';
+    sizeEl.textContent = size + '\u00d7' + size;
+    for (let cell = 0; cell < cellCount; cell += 1) {
       keys[cell].setAttribute('aria-label', describe(cell));
     }
     hintBtn.textContent = 'Hint (' + hintsLeft + ')';
@@ -739,7 +1091,7 @@
     if (!rect.width) return;
     const dpr = window.devicePixelRatio || 1;
     cssSize = rect.width;
-    cellSize = cssSize / SIZE;
+    cellSize = cssSize / size;
     canvas.width = Math.round(cssSize * dpr);
     canvas.height = Math.round(cssSize * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -750,10 +1102,10 @@
 
   function cellFromEvent(event) {
     const rect = canvas.getBoundingClientRect();
-    const col = Math.floor(((event.clientX - rect.left) / rect.width) * SIZE);
-    const row = Math.floor(((event.clientY - rect.top) / rect.height) * SIZE);
-    if (row < 0 || row >= SIZE || col < 0 || col >= SIZE) return -1;
-    return row * SIZE + col;
+    const col = Math.floor(((event.clientX - rect.left) / rect.width) * size);
+    const row = Math.floor(((event.clientY - rect.top) / rect.height) * size);
+    if (row < 0 || row >= size || col < 0 || col >= size) return -1;
+    return row * size + col;
   }
 
   canvas.addEventListener('pointerdown', (event) => {
@@ -796,12 +1148,14 @@
     if (moveFocus !== false) keys[focusIndex].focus();
   }
 
-  const ARROWS = {
-    ArrowUp: -SIZE,
-    ArrowDown: SIZE,
-    ArrowLeft: -1,
-    ArrowRight: 1,
-  };
+  // Computed rather than tabulated: the row stride changes with the board.
+  function arrowDelta(key) {
+    if (key === 'ArrowUp') return -size;
+    if (key === 'ArrowDown') return size;
+    if (key === 'ArrowLeft') return -1;
+    if (key === 'ArrowRight') return 1;
+    return undefined;
+  }
 
   keyLayer.addEventListener('keydown', (event) => {
     const cell = Number(event.target.dataset.cell);
@@ -826,12 +1180,12 @@
       return;
     }
 
-    const delta = ARROWS[event.key];
+    const delta = arrowDelta(event.key);
     if (delta === undefined) return;
     const next = cell + delta;
     // Guard the horizontal wrap that a flat index would otherwise allow.
-    if (next < 0 || next >= CELL_COUNT) return;
-    if (Math.abs(delta) === 1 && ((next / SIZE) | 0) !== ((cell / SIZE) | 0)) return;
+    if (next < 0 || next >= cellCount) return;
+    if (Math.abs(delta) === 1 && ((next / size) | 0) !== ((cell / size) | 0)) return;
     event.preventDefault();
 
     if (activeColor >= 0) {
@@ -878,6 +1232,6 @@
     generate: generate,
     countSolutions: countSolutions,
     difficultyFor: difficultyFor,
-    SIZE: SIZE,
+    sizeForLevel: sizeForLevel,
   };
 })();

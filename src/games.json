@@ -20,7 +20,7 @@
   {
     "id": "pipelines",
     "title": "Pipelines",
-    "description": "Connect every pair of matching dots and fill the whole grid without crossing a single pipe.",
+    "description": "Connect every pair of matching dots and fill the whole grid, on boards that grow from 5x5 to 12x12.",
     "path": "/games/pipelines/",
     "thumbnail": "/games/pipelines/thumbnail.svg",
     "genre": "Puzzle",
