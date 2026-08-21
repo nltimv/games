@@ -10,7 +10,8 @@
 
 .pl-board-wrap {
   position: relative;
-  width: min(92vw, 420px);
+  /* Starting width only: the script widens the frame for bigger boards. */
+  width: min(92vw, 430px);
   aspect-ratio: 1;
   padding: 6px;
   background: #10131a;
@@ -31,7 +32,8 @@
 
 /* An invisible grid of real buttons sits over the canvas purely to carry
    keyboard focus and screen-reader labels. Pointer events pass straight
-   through to the canvas, which owns all mouse and touch input. */
+   through to the canvas, which owns all mouse and touch input. The row and
+   column counts are set by the script, since they change with the level. */
 .pl-keys {
   position: absolute;
   inset: 6px;
@@ -52,6 +54,109 @@
   outline: 2px solid var(--text);
   outline-offset: -4px;
   border-radius: 6px;
+}
+
+/* The overlay doubles as the "building a level" notice, where there is nothing
+   to press yet. */
+.pl-board-wrap .overlay button[hidden],
+.pl-complete[hidden],
+.pl-perfect[hidden],
+.pl-spinner[hidden] {
+  display: none;
+}
+
+/* --- level cleared ------------------------------------------------------ */
+
+/* Finishing a board deserves more than a status line, so the win state gets a
+   headline, a little more room, and a wash of the accent colour behind it. */
+.pl-overlay-win {
+  gap: 0.35rem;
+  /* Denser than the plain overlay: the finished board behind it is a nice
+     backdrop but a poor thing to read a headline against. */
+  background:
+    radial-gradient(circle at 50% 38%, rgba(77, 208, 164, 0.18), transparent 62%),
+    rgba(10, 12, 18, 0.94);
+}
+
+.pl-complete {
+  margin: 0;
+  font-size: clamp(2rem, 9vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  background: linear-gradient(120deg, var(--text) 20%, var(--accent) 60%, var(--accent-2) 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: pl-rise 0.32s ease-out both;
+}
+
+/* Every pipe drawn once, in one move, without spending a hint. */
+.pl-perfect {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffd54d;
+  animation: pl-rise 0.32s ease-out 0.12s both;
+}
+
+.pl-star {
+  font-size: 1.4em;
+  line-height: 1;
+  /* The glow is what makes the star read as a reward rather than a bullet. */
+  text-shadow: 0 0 12px rgba(255, 213, 77, 0.65);
+}
+
+.pl-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.pl-overlay-win button {
+  margin-top: 0.75rem;
+}
+
+/* The overlay's own text is the visible copy; this one exists to be read out
+   in a single sentence rather than as three separate updates. */
+.pl-announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes pl-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.96);
+  }
+}
+
+/* Levels are built in a worker, so this keeps turning while the search runs --
+   on the main thread it would sit frozen for exactly as long as it mattered. */
+.pl-spinner {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 3px solid var(--surface-hover);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: pl-spin 0.8s linear infinite;
+}
+
+@keyframes pl-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .pl-controls {
