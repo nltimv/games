@@ -901,13 +901,20 @@
   // Letting go one cell short of the matching dot reads as "and done", so the
   // last step is taken for the player rather than leaving a pipe a cell shy of
   // finished. Only ever the pipe's own dot, and only from right beside it.
-  function snapToDot(color) {
+  // Returns the dot a release would reach, or -1 -- the drawing code asks the
+  // same question so that the hint on screen and the step taken cannot differ.
+  function snapTarget(color) {
     const p = paths[color];
-    if (!p.length) return;
+    if (!p.length) return -1;
     const head = p[p.length - 1];
     const target = otherEnd(color, p[0]);
-    if (head === target || !areAdjacent(head, target)) return;
-    tryStep(color, target);
+    if (head === target || !areAdjacent(head, target)) return -1;
+    return target;
+  }
+
+  function snapToDot(color) {
+    const target = snapTarget(color);
+    if (target >= 0) tryStep(color, target);
   }
 
   // Apply the cuts that were deferred while the pipe was being dragged.
@@ -1058,6 +1065,10 @@
 
   function checkWin() {
     if (solved) return;
+    // Not while a pipe is still in hand: the win screen would come up over a
+    // drag that is still live, leaving the player pulling the last pipe around
+    // underneath it -- and taking the board back apart behind the overlay.
+    if (activeColor >= 0) return;
     if (connectedCount() !== paths.length) return;
     if (filledCells() !== cellCount) return;
     solved = true;
@@ -1435,7 +1446,10 @@
     // The dragged pipe draws last so it rides over anything it is crossing --
     // the pipe underneath is still whole until the pointer is released.
     for (let c = 0; c < paths.length; c += 1) if (c !== activeColor) drawPipe(c);
-    if (activeColor >= 0) drawPipe(activeColor);
+    if (activeColor >= 0) {
+      drawPipe(activeColor);
+      drawSnapHint(activeColor);
+    }
     ctx.globalAlpha = 1;
 
     for (let c = 0; c < paths.length; c += 1) {
@@ -1463,6 +1477,22 @@
     ctx.beginPath();
     ctx.moveTo(centreX(p[0]), centreY(p[0]));
     for (let i = 1; i < p.length; i += 1) ctx.lineTo(centreX(p[i]), centreY(p[i]));
+    ctx.stroke();
+  }
+
+  // The step that letting go here would take, drawn faint: the snap is only
+  // obvious once you know about it, and a ghost of the last piece of pipe says
+  // "release and this is yours" without committing to it. Drawn before the
+  // dots so it runs under the dot it is reaching for, like a real pipe would.
+  function drawSnapHint(color) {
+    const target = snapTarget(color);
+    if (target < 0) return;
+    const head = paths[color][paths[color].length - 1];
+    ctx.strokeStyle = PALETTE[color];
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.moveTo(centreX(head), centreY(head));
+    ctx.lineTo(centreX(target), centreY(target));
     ctx.stroke();
   }
 
