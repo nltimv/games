@@ -1,6 +1,6 @@
 {
   "name": "games-hub",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "A web application hub for random browser-based games",
   "private": true,
   "license": "MIT",
@@ -10,9 +10,18 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "lint": "eslint .",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "check": "npm run lint && npm test",
+    "balance": "node test/balance/driftworks.mjs"
   },
   "dependencies": {
     "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0"
   }
 }

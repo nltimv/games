@@ -32,7 +32,6 @@
   let mineCount;
   let cells = []; // flat array of { mine, revealed, flagged, adjacent, el }
   let minesPlaced = false;
-  let running = false;
   let finished = false;
   let flagsUsed = 0;
   let revealedCount = 0;
@@ -69,7 +68,6 @@
     mineCount = config.mines;
 
     minesPlaced = false;
-    running = false;
     finished = false;
     flagsUsed = 0;
     revealedCount = 0;
@@ -205,7 +203,6 @@
 
   function beginRun(firstIndex) {
     placeMines(firstIndex);
-    running = true;
     elapsed = 0;
     timerEl.textContent = '0';
     startTimer();
@@ -268,7 +265,6 @@
   }
 
   function gameOver(explodedIndex) {
-    running = false;
     finished = true;
     stopTimer();
     faceBtn.textContent = '😵';
@@ -286,7 +282,6 @@
   function checkWin() {
     if (revealedCount !== cells.length - mineCount) return;
 
-    running = false;
     finished = true;
     stopTimer();
     faceBtn.textContent = '😎';

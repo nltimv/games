@@ -25,5 +25,14 @@
     "thumbnail": "/games/pipelines/thumbnail.svg",
     "genre": "Puzzle",
     "controls": "Drag from a dot to draw a pipe; arrow keys also work"
+  },
+  {
+    "id": "driftworks",
+    "title": "Driftworks",
+    "description": "Run a small space company between work sessions: mine asteroids, trade between stations and grow your fleet while you focus.",
+    "path": "/games/driftworks/",
+    "thumbnail": "/games/driftworks/thumbnail.svg",
+    "genre": "Idle trading",
+    "controls": "Click or tap the map and panels; drag to pan, scroll or pinch to zoom"
   }
 ]

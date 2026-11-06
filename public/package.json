@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Marks the browser code under public/ as ES modules so Node tests can import shared and game modules directly. Classic game scripts are unaffected because browsers ignore this file."
+}

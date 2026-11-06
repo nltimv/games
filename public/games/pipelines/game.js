@@ -1272,7 +1272,7 @@
 
   function readBoardStore() {
     const store = new Map();
-    let parsed = null;
+    let parsed;
     try {
       parsed = JSON.parse(readStorage(BOARD_STORE_KEY) || 'null');
     } catch (err) {
