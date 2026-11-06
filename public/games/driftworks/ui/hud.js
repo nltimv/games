@@ -66,7 +66,7 @@ export function underwayCard(ctx) {
       h('strong', null, 'Underway'),
       h('span', { class: 'dw-underway-sub' }, `${busy.length} running · ${idle.length} waiting`),
     ),
-    runs.length ? runs : h('p', { class: 'dw-note' }, 'Nothing is running. Give a ship an order before you get back to work.'),
+    runs.length ? runs : h('p', { class: 'dw-note' }, 'Nothing is running.'),
     moreBusy > 0 ? h('span', { class: 'dw-note' }, `+${moreBusy} more in Fleet`) : null,
     idleChips.length || goal
       ? h(

@@ -1,8 +1,8 @@
 // An asteroid field: what it holds, who buys it, and sending miners there.
 
-import { GOODS, goodName } from '../../content/goods.js';
+import { GOODS } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
-import { findField, findStation } from '../../content/homeSystem.js';
+import { findField } from '../../content/homeSystem.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { cargoTotal } from '../../systems/cargo.js';
 import { findShip } from '../../systems/fleet.js';
@@ -87,17 +87,12 @@ function minersSection(ctx, field) {
           ),
         ),
       ),
-      h(
-        'p',
-        { class: 'dw-note' },
-        `${chosen.name} leaves from ${findStation(chosen.at).name} and brings the ${goodName(field.good).toLowerCase()} back there. Longer trips mine a little more per minute, so match the trip to your next work block.`,
-      ),
     );
     if (carried > 0) {
       parts.push(h('p', { class: 'dw-note is-warn' }, `${chosen.name} already carries ${tonnes(carried)}, so only ${tonnes(hold - carried)} of hold is free.`));
     }
   } else if (!busy.length) {
-    parts.push(h('p', { class: 'dw-note' }, 'You have no mining ship. Mules are sold at Halcyon Shipyard.'));
+    parts.push(h('p', { class: 'dw-note' }, 'You have no mining ship.'));
   }
 
   for (const ship of busy) {

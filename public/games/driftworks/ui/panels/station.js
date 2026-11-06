@@ -101,16 +101,6 @@ function marketSection(ctx, station, docked) {
   if (lowest && lowest.pressure < -0.08) {
     notes.push(h('p', { class: 'dw-note' }, `${goodName(lowest.good)} pays less after recent sales. It recovers over the next few hours.`));
   }
-  if (!hauler && sells.length) {
-    const anyHauler = state.ships.some(isHauler);
-    notes.push(
-      h(
-        'p',
-        { class: 'dw-note' },
-        anyHauler ? 'Dock a hauler here to buy these goods.' : 'Buying goods needs a hauler. Kite haulers are sold at Halcyon Shipyard.',
-      ),
-    );
-  }
 
   return h(
     'div',
@@ -276,7 +266,6 @@ function shipyardSection(ctx, station) {
     { class: 'dw-section' },
     sectionTitle('Ships for sale'),
     cards,
-    h('p', { class: 'dw-note' }, 'New ships start docked here. The Halcyon licence fee grows with each ship of a type you own. Refits and bigger hulls arrive with research.'),
   );
 }
 
@@ -318,13 +307,8 @@ function dockedCard(ctx, station, ship) {
     }
   }
 
-  let hint = null;
   if (isMiner(ship)) {
     actions.push(button('Send mining', { key: `mine-${ship.id}`, onClick: () => ctx.select('ship', ship.id) }));
-  } else if (isHauler(ship) && !goods.length && station.type !== 'shipyard') {
-    hint = h('p', { class: 'dw-note' }, 'Pick Buy next to a good below to plan a trade.');
-  } else if (isHauler(ship) && station.type === 'shipyard') {
-    hint = h('p', { class: 'dw-note' }, 'Fly to the refinery to start trading.');
   }
 
   return h(
@@ -337,7 +321,6 @@ function dockedCard(ctx, station, ship) {
       h('span', { class: 'dw-grow' }, h('strong', null, ship.name), h('small', null, `${hull.name} · hold ${tonnes(cargoTotal(ship))} / ${tonnes(hull.hold)}`)),
     ),
     goods.length ? h('div', { class: 'dw-chips' }, goods.map((g) => chip([swatch(g), tonnes(ship.cargo[g], g)]))) : null,
-    hint,
     actions.length ? h('div', { class: 'dw-row-actions' }, actions) : null,
   );
 }

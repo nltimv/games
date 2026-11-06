@@ -40,7 +40,6 @@ export function overviewPanel(ctx) {
       subtitle: `${FACTIONS[system.faction].name} space · your home`,
       onClose: ctx.isPhone() ? ctx.close : null,
     }),
-    h('p', { class: 'dw-note' }, 'Select a ship, then right-click (or press and hold) a field or station on the map to give it orders. Pick a place to see everything it offers.'),
     h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)),
     h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)),
     h(
@@ -108,7 +107,6 @@ export function companyPanel(ctx) {
         { class: 'dw-card is-gold' },
         h('span', { class: 'dw-eyebrow' }, 'Current goal'),
         h('div', { class: 'dw-card-head' }, h('strong', null, goal.title), h('span', { class: 'dw-goal-reward' }, `+${formatCredits(goal.reward)}`)),
-        h('p', { class: 'dw-note' }, goal.hint),
         goal.progress ? goalProgress(goal.progress(state)) : null,
       )
     : h('div', { class: 'dw-card is-aqua' }, h('strong', null, 'All goals done'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));

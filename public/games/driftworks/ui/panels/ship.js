@@ -56,7 +56,7 @@ function statusCard(ctx, ship) {
       { class: 'dw-card is-aqua' },
       h('div', { class: 'dw-card-head' }, h('strong', null, order.label), countdown(order.endsAt)),
       bar({ start: order.startedAt, end: order.endsAt }),
-      h('p', { class: 'dw-note' }, `${verb} at ${at(order.endsAt)}. Orders cannot be cancelled once given.`),
+      h('p', { class: 'dw-note' }, `${verb} at ${at(order.endsAt)}.`),
     );
   }
   const station = findStation(ship.at);
@@ -64,7 +64,6 @@ function statusCard(ctx, ship) {
     'div',
     { class: 'dw-card is-gold' },
     h('div', { class: 'dw-card-head' }, h('strong', null, `Docked at ${station.name}`), h('span', null, 'Waiting for orders')),
-    h('p', { class: 'dw-note' }, `${ctx.isPhone() ? 'Press and hold' : 'Right-click'} a field or station on the map to send ${ship.name} there, or pick an order below.`),
     h('div', { class: 'dw-row-actions' }, button(`Open ${station.name}`, { small: true, key: 'open-station', onClick: () => ctx.select('station', station.id) })),
   );
 }
@@ -140,11 +139,6 @@ function idleActions(ctx, ship) {
     );
   }
 
-  if (hull.role === 'hauler') {
-    sections.push(
-      h('p', { class: 'dw-note' }, `To trade, right-click another station on the map: the menu lists the best buys here to sell there. The station panel has Buy for each good too.`),
-    );
-  }
 
   // Fly somewhere without cargo business.
   const destinations = HOME_SYSTEM.stations.filter((s) => s.id !== ship.at);

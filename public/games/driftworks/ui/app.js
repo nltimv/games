@@ -112,10 +112,7 @@ export function createApp(session, doc = document) {
       return;
     }
     const ship = ui.view === 'system' && ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
-    if (!ship) {
-      toast(`Select a ship first, then ${point.touch ? 'press and hold' : 'right-click'} where it should go.`);
-      return;
-    }
+    if (!ship) return;
     ui.menu = { target, x: point.x, y: point.y, touch: Boolean(point.touch), shipId: ship.id };
     render();
     // Mouse users can arrow through it; on touch, focus only gets in the way.
