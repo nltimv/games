@@ -73,7 +73,7 @@ npm run dev
 
 npm run lint       # ESLint over the server, games, shared code and tests
 npm test           # node:test suites in test/ (needs Node 22 for the glob)
-npm run balance    # Driftworks pacing simulation, e.g. npm run balance -- 5 50 10
+npm run balance    # Driftworks pacing simulation, e.g. npm run balance -- all 6
 ```
 
 ## Docker
