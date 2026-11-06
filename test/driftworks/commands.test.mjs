@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { advance } from '../../public/games/driftworks/core/sim.js';
-import { orderOptions } from '../../public/games/driftworks/systems/advisor.js';
-import { carryOut } from '../../public/games/driftworks/systems/commands.js';
+import { groupOrderOptions, orderOptions } from '../../public/games/driftworks/systems/advisor.js';
+import { carryOut, carryOutGroup } from '../../public/games/driftworks/systems/commands.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
 import { newGame, firstShip } from './helpers.mjs';
@@ -106,4 +106,27 @@ test('fly, unknown ships and unknown options', () => {
   assert.equal(carryOut(state, 'nope', fly).ok, false);
   assert.equal(carryOut(state, mule.id, { kind: 'warp' }).ok, false);
   assert.ok(giveOrder(state, mule, { type: 'fly', stationId: 'halcyon-foundry' }).queued);
+});
+
+test('several selected ships get the orders they can all take, each its own', () => {
+  const state = newGame({ credits: 100_000 });
+  const a = firstShip(state);
+  const b = createShip(state, 'mule', 'halcyon-shipyard');
+  const kite = createShip(state, 'kite', 'halcyon-shipyard');
+  const ships = [a, b, kite];
+  const atField = groupOrderOptions(state, ships, field('kx14'));
+  assert.deepEqual(kinds(atField), ['mine']);
+  assert.equal(atField[0].members.length, 2, 'the Kite cannot mine');
+  assert.equal(atField[0].of, 3);
+  const result = carryOutGroup(state, atField[0]);
+  assert.deepEqual(result, { ok: true, count: 2, error: null });
+  assert.ok(a.order && b.order && !kite.order);
+
+  // The refinery buys the ore both Mules will carry; all three can fly there.
+  const atRefinery = groupOrderOptions(state, ships, station('halcyon-refinery'));
+  assert.deepEqual(kinds(atRefinery), ['sell', 'fly']);
+  assert.equal(atRefinery[0].members.length, 2);
+  assert.ok(atRefinery[0].total > 0);
+  assert.equal(atRefinery[1].members.length, 3);
+  assert.equal(carryOutGroup(state, { members: [] }).ok, false);
 });

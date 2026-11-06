@@ -6,6 +6,7 @@
 import { createMapView } from '../render/mapView.js';
 import { HOME_SYSTEM, findPlace } from '../content/homeSystem.js';
 import { findShip } from '../systems/fleet.js';
+import { minedSoFar, orderPhase } from '../systems/orders.js';
 import { shipPosition } from '../systems/travel.js';
 import { renderInto, updateLive, h } from './dom.js';
 import { renderTopBar, underwayCard } from './hud.js';
@@ -14,7 +15,7 @@ import { menuKeydown, orderMenu, placeMenu } from './contextMenu.js';
 import { stationPanel } from './panels/station.js';
 import { fieldPanel } from './panels/field.js';
 import { shipPanel } from './panels/ship.js';
-import { companyPanel, fleetPanel, gatePanel, overviewPanel } from './panels/lists.js';
+import { companyPanel, fleetPanel, gatePanel, groupPanel, overviewPanel } from './panels/lists.js';
 import { researchPanel } from './panels/research.js';
 import { currentGuide, guideCard, markGuided } from './tutorial.js';
 
@@ -54,6 +55,7 @@ export function createApp(session, doc = document) {
   let dragging = false;
   let renderHeld = false;
   let guideKey = null;
+  let shownPhases = '';
 
   const isPhone = () => phoneQuery.matches;
 
@@ -78,6 +80,36 @@ export function createApp(session, doc = document) {
       const point = ship ? shipPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : findPlace(id);
       if (point) map.focusOn(point.x, point.y);
     }
+  }
+
+  /**
+   * Selects several ships at once (a box selection). One ship is a normal
+   * selection, none clears it. With `additive`, ships already selected
+   * stay selected.
+   */
+  function selectShips(ids, { additive = false } = {}) {
+    const current = !additive ? [] : ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
+    const all = [...new Set([...current, ...ids])].filter((id) => findShip(session.state, id));
+    if (!all.length) return additive ? undefined : close();
+    if (all.length === 1) return select('ship', all[0]);
+    Object.assign(ui, { view: 'system', selection: { kind: 'ships', ids: all }, overview: false, menu: null, trade: null });
+    render();
+    focusPanelIfNeeded();
+  }
+
+  /** Shift-click: adds a ship to the selection, or takes it out. */
+  function toggleShip(id) {
+    const ids = ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
+    if (!ids.includes(id)) return selectShips([...ids, id]);
+    const rest = ids.filter((other) => other !== id);
+    return rest.length ? selectShips(rest) : close();
+  }
+
+  /** The ships selected now: one, several, or none. */
+  function selectedShips() {
+    if (ui.view !== 'system') return [];
+    const ids = ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
+    return ids.map((id) => findShip(session.state, id)).filter(Boolean);
   }
 
   function close() {
@@ -118,9 +150,10 @@ export function createApp(session, doc = document) {
       select('ship', target.id);
       return;
     }
-    const ship = ui.view === 'system' && ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
-    if (!ship) return;
-    ui.menu = { target, x: point.x, y: point.y, touch: Boolean(point.touch), shipId: ship.id };
+    const ships = selectedShips();
+    if (!ships.length) return;
+    const who = ships.length === 1 ? { shipId: ships[0].id } : { shipIds: ships.map((ship) => ship.id) };
+    ui.menu = { target, x: point.x, y: point.y, touch: Boolean(point.touch), ...who };
     render();
     // Mouse users can arrow through it; on touch, focus only gets in the way.
     if (!ui.menu.touch) els.menu.focus({ preventScroll: true });
@@ -172,6 +205,7 @@ export function createApp(session, doc = document) {
       now: Date.now(),
       ui,
       select,
+      selectShips,
       close,
       setView,
       isPhone,
@@ -200,6 +234,7 @@ export function createApp(session, doc = document) {
     if (sel.kind === 'station') return stationPanel(ctx, sel.id);
     if (sel.kind === 'field') return fieldPanel(ctx, sel.id);
     if (sel.kind === 'ship') return findShip(session.state, sel.id) ? shipPanel(ctx, sel.id) : overviewPanel(ctx);
+    if (sel.kind === 'ships') return groupPanel(ctx, sel.ids);
     if (sel.kind === 'gate') return gatePanel(ctx, sel.id);
     return overviewPanel(ctx);
   }
@@ -210,6 +245,7 @@ export function createApp(session, doc = document) {
       return;
     }
     const ctx = context();
+    shownPhases = phaseKey(ctx.now);
     shownCredits = renderTopBar(els, session.state, shownCredits);
     ui.guide = currentGuide(session.state, ui);
 
@@ -232,6 +268,15 @@ export function createApp(session, doc = document) {
       if (btn.dataset.view === ui.view) btn.setAttribute('aria-current', 'page');
       else btn.removeAttribute('aria-current');
     }
+  }
+
+  // Which part of its order (flight or job) each ship is in, so the panels
+  // re-render when a ship arrives and starts its job.
+  // The selected ship's hold also fills while it mines.
+  function phaseKey(now) {
+    const phases = session.state.ships.map((ship) => (ship.order ? orderPhase(ship.order, now).end : 0)).join(',');
+    const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
+    return `${phases}|${ship ? minedSoFar(ship.order, now) : 0}`;
   }
 
   // ---------- Tutorial ----------
@@ -294,13 +339,15 @@ export function createApp(session, doc = document) {
   const map = createMapView(els.map, {
     getState: () => session.state,
     getSelection: () => (ui.view === 'system' ? ui.selection : null),
-    getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId } : null),
+    getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
     getGuideTarget: () => (ui.view === 'system' || !isPhone() ? (ui.guide?.map ?? null) : null),
-    onSelect(target) {
-      if (target) select(target.kind, target.id);
+    onSelect(target, mods = {}) {
+      if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);
+      else if (target) select(target.kind, target.id);
       else if (ui.menu) closeMenu();
       else if (ui.selection) close();
     },
+    onBoxSelect: (ids, mods) => selectShips(ids, mods),
     onContextMenu: openMenu,
     getSafeArea(width, height) {
       const gap = 12;
@@ -396,6 +443,9 @@ export function createApp(session, doc = document) {
     showAwayIfNeeded,
     /** Called every second: refresh countdowns and timed bars. */
     updateLive(now) {
+      // A ship that lands starts its job, with its own label and time.
+      const phases = phaseKey(now);
+      if (phases !== shownPhases && !renderHeld && !dragging) render();
       updateLive(doc.body, now);
       // Map labels count down too.
       map.redraw();

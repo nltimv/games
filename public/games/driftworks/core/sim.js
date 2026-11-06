@@ -6,7 +6,7 @@
 // company gets while the player is away is bounded by the queue length and
 // hold sizes research unlocks.
 
-import { findStation } from '../content/homeSystem.js';
+import { findField, findStation } from '../content/homeSystem.js';
 import { buyCargo, freeHold, sellCargo } from '../systems/cargo.js';
 import { expireContracts, refreshBoard } from '../systems/contracts.js';
 import { logMined, startNextOrder } from '../systems/orders.js';
@@ -38,7 +38,9 @@ const STEP_HANDLERS = {
   },
   arrive(state, ship, step) {
     ship.at = step.station;
-    addLog(state, step.at, `${ship.name} docked at ${findStation(step.station).name}`, 'arrival');
+    const station = findStation(step.station);
+    const place = station ?? findField(step.station);
+    addLog(state, step.at, `${ship.name} ${station ? 'docked' : 'arrived'} at ${place?.name ?? 'its target'}`, 'arrival');
   },
   sell(state, ship, step) {
     ship.at = step.station;

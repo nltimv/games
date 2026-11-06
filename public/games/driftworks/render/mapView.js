@@ -1,6 +1,8 @@
 // The interactive map: owns the canvas, the camera, when to draw, and
-// pointer input (drag to pan, wheel or pinch to zoom, click to select,
-// right-click or long-press for the order menu).
+// pointer input. With a mouse: click to select (Shift adds or removes a
+// ship), drag a box to select ships, right-click for the order menu, and
+// right-drag (or middle-drag) to pan. On touch: tap to select, drag to pan,
+// pinch to zoom, press and hold for the order menu. The wheel zooms.
 //
 // The map only draws when something changed: input, a camera glide, a game
 // update (invalidate), or ships moving far enough to show. Ships crawl at a
@@ -13,7 +15,7 @@ import { shipPosition } from '../systems/travel.js';
 import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, zoomAt } from './camera.js';
 import { loadAssets } from './assets.js';
 import { clearLabels } from './labels.js';
-import { drawSystem, hitTest, renderBackground } from './systemMap.js';
+import { drawSystem, hitTest, renderBackground, shipsInBox } from './systemMap.js';
 
 const DRAG_THRESHOLD = 6;
 const LONG_PRESS_MS = 480;
@@ -32,7 +34,9 @@ const IDLE_MAX_MS = 1000;
  *   getMenuTarget()          { kind, id } the order menu is open for, or null
  *   getGuideTarget()         { kind, id } the tutorial points at, or null
  *   getSafeArea(w, h)        the free screen rect { x, y, width, height }
- *   onSelect(target)         called with { kind, id } or null on a click
+ *   onSelect(target, mods)   called with { kind, id } or null on a click;
+ *                            mods.additive when Shift was held
+ *   onBoxSelect(ids, mods)   the ship ids inside a dragged box (mouse)
  *   onContextMenu(target, p) right-click or long-press on { kind, id } (or
  *                            null); p is the viewport point { x, y }, with
  *                            `touch` set for a long-press
@@ -47,6 +51,7 @@ export function createMapView(canvas, options) {
   let sky = null;
   let targets = [];
   let hover = null;
+  let box = null;
   let running = false;
   let raf = 0;
   let idleTimer = 0;
@@ -76,9 +81,23 @@ export function createMapView(canvas, options) {
       target: options.getMenuTarget?.() ?? null,
       guide: options.getGuideTarget?.() ?? null,
       hover,
+      boxed: box ? shipsInBox(targets, box.a, box.b) : null,
       dpr,
     });
+    if (box) drawBox(box);
     return fitting || panning;
+  }
+
+  function drawBox({ a, b }) {
+    const x = Math.min(a.x, b.x);
+    const y = Math.min(a.y, b.y);
+    const w = Math.abs(a.x - b.x);
+    const h = Math.abs(a.y - b.y);
+    ctx.fillStyle = 'rgba(143, 245, 228, 0.08)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(143, 245, 228, 0.75)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
   }
 
   /** Asks for a redraw on the next animation frame. */
@@ -141,18 +160,28 @@ export function createMapView(canvas, options) {
     longPress = 0;
   }
 
+  // What a mouse button does when dragged: the left one draws a selection
+  // box, the right and middle ones pan. A Mac Ctrl-click counts as right.
+  function mouseButton(e) {
+    if (e.button === 0 && e.ctrlKey) return 'right';
+    return e.button === 0 ? 'left' : e.button === 2 ? 'right' : e.button === 1 ? 'middle' : null;
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
     lastPointerType = e.pointerType;
-    // The right button opens the menu (contextmenu below), never drags.
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const mouse = e.pointerType === 'mouse';
+    const which = mouse ? mouseButton(e) : 'touch';
+    if (!which) return;
+    if (mouse && pointers.size) return; // a second button while dragging
+    if (which === 'middle') e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
     cam.panTarget = null;
     const p = localPoint(e);
     pointers.set(e.pointerId, p);
     cancelLongPress();
     if (pointers.size === 1) {
-      drag = { start: p, last: p, moved: false, handled: false };
-      if (e.pointerType !== 'mouse') {
+      drag = { start: p, last: p, moved: false, handled: false, which, client: { x: e.clientX, y: e.clientY } };
+      if (!mouse) {
         const client = { x: e.clientX, y: e.clientY, touch: true };
         longPress = setTimeout(() => {
           longPress = 0;
@@ -180,7 +209,7 @@ export function createMapView(canvas, options) {
           hover = next;
           invalidate();
         }
-        canvas.style.cursor = hover ? 'pointer' : 'grab';
+        canvas.style.cursor = hover ? 'pointer' : 'default';
       }
       return;
     }
@@ -197,9 +226,12 @@ export function createMapView(canvas, options) {
       if (!drag.moved && Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > DRAG_THRESHOLD) {
         drag.moved = true;
         cancelLongPress();
-        canvas.style.cursor = 'grabbing';
+        canvas.style.cursor = drag.which === 'left' ? 'crosshair' : 'grabbing';
       }
-      if (drag.moved) {
+      if (drag.moved && drag.which === 'left') {
+        box = { a: drag.start, b: p };
+        invalidate();
+      } else if (drag.moved) {
         panBy(cam, p.x - drag.last.x, p.y - drag.last.y, extent);
         invalidate();
       }
@@ -215,11 +247,21 @@ export function createMapView(canvas, options) {
     if (pointers.size < 2) pinch = null;
     if (pointers.size === 0) {
       drag = null;
-      canvas.style.cursor = hover ? 'pointer' : 'grab';
+      canvas.style.cursor = hover ? 'pointer' : 'default';
     }
-    if (e.type === 'pointerup' && wasDrag && !wasDrag.moved && !wasDrag.handled && pointers.size === 0) {
-      const p = localPoint(e);
-      options.onSelect(hitTest(targets, p.x, p.y));
+    const finished = e.type === 'pointerup' && wasDrag && !wasDrag.handled && pointers.size === 0;
+    const wasBox = box;
+    box = null;
+    if (wasBox) invalidate();
+    if (!finished) return;
+    const p = localPoint(e);
+    const mods = { additive: e.shiftKey };
+    if (wasDrag.which === 'left' && wasDrag.moved && wasBox) {
+      options.onBoxSelect?.(shipsInBox(targets, wasBox.a, p), mods);
+    } else if (wasDrag.which === 'right' && !wasDrag.moved) {
+      options.onContextMenu?.(hitTest(targets, wasDrag.start.x, wasDrag.start.y), { x: e.clientX, y: e.clientY });
+    } else if ((wasDrag.which === 'left' || wasDrag.which === 'touch') && !wasDrag.moved) {
+      options.onSelect(hitTest(targets, p.x, p.y), mods);
     }
   }
 
@@ -232,11 +274,13 @@ export function createMapView(canvas, options) {
     }
   });
 
+  // Mouse right-clicks open the menu on release (see endPointer), so a
+  // right-drag can pan instead. Touch screens use the long-press above,
+  // which also works where the browser sends no contextmenu (iOS). The
+  // keyboard's menu key opens it for whatever is under the pointer.
   canvas.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    // Touch screens get the menu from our own long-press, which also works
-    // where the browser sends no contextmenu (iOS).
-    if (lastPointerType !== 'mouse') return;
+    if (lastPointerType !== 'mouse' || e.button === 2 || pointers.size) return;
     const p = localPoint(e);
     options.onContextMenu?.(hitTest(targets, p.x, p.y), { x: e.clientX, y: e.clientY });
   });
@@ -279,7 +323,7 @@ export function createMapView(canvas, options) {
     invalidate();
   }
 
-  canvas.style.cursor = 'grab';
+  canvas.style.cursor = 'default';
   new ResizeObserver(resize).observe(canvas);
   resize();
 

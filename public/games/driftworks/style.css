@@ -510,6 +510,16 @@ button.dw-chip:hover {
   border-color: rgba(255, 211, 110, 0.3);
 }
 
+.dw-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dw-card-foot .dw-note {
+  flex: 1;
+}
+
 .dw-card-head {
   display: flex;
   align-items: baseline;

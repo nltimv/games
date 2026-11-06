@@ -1,7 +1,7 @@
 // Tiny DOM helpers: h() builds elements, and "live" elements update their
 // countdowns and progress bars every second without a full re-render.
 
-import { formatDuration } from '../../../shared/js/format.js';
+import { timeLeft } from '../core/time.js';
 
 /**
  * h('button', { class: 'x', onClick: fn, 'aria-label': 'Close' }, 'text', child)
@@ -40,7 +40,7 @@ export function svgIcon(markup) {
 
 /** A countdown that ticks down to `until` (ms). */
 export function countdown(until, { prefix = '', className = 'dw-time' } = {}) {
-  return h('span', { class: className, dataset: { until: String(until), prefix } }, prefix + formatDuration(until - Date.now()));
+  return h('span', { class: className, dataset: { until: String(until), prefix } }, prefix + timeLeft(until - Date.now()));
 }
 
 /** A progress bar from `start` to `end` (ms), or a fixed fraction. */
@@ -66,7 +66,7 @@ function progress(start, end, now) {
 /** Refreshes every countdown and timed bar under `root`. */
 export function updateLive(root, now = Date.now()) {
   for (const el of root.querySelectorAll('[data-until]')) {
-    const text = (el.dataset.prefix ?? '') + formatDuration(Number(el.dataset.until) - now);
+    const text = (el.dataset.prefix ?? '') + timeLeft(Number(el.dataset.until) - now);
     if (el.textContent !== text) el.textContent = text;
   }
   for (const el of root.querySelectorAll('.dw-bar[data-start]')) {

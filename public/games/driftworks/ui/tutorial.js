@@ -25,6 +25,10 @@ const key = (k) => `[data-key="${k}"]`;
 
 // Queuing, copying and repeating are shortcuts, so the tutorial only
 // mentions them as tips and never makes them a step.
+// Mouse controls only matter with a mouse.
+const hasMouse = () => Boolean(globalThis.matchMedia?.('(pointer: fine)').matches);
+const MAP_TIP = 'Drag with the right mouse button to move the map, and scroll to zoom.';
+const BOX_TIP = 'Drag a box around ships to select them together, then right-click a place to give them all the same order.';
 const QUEUE_TIP = 'You can also give that order now: a busy ship queues it for when it is done.';
 
 /** Steps that send the player to a research. */
@@ -56,7 +60,7 @@ const GUIDES = {
     if (mule.order?.spec.type === 'sell') return { text: `${mule.name} flies its ore to Halcyon Refinery and sells it there.`, map: { kind: 'ship', id: mule.id } };
     if (mule.queue.some((spec) => spec.type === 'sell')) return { text: `${mule.name} sells its ore at Halcyon Refinery once its hold is full.`, map: { kind: 'ship', id: mule.id } };
     const cargo = projectShip(state, mule).cargo;
-    if (!cargoTotal({ cargo })) return mineSteps(ui, mule, '', undefined);
+    if (!cargoTotal({ cargo })) return mineSteps(ui, mule, '', hasMouse() ? MAP_TIP : undefined);
 
     // Ore is on board or on its way: sell it at the refinery.
     const goods = Object.keys(cargo).filter((good) => cargo[good] > 0);
@@ -86,7 +90,7 @@ const GUIDES = {
     return { text: 'Accept a contract. Sales of that good at that station pay 50% more until it is filled.', selector: '[data-key^="accept-"]' };
   },
   'third-mule'(state, ui) {
-    return buyMule(state, ui, 'A third Mule pays for itself in about an hour.');
+    return { ...buyMule(state, ui, 'A third Mule pays for itself in about an hour.'), tip: hasMouse() ? BOX_TIP : undefined };
   },
   'first-refit'(state, ui) {
     if (!isSelected(ui, 'station', SHIPYARD)) {

@@ -6,12 +6,11 @@ import { formatCredits } from '../../../shared/js/format.js';
 import { findShip } from '../systems/fleet.js';
 import { minePreview } from '../systems/advisor.js';
 import { h } from './dom.js';
-import { at, tonnes } from './format.js';
+import { timing, tonnes } from './format.js';
 
 function readout(preview, queued) {
   if (!preview.ok) return preview.error;
-  const when = `${queued ? 'after its orders, ' : ''}done ${at(preview.endsAt)}`;
-  return `about ${formatCredits(preview.value)} · ${when}`;
+  return `about ${formatCredits(preview.value)} · ${timing({ ...preview, queued }, 'mining')}`;
 }
 
 /**

@@ -8,7 +8,7 @@ import { affordableQty, findEntry, marketEntries, marketView, quote } from './ma
 import { canCarry, cargoTotal, freeHold } from './cargo.js';
 import { contractBonus } from './contracts.js';
 import { holdOf } from './modules.js';
-import { buildOrder, freeSlots, projectShip, refitOffer, SHIPYARD_ID } from './orders.js';
+import { buildOrder, freeSlots, orderTimes, projectShip, refitOffer, SHIPYARD_ID } from './orders.js';
 import { travelTime } from './travel.js';
 
 /** What selling `qty` of `good` at a station pays, contract premium included. */
@@ -74,6 +74,7 @@ export function minePreview(state, ship, fieldId, amount = null, at = state.now)
     value: best?.sale.total ?? 0,
     startsAt: view.time,
     endsAt: built.order.endsAt,
+    ...orderTimes(built.order),
     queued: Boolean(ship.order),
   };
 }
@@ -134,6 +135,8 @@ function slotNote(free, needed) {
  *   refit        { cost, modules, endsAt }                       at the shipyard
  *   fly          { stationId, endsAt }
  * plus `queued` (it waits for other orders) and `disabled` with a `note`.
+ * Options with an `endsAt` also have `flight` and `work`: how long the ship
+ * flies and how long the job itself takes, in ms.
  */
 export function orderOptions(state, ship, target, at = state.now) {
   if (!ship || !target) return [];
@@ -142,9 +145,10 @@ export function orderOptions(state, ship, target, at = state.now) {
   const free = freeSlots(state, ship);
   const queued = Boolean(ship.order);
   const options = [];
-  const endOf = (spec) => {
+  // When the order would end, and how long it flies and works.
+  const timesOf = (spec) => {
     const built = buildOrder(state, view, spec, view.time);
-    return built.ok ? built.order.endsAt : null;
+    return built.ok ? { endsAt: built.order.endsAt, ...orderTimes(built.order) } : { endsAt: null };
   };
 
   if (target.kind === 'field') {
@@ -158,6 +162,8 @@ export function orderOptions(state, ship, target, at = state.now) {
       qty: full.amount,
       value: full.value,
       endsAt: full.endsAt,
+      flight: full.flight,
+      work: full.work,
       queued,
       disabled: Boolean(blocked) || !full.ok,
       note: blocked ?? (full.ok ? null : 'Hold full'),
@@ -176,7 +182,7 @@ export function orderOptions(state, ship, target, at = state.now) {
     const total = goods.reduce((sum, g) => sum + saleValue(state, stationId, g, view.cargo[g], at).total, 0);
     const now = !queued && ship.at === stationId;
     const blocked = now ? null : slotNote(free, 1);
-    options.push({ kind: 'sell', stationId, goods, total, endsAt: now ? at : endOf({ type: 'sell', stationId }), now, queued, disabled: Boolean(blocked), note: blocked });
+    options.push({ kind: 'sell', stationId, goods, total, ...(now ? { endsAt: at } : timesOf({ type: 'sell', stationId })), now, queued, disabled: Boolean(blocked), note: blocked });
   }
 
   if (role === 'hauler') {
@@ -208,7 +214,7 @@ export function orderOptions(state, ship, target, at = state.now) {
       const cost = quote(state, stationId, entry.good, qty, at).total;
       const resale = bestBuyer(state, entry.good, qty, at);
       const margin = (resale?.sale.total ?? 0) - cost;
-      buys.push({ kind: 'buy', stationId, good: entry.good, qty, cost, margin, endsAt: endOf({ type: 'buy', stationId, good: entry.good, qty }), queued });
+      buys.push({ kind: 'buy', stationId, good: entry.good, qty, cost, margin, ...timesOf({ type: 'buy', stationId, good: entry.good, qty }), queued });
     }
     buys.sort((a, b) => b.margin - a.margin);
     for (const buy of buys.slice(0, MAX_TRADES)) {
@@ -221,13 +227,50 @@ export function orderOptions(state, ship, target, at = state.now) {
     const offer = refitOffer(state, ship);
     if (offer) {
       const blocked = slotNote(free, 1) ?? (state.credits < offer.cost ? 'Not enough credits' : null);
-      options.push({ kind: 'refit', cost: offer.cost, modules: offer.modules, endsAt: endOf({ type: 'refit', modules: offer.modules }), queued, disabled: Boolean(blocked), note: blocked });
+      options.push({ kind: 'refit', cost: offer.cost, modules: offer.modules, ...timesOf({ type: 'refit', modules: offer.modules }), queued, disabled: Boolean(blocked), note: blocked });
     }
   }
 
   if (view.at !== stationId) {
     const blocked = slotNote(free, 1);
-    options.push({ kind: 'fly', stationId, endsAt: endOf({ type: 'fly', stationId }), queued, disabled: Boolean(blocked), note: blocked });
+    options.push({ kind: 'fly', stationId, ...timesOf({ type: 'fly', stationId }), queued, disabled: Boolean(blocked), note: blocked });
   }
   return options;
 }
+
+// Orders that make sense for a whole group of ships at once.
+const GROUP_KINDS = ['mine', 'sell', 'refit', 'fly'];
+
+/**
+ * Orders for several selected ships at once, merged by kind: the full-hold
+ * mine, sell everything, refit and fly. Each has `members`
+ * ([{ shipId, option }], the ships that can take it, with their own
+ * option), `of` (how many ships were asked), the summed `value` (mine),
+ * `total` (sell) or `cost` (refit), and `disabled` with a `note` when no
+ * ship can take it.
+ */
+export function groupOrderOptions(state, ships, target, at = state.now) {
+  const groups = new Map();
+  for (const ship of ships) {
+    for (const option of orderOptions(state, ship, target, at)) {
+      if (!GROUP_KINDS.includes(option.kind)) continue;
+      if (!groups.has(option.kind)) groups.set(option.kind, { kind: option.kind, members: [], notes: [], goods: new Set(), value: 0, total: 0, cost: 0 });
+      const group = groups.get(option.kind);
+      if (option.disabled) {
+        group.notes.push(option.note);
+        continue;
+      }
+      group.members.push({ shipId: ship.id, option });
+      group.value += option.value ?? 0;
+      group.total += option.total ?? 0;
+      group.cost += option.cost ?? 0;
+      for (const good of option.goods ?? []) group.goods.add(good);
+    }
+  }
+  return GROUP_KINDS.filter((kind) => groups.has(kind)).map((kind) => {
+    const { notes, goods, ...group } = groups.get(kind);
+    const disabled = group.members.length === 0;
+    return { ...group, goods: [...goods], of: ships.length, disabled, note: disabled ? (notes[0] ?? null) : null };
+  });
+}
+

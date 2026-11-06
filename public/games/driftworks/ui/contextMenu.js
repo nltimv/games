@@ -8,15 +8,15 @@ import { HULLS, MODULES } from '../content/ships.js';
 import { STATION_TYPES } from '../content/stations.js';
 import { findField, findPlace, findStation } from '../content/homeSystem.js';
 import { formatCredits } from '../../../shared/js/format.js';
-import { orderOptions } from '../systems/advisor.js';
-import { carryOut } from '../systems/commands.js';
+import { groupOrderOptions, orderOptions } from '../systems/advisor.js';
+import { carryOut, carryOutGroup } from '../systems/commands.js';
 import { findShip } from '../systems/fleet.js';
-import { freeSlots, giveOrder, lowerFirst } from '../systems/orders.js';
+import { freeSlots, giveOrder, lowerFirst, orderTimes } from '../systems/orders.js';
 import { orderSlots } from '../systems/research.js';
 import { h } from './dom.js';
 import { fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
-import { at, minusCredits, plusCredits, tonnes } from './format.js';
+import { at, minusCredits, plusCredits, span, timing, tonnes } from './format.js';
 
 function headIcon(target) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
@@ -39,9 +39,6 @@ function heading(target) {
   return { title: place?.name ?? 'Gate', subtitle: 'Jump gate · locked' };
 }
 
-function when(option, verb = 'done') {
-  return `${option.queued ? 'After its orders · ' : ''}${verb} ${at(option.endsAt)}`;
-}
 
 /** The text of one option: { label, value, note, good }. */
 function describe(option) {
@@ -51,7 +48,7 @@ function describe(option) {
       return {
         label: 'Mine a full hold',
         value: blocked ?? `about ${formatCredits(option.value)}`,
-        note: blocked ? null : `${tonnes(option.qty)} · ${when(option)}`,
+        note: blocked ? null : `${tonnes(option.qty)} · ${timing(option, 'mining')}`,
       };
     case 'mine-amount':
       return { label: 'Mine an amount', value: blocked ?? '›', note: `1 to ${tonnes(option.max)}` };
@@ -59,11 +56,11 @@ function describe(option) {
       return {
         label: option.goods.length === 1 ? `Sell ${goodName(option.goods[0]).toLowerCase()}` : 'Sell all cargo',
         value: blocked ?? `${option.now ? '' : 'about '}${plusCredits(option.total)}`,
-        note: option.now ? 'Right now' : when(option, 'sold'),
+        note: option.now ? 'Right now' : timing(option),
         good: option.goods[0],
       };
     case 'buy':
-      return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: when(option, 'loaded'), good: option.good };
+      return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: timing(option), good: option.good };
     case 'trade':
       return {
         label: `Bring ${tonnes(option.qty, option.good)}`,
@@ -72,9 +69,9 @@ function describe(option) {
         good: option.good,
       };
     case 'refit':
-      return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost), note: `${modulesText(option.modules)} · ${when(option)}` };
+      return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost), note: `${modulesText(option.modules)} · ${timing(option, 'refit')}` };
     case 'fly':
-      return { label: 'Fly here', value: blocked ?? at(option.endsAt), note: option.queued ? 'After its orders' : 'Arrival time' };
+      return { label: 'Fly here', value: blocked ?? `arrives ${at(option.endsAt)}`, note: timing(option) };
     default:
       return { label: option.kind, value: '', note: '' };
   }
@@ -124,6 +121,7 @@ export function orderMenu(ctx, menu) {
       h('span', { class: 'dw-grow' }, h('strong', { id: 'menu-title' }, title), h('small', null, subtitle)),
     ),
   ];
+  if (menu.shipIds) return parts.concat(groupItems(ctx, menu));
   if (!ship) return parts;
 
   if (menu.slider && target.kind === 'field') {
@@ -176,6 +174,73 @@ export function orderMenu(ctx, menu) {
   return parts;
 }
 
+// ---------- Several ships ----------
+
+/** "3 ships", or "2 of 3 ships" when some cannot take the order. */
+function whoText(option) {
+  if (option.disabled) return option.note ?? 'None of them can';
+  const n = option.members.length;
+  return n === option.of ? `${n} ships` : `${n} of ${option.of} ships`;
+}
+
+/** The text of a group option (see advisor.groupOrderOptions). */
+function describeGroup(option) {
+  const blocked = option.disabled ? '' : null;
+  switch (option.kind) {
+    case 'mine':
+      return { label: 'Mine a full hold', value: blocked ?? `about ${formatCredits(option.value)}` };
+    case 'sell':
+      return {
+        label: option.goods.length === 1 ? `Sell ${goodName(option.goods[0]).toLowerCase()}` : 'Sell all cargo',
+        value: blocked ?? `about ${plusCredits(option.total)}`,
+        good: option.goods.length === 1 ? option.goods[0] : null,
+      };
+    case 'refit':
+      return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost) };
+    case 'fly':
+      return { label: 'Fly here', value: '' };
+    default:
+      return { label: option.kind, value: '' };
+  }
+}
+
+/** The menu for several selected ships: each order goes to every ship that can take it. */
+function groupItems(ctx, menu) {
+  const { state, now } = ctx;
+  const ships = menu.shipIds.map((id) => findShip(state, id)).filter(Boolean);
+  const options = groupOrderOptions(state, ships, menu.target, now);
+  const parts = [h('p', { class: 'dw-menu-note' }, `${ships.length} ships selected`)];
+  if (options.length) {
+    parts.push(
+      h(
+        'div',
+        { class: 'dw-menu-items', role: 'group', 'aria-label': `Orders for ${ships.length} ships` },
+        options.map((option) => {
+          const text = describeGroup(option);
+          return h(
+            'button',
+            { type: 'button', class: 'dw-menu-item', disabled: option.disabled, dataset: { key: `menu-${option.kind}-`, menuItem: '' }, onClick: () => runGroup(ctx, option) },
+            h('span', { class: 'dw-menu-row' }, text.good ? swatch(text.good) : null, h('strong', { class: 'dw-grow' }, text.label), h('span', { class: 'dw-menu-value' }, text.value)),
+            h('small', null, whoText(option)),
+          );
+        }),
+      ),
+    );
+  } else {
+    parts.push(h('p', { class: 'dw-menu-note' }, 'None of these ships has anything to do here.'));
+  }
+  parts.push(menuButton('Details', '›', 'menu-details', () => ctx.select(menu.target.kind, menu.target.id)));
+  return parts;
+}
+
+function runGroup(ctx, option) {
+  const result = ctx.act((s) => carryOutGroup(s, option));
+  if (!result?.ok) return;
+  ctx.closeMenu();
+  ctx.toast(`${result.count === 1 ? '1 ship has' : `${result.count} ships have`} new orders`, 'order');
+  if (result.error) ctx.toast(result.error, 'warning');
+}
+
 function menuButton(label, mark, key, onClick) {
   return h(
     'button',
@@ -184,12 +249,18 @@ function menuButton(label, mark, key, onClick) {
   );
 }
 
-/** A toast that says when an order will be done. */
+/**
+ * A toast that says what an order does and how long its job and its flight
+ * take: "Mule-1: mining Carbon Drift for 1 min, after a 20 s flight".
+ */
 export function orderToast(ctx, ship, result) {
   const order = result?.order;
   if (!order) return;
-  const text = `${ship.name}: ${lowerFirst(order.label)}`;
-  ctx.toast(result.queued ? `${text} is queued, done about ${at(order.endsAt)}` : `${text}, done at ${at(order.endsAt)}`, 'order');
+  const { flight, work } = orderTimes(order);
+  let text = lowerFirst(order.label);
+  if (work > 0) text += ` for ${span(work)}`;
+  if (flight > 0) text += `${work > 0 ? ',' : ''} after a ${span(flight)} flight`;
+  ctx.toast(`${ship.name}${result.queued ? ' (queued)' : ''}: ${text}`, 'order');
 }
 
 function run(ctx, shipId, option) {

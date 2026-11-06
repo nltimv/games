@@ -3,14 +3,19 @@ import assert from 'node:assert/strict';
 import { advance, nextEventAt } from '../../public/games/driftworks/core/sim.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import {
+  cancelOrder,
   canCopy,
+  cargoNow,
+  minedSoFar,
   canRepeat,
   canRunAgain,
   clearQueue,
   copyOrders,
   freeSlots,
   giveOrder,
+  orderPhase,
   orderRefit,
+  orderTimes,
   planCycle,
   projectShip,
   refitAll,
@@ -40,6 +45,30 @@ test('a full-hold mining order takes the flight plus hold / (laser x richness)',
   assert.equal(ship.order.steps[0].amount, holdOf(ship));
   assert.equal(ship.at, null);
   assert.equal(nextEventAt(state), ship.order.endsAt);
+});
+
+test('the flight to the field is not part of the mining job', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine('carbon-drift'));
+  const order = ship.order;
+  const travel = travelTime(ship, 'halcyon-refinery', 'carbon-drift');
+  const { flight, work } = orderTimes(order);
+  assert.equal(flight, travel);
+  assert.equal(work, order.endsAt - T0 - travel);
+  const flying = orderPhase(order, T0);
+  assert.deepEqual(flying, { label: 'Flying to Carbon Drift to mine', start: T0, end: T0 + travel, flying: true });
+  const mining = orderPhase(order, T0 + travel + 1);
+  assert.deepEqual(mining, { label: 'Mining Carbon Drift', start: T0 + travel, end: order.endsAt, flying: false });
+  assert.match(shipStatus(ship, T0), /^Flying to Carbon Drift/);
+
+  // A sale happens on arrival: the whole order is its flight.
+  ship.order = null;
+  ship.at = 'carbon-drift';
+  ship.cargo['carbon-ore'] = 10;
+  giveOrder(state, ship, sell());
+  assert.equal(orderTimes(ship.order).work, 0);
+  assert.match(orderPhase(ship.order, T0).label, /Flying to Halcyon Refinery to sell carbon ore/);
 });
 
 test('a smaller amount mines faster, and the ship waits at the field', () => {
@@ -279,4 +308,51 @@ test('refit all books every ship that is behind, and clearing refunds a queued r
   const credits = state.credits;
   clearQueue(state, b);
   assert.equal(state.credits, credits + result.cost / 2);
+});
+
+test('a mining ship fills its hold as it mines, and keeps it when cancelled', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine('carbon-drift'));
+  giveOrder(state, ship, sell());
+  const { start, end } = orderPhase(ship.order, ship.order.endsAt - 1);
+  assert.equal(minedSoFar(ship.order, start - 1), 0, 'nothing while flying');
+  const half = start + (end - start) / 2;
+  assert.equal(minedSoFar(ship.order, half), 5);
+  assert.deepEqual(cargoNow(ship, half), { 'carbon-ore': 5 });
+  advance(state, half);
+  const result = cancelOrder(state, ship, half);
+  assert.deepEqual(result, { ok: true, flying: false, mined: 5 });
+  assert.deepEqual(ship.cargo, { 'carbon-ore': 5 });
+  assert.equal(ship.order.type, 'sell', 'the queued sale starts right away');
+  advance(state, half + 10 * MINUTE);
+  assert.equal(state.stats.oreSold, 5);
+});
+
+test('a ship cancelled in flight finishes the flight and waits there', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine('carbon-drift'));
+  const result = cancelOrder(state, ship, T0 + 1000);
+  assert.deepEqual(result, { ok: true, flying: true, mined: 0 });
+  assert.equal(ship.order.type, 'fly');
+  assert.match(orderPhase(ship.order, T0 + 1000).label, /^Flying to Carbon Drift$/);
+  assert.match(cancelOrder(state, ship, T0 + 2000).error, /cannot stop in open space/);
+  advance(state, T0 + 10 * MINUTE);
+  assert.equal(ship.at, 'carbon-drift');
+  assert.equal(ship.order, null);
+  assert.deepEqual(ship.cargo, {});
+  assert.equal(cancelOrder(state, ship).ok, false, 'nothing to cancel');
+});
+
+test('a cancelled refit is refunded', () => {
+  const state = newGame({ credits: 1000 });
+  state.research.done.push('hold-1');
+  const ship = firstShip(state);
+  assert.ok(orderRefit(state, ship).ok);
+  assert.equal(state.credits, 940);
+  assert.ok(cancelOrder(state, ship, T0 + 1000).ok);
+  assert.equal(state.credits, 1000);
+  advance(state, T0 + 10 * MINUTE);
+  assert.equal(holdOf(ship), 10, 'no new modules');
 });

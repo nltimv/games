@@ -4,7 +4,7 @@ import { GOODS } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
 import { findField } from '../../content/homeSystem.js';
 import { findShip } from '../../systems/fleet.js';
-import { freeSlots, giveOrder } from '../../systems/orders.js';
+import { freeSlots, giveOrder, orderPhase } from '../../systems/orders.js';
 import { buyersOf } from '../../systems/advisor.js';
 import { countdown, h } from '../dom.js';
 import { chip, fieldIcon, panelHead, sectionTitle, swatch } from '../components.js';
@@ -92,8 +92,8 @@ function minersSection(ctx, field) {
       h(
         'button',
         { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('ship', ship.id), dataset: { key: `busy-${ship.id}` } },
-        h('span', { class: 'dw-grow' }, h('strong', null, ship.name), h('small', null, `${ship.order.label} · orders full`)),
-        countdown(ship.order.endsAt),
+        h('span', { class: 'dw-grow' }, h('strong', null, ship.name), h('small', null, `${orderPhase(ship.order, ctx.now).label} · orders full`)),
+        countdown(orderPhase(ship.order, ctx.now).end),
       ),
     );
   }

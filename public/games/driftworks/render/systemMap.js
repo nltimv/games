@@ -10,16 +10,17 @@ import { HOME_SYSTEM, findPlace, findStation } from '../content/homeSystem.js';
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { createRng, hashString } from '../core/rng.js';
-import { SECOND } from '../core/time.js';
-import { formatDuration } from '../../../shared/js/format.js';
+import { SECOND, timeLeft } from '../core/time.js';
 import { shipPosition } from '../systems/travel.js';
-import { projectShip } from '../systems/orders.js';
+import { orderPhase, projectShip } from '../systems/orders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
 
 // Sizes of map art in CSS pixels at an icon scale of 1.
-const SIZE = { field: 58, station: 44, gate: 30, ship: 22, parkedShip: 17 };
+const SIZE = { field: 58, station: 44, gate: 30, ship: 32, parkedShip: 28 };
+// Gap between a place's art and the ships waiting around it.
+const PARK_GAP = 17;
 
 // Seeded belt rocks, built once so the belt looks the same on every visit.
 // Grouped by brightness so each group is one fill.
@@ -93,6 +94,35 @@ function dot(ctx, x, y, r, color) {
 
 function shipsAt(state, placeId) {
   return state.ships.filter((s) => !s.order && s.at === placeId);
+}
+
+/**
+ * Screen positions for ships that sit at a place (docked, waiting, mining,
+ * refitting): spread evenly on a ring just outside its art, turning slowly,
+ * so each one is easy to click and none hides behind the place.
+ */
+function parkingSpots(cam, state, now, u, parked) {
+  const byPlace = new Map();
+  for (const { ship, place } of parked) {
+    if (!byPlace.has(place)) byPlace.set(place, []);
+    byPlace.get(place).push(ship.id);
+  }
+  const spots = new Map();
+  const turn = (now / (4 * 60 * SECOND)) * Math.PI * 2;
+  for (const [placeId, ids] of byPlace) {
+    const place = findPlace(placeId);
+    if (!place) continue;
+    const c = toScreen(cam, place.x, place.y);
+    const art = findStation(placeId) ? ((SIZE.station * 36) / 64 / 2) * u : SIZE.field * 0.36 * u;
+    // Wide enough that the ships do not touch each other.
+    const r = Math.max(art + PARK_GAP * u, (ids.length * SIZE.parkedShip * 1.15 * u) / (Math.PI * 2));
+    const offset = (hashString(placeId) % 628) / 100;
+    ids.forEach((id, i) => {
+      const angle = turn + offset + (i / ids.length) * Math.PI * 2;
+      spots.set(id, { x: c.x + Math.cos(angle) * r, y: c.y + Math.sin(angle) * r, heading: angle + Math.PI / 2 });
+    });
+  }
+  return spots;
 }
 
 /**
@@ -199,26 +229,27 @@ export function drawSystem(ctx, cam, state, now, view) {
     targets.push({ kind: 'station', id: station.id, x: p.x, y: p.y, r: Math.max(18, hex * 1.7) });
   }
 
-  // The route the ship picked in the order menu would fly.
-  const preview = routePreview(cam, state, view);
-  if (preview) {
+  // The routes the ships picked in the order menu would fly.
+  const routes = routePreviews(cam, state, view);
+  if (routes.length) {
     ctx.strokeStyle = 'rgba(255, 211, 110, 0.6)';
     ctx.lineWidth = 1.4;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.moveTo(preview.from.x, preview.from.y);
-    ctx.lineTo(preview.to.x, preview.to.y);
+    for (const route of routes) {
+      ctx.moveTo(route.from.x, route.from.y);
+      ctx.lineTo(route.to.x, route.to.y);
+    }
     ctx.stroke();
     ctx.setLineDash([]);
   }
 
-  // Ships. Ships waiting at a place circle just outside its art, so they
-  // never hide behind it.
-  const clearance = { station: ((SIZE.station * 36) / 64 / 2) * u + 7, field: SIZE.field * 0.4 * u };
-  state.ships.forEach((ship, index) => {
-    const pos = shipPosition(ship, now, index);
-    const p = toScreen(cam, pos.x, pos.y);
-    if (pos.place) pushOut(cam, p, pos.place, clearance);
+  // Ships. Ships at a place sit on a ring around it (see parkingSpots).
+  const positions = state.ships.map((ship, index) => ({ ship, index, pos: shipPosition(ship, now, index) }));
+  const spots = parkingSpots(cam, state, now, u, positions.filter((p) => p.pos.place).map((p) => ({ ship: p.ship, place: p.pos.place })));
+  positions.forEach(({ ship, index, pos }) => {
+    const spot = spots.get(ship.id);
+    const p = spot ?? toScreen(cam, pos.x, pos.y);
     const role = HULLS[ship.hull].role;
 
     if (pos.moving && pos.to) {
@@ -235,13 +266,14 @@ export function drawSystem(ctx, cam, state, now, view) {
     }
 
     const ahead = shipPosition(ship, now + 2 * SECOND, index);
-    const heading = Math.atan2(ahead.y - pos.y, ahead.x - pos.x);
-    const w = (ship.order ? SIZE.ship : SIZE.parkedShip) * u;
+    const heading = spot ? spot.heading : Math.atan2(ahead.y - pos.y, ahead.x - pos.x);
+    const w = (pos.moving ? SIZE.ship : SIZE.parkedShip) * u;
     const rotate = Number.isFinite(heading) ? heading : 0;
     if (!drawAsset(ctx, `ship-${role}`, p.x, p.y, w, dpr, { rotate })) dot(ctx, p.x, p.y, 3, '#d9fff8');
 
     if (ship.order) {
-      const left = formatDuration(ship.order.endsAt - now);
+      // The time left of what it does now: the flight, or the job.
+      const left = timeLeft(orderPhase(ship.order, now).end - now);
       const verb = ship.order.type === 'mine' && !pos.moving ? ' mining' : '';
       // Put the label on the side facing away from the star, where there
       // is more room.
@@ -252,39 +284,37 @@ export function drawSystem(ctx, cam, state, now, view) {
         color: 'rgba(230, 242, 255, 0.85)',
       });
     }
-    targets.push({ kind: 'ship', id: ship.id, x: p.x, y: p.y, r: ship.order ? 12 : 7, parked: !ship.order });
+    targets.push({ kind: 'ship', id: ship.id, x: p.x, y: p.y, r: Math.max(12, w * 0.6) });
   });
 
-  // Hover, menu target, selection and tutorial rings
+  // Hover, menu target, selection and tutorial rings. A group selection
+  // (box select) rings every ship in it; ships inside a box being dragged
+  // get the hover ring.
   drawRing(ctx, targets, view.hover, 'hover');
+  for (const id of view.boxed ?? []) drawRing(ctx, targets, { kind: 'ship', id }, 'hover');
   drawRing(ctx, targets, view.target, 'target');
-  drawRing(ctx, targets, view.selection, 'selected');
+  if (view.selection?.kind === 'ships') {
+    for (const id of view.selection.ids) drawRing(ctx, targets, { kind: 'ship', id }, 'selected');
+  } else {
+    drawRing(ctx, targets, view.selection, 'selected');
+  }
   drawRing(ctx, targets, view.guide, 'guide');
   return targets;
 }
 
-function pushOut(cam, p, placeId, clearance) {
-  const place = findPlace(placeId);
-  if (!place) return;
-  const min = findStation(placeId) ? clearance.station : clearance.field;
-  const c = toScreen(cam, place.x, place.y);
-  const dx = p.x - c.x;
-  const dy = p.y - c.y;
-  const d = Math.hypot(dx, dy);
-  if (d >= min || d === 0) return;
-  p.x = c.x + (dx / d) * min;
-  p.y = c.y + (dy / d) * min;
-}
-
-function routePreview(cam, state, view) {
+function routePreviews(cam, state, view) {
   const target = view.target;
-  if (!target?.shipId || target.kind === 'ship') return null;
-  const ship = state.ships.find((s) => s.id === target.shipId);
-  // A busy ship's new order starts where its last one ends.
-  const from = ship ? findPlace(projectShip(state, ship).at) : null;
+  if (!target || target.kind === 'ship') return [];
   const to = findPlace(target.id);
-  if (!from || !to || from === to) return null;
-  return { from: toScreen(cam, from.x, from.y), to: toScreen(cam, to.x, to.y) };
+  const ids = target.shipIds ?? (target.shipId ? [target.shipId] : []);
+  const starts = new Set();
+  for (const id of ids) {
+    const ship = state.ships.find((s) => s.id === id);
+    // A busy ship's new order starts where its last one ends.
+    const from = ship ? findPlace(projectShip(state, ship).at) : null;
+    if (from && to && from !== to) starts.add(from);
+  }
+  return [...starts].map((from) => ({ from: toScreen(cam, from.x, from.y), to: toScreen(cam, to.x, to.y) }));
 }
 
 const RINGS = {
@@ -317,16 +347,27 @@ function drawRing(ctx, targets, ref, style) {
   }
 }
 
-/** The nearest target within its radius of (x, y), moving ships first. */
+/**
+ * The target under (x, y). Where hit areas overlap (a ship docked next to
+ * its station), the one whose middle is closest, measured against its
+ * size, wins; ships win a tie.
+ */
 export function hitTest(targets, x, y) {
   const order = { ship: 0, station: 1, field: 2, gate: 3 };
   let best = null;
   for (const t of targets) {
     const d = Math.hypot(t.x - x, t.y - y);
     if (d > t.r) continue;
-    // Docked ships circle their station; the station wins a click near both.
-    const rank = t.parked ? 4 : (order[t.kind] ?? 9);
-    if (!best || rank < best.rank || (rank === best.rank && d < best.d)) best = { ...t, d, rank };
+    const score = d / t.r;
+    const rank = order[t.kind] ?? 9;
+    if (!best || score < best.score - 0.05 || (Math.abs(score - best.score) <= 0.05 && rank < best.rank)) best = { ...t, score, rank };
   }
   return best ? { kind: best.kind, id: best.id } : null;
+}
+
+/** The ships whose middles lie inside the screen rectangle from a to b. */
+export function shipsInBox(targets, a, b) {
+  const [x0, x1] = [Math.min(a.x, b.x), Math.max(a.x, b.x)];
+  const [y0, y1] = [Math.min(a.y, b.y), Math.max(a.y, b.y)];
+  return targets.filter((t) => t.kind === 'ship' && t.x >= x0 && t.x <= x1 && t.y >= y0 && t.y <= y1).map((t) => t.id);
 }

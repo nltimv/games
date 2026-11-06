@@ -10,14 +10,19 @@ import { sellAllHere } from '../../systems/commands.js';
 import { findShip } from '../../systems/fleet.js';
 import { holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
 import {
+  cancelOrder,
   canCopy,
+  cargoNow,
   canRepeat,
   canRunAgain,
   clearQueue,
   copyOrders,
   freeSlots,
   giveOrder,
+  lowerFirst,
+  orderPhase,
   orderRefit,
+  orderTimes,
   projectShip,
   refitOffer,
   repeatToFill,
@@ -31,7 +36,7 @@ import { findEntry } from '../../systems/market.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { at, plusCredits, tonnes } from '../format.js';
+import { at, plusCredits, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
 
 export function shipPanel(ctx, shipId) {
@@ -39,7 +44,9 @@ export function shipPanel(ctx, shipId) {
   const ship = findShip(state, shipId);
   if (!ship) return null;
   const hull = HULLS[ship.hull];
-  const total = cargoTotal(ship);
+  // A mining ship's hold fills as it mines.
+  const cargo = cargoNow(ship, ctx.now);
+  const total = cargoTotal({ cargo });
   const hold = holdOf(ship);
 
   return [
@@ -52,12 +59,20 @@ export function shipPanel(ctx, shipId) {
       sectionTitle('Hold', `${tonnes(total)} / ${tonnes(hold)}`, { numeric: true }),
       bar({ fraction: total / hold, variant: hull.role === 'hauler' ? 'gold' : null }),
       total > 0
-        ? h('div', { class: 'dw-chips' }, Object.keys(ship.cargo).map((g) => chip([swatch(g), tonnes(ship.cargo[g], g)])))
+        ? h('div', { class: 'dw-chips' }, Object.keys(cargo).map((g) => chip([swatch(g), tonnes(cargo[g], g)])))
         : h('p', { class: 'dw-note' }, 'Empty.'),
     ),
     newOrders(ctx, ship),
     modulesSection(ctx, ship),
   ];
+}
+
+function cancel(ctx, ship) {
+  const result = ctx.act((s) => cancelOrder(s, findShip(s, ship.id), s.now));
+  if (!result?.ok) return;
+  if (result.flying) ctx.toast(`${ship.name} stops when it gets there`, 'order');
+  else if (result.mined > 0) ctx.toast(`${ship.name} stopped with ${tonnes(result.mined)} mined`, 'order');
+  else ctx.toast(`${ship.name}'s order is cancelled`, 'order');
 }
 
 function placeName(id) {
@@ -66,13 +81,25 @@ function placeName(id) {
 
 function statusCard(ctx, ship) {
   if (ship.order) {
+    // The flight and the job are shown one after the other, each with its
+    // own time.
     const order = ship.order;
+    const phase = orderPhase(order, ctx.now);
+    const { work } = orderTimes(order);
+    const after = work > 0 ? `Then ${lowerFirst(order.label)} for ${span(work)}.` : 'Done when it arrives.';
+    // A plain flight cannot be cancelled: there is nowhere to stop.
+    const cancellable = !(phase.flying && order.type === 'fly');
     return h(
       'div',
       { class: 'dw-card is-aqua' },
-      h('div', { class: 'dw-card-head' }, h('strong', null, order.label), countdown(order.endsAt)),
-      bar({ start: order.startedAt, end: order.endsAt }),
-      h('p', { class: 'dw-note' }, `Done at ${at(order.endsAt)}.`),
+      h('div', { class: 'dw-card-head' }, h('strong', null, phase.label), countdown(phase.end)),
+      bar({ start: phase.start, end: phase.end }),
+      h(
+        'div',
+        { class: 'dw-card-foot' },
+        h('p', { class: 'dw-note dw-grow' }, phase.flying ? after : `Done at ${at(phase.end)}.`),
+        cancellable ? button('Cancel order', { small: true, key: 'cancel-order', onClick: () => cancel(ctx, ship) }) : null,
+      ),
     );
   }
   const station = findStation(ship.at);
@@ -93,7 +120,7 @@ function ordersSection(ctx, ship) {
   const slots = orderSlots(state);
   const used = (ship.order ? 1 : 0) + ship.queue.length;
   const items = [];
-  if (ship.order) items.push(h('li', { class: 'is-current' }, h('span', { class: 'dw-queue-mark', 'aria-hidden': 'true' }, '▶'), h('span', { class: 'dw-grow' }, specLabel(ship.order.spec)), countdown(ship.order.endsAt)));
+  if (ship.order) items.push(h('li', { class: 'is-current' }, h('span', { class: 'dw-queue-mark', 'aria-hidden': 'true' }, '▶'), h('span', { class: 'dw-grow' }, specLabel(ship.order.spec))));
   ship.queue.forEach((spec, i) => items.push(h('li', null, h('span', { class: 'dw-queue-mark', 'aria-hidden': 'true' }, String(i + 2)), h('span', { class: 'dw-grow' }, specLabel(spec)))));
 
   const actions = [];
@@ -229,6 +256,7 @@ function newOrders(ctx, ship) {
               h('strong', null, field.name),
               h('span', null, `${goodName(field.good)} · ${richnessLabel(field.richness).toLowerCase()}`),
               h('span', null, preview.ok ? `${tonnes(preview.amount)} · about ${formatCredits(preview.value)}` : 'Hold full'),
+              preview.ok ? h('span', null, timing({ flight: preview.flight, work: preview.work }, 'mining')) : null,
             );
           }),
         ),

@@ -45,3 +45,19 @@ export function carryOut(state, shipId, option) {
       return fail('Unknown order.');
   }
 }
+
+/**
+ * Gives a group option (see advisor.groupOrderOptions) to each of its ships.
+ * Returns { ok, count, error } where `error` is the first ship that failed.
+ */
+export function carryOutGroup(state, option) {
+  let count = 0;
+  let error = null;
+  for (const { shipId, option: own } of option?.members ?? []) {
+    const result = carryOut(state, shipId, own);
+    if (result.ok) count += 1;
+    else error ??= `${findShip(state, shipId)?.name ?? 'A ship'}: ${result.error}`;
+  }
+  return count ? { ok: true, count, error } : fail(error ?? 'No ship could take that order.');
+}
+

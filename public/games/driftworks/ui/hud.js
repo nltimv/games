@@ -2,7 +2,7 @@
 
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { currentGoal } from '../systems/goals.js';
-import { lowerFirst, rerunnable } from '../systems/orders.js';
+import { lowerFirst, orderPhase, rerunnable } from '../systems/orders.js';
 import { bar, countdown, h } from './dom.js';
 import { plural } from './format.js';
 import { runAllButton } from './panels/lists.js';
@@ -40,14 +40,15 @@ export function underwayCard(ctx) {
   const idle = state.ships.filter((s) => !s.order);
   const goal = currentGoal(state);
 
-  const runs = busy.slice(0, MAX_RUNS).map((ship) =>
-    h(
+  const runs = busy.slice(0, MAX_RUNS).map((ship) => {
+    const phase = orderPhase(ship.order, ctx.now);
+    return h(
       'button',
       { type: 'button', class: 'dw-run', onClick: () => ctx.select('ship', ship.id), dataset: { key: `run-${ship.id}` } },
-      h('span', { class: 'dw-run-line' }, h('span', null, `${ship.name}: ${lowerFirst(ship.order.label)}`), countdown(ship.order.endsAt)),
-      bar({ start: ship.order.startedAt, end: ship.order.endsAt }),
-    ),
-  );
+      h('span', { class: 'dw-run-line' }, h('span', null, `${ship.name}: ${lowerFirst(phase.label)}`), countdown(phase.end)),
+      bar({ start: phase.start, end: phase.end }),
+    );
+  });
 
   const idleChips = idle.slice(0, MAX_IDLE_CHIPS).map((ship) =>
     h(

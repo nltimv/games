@@ -14,6 +14,7 @@
 //
 // A built order has:
 //   type, label, target         what it is, for the UI
+//   flightLabel                 what it says while flying there
 //   startedAt, endsAt           wall-clock times (ms)
 //   steps: [{ at, kind, ... }]  effects applied at their time, in order
 //   legs:  [{ from, to, start, end }]  where to draw the ship
@@ -83,6 +84,7 @@ function buildMine(state, view, { fieldId, amount }, start) {
     order: {
       type: 'mine',
       label: `Mining ${field.name}`,
+      flightLabel: `Flying to ${field.name} to mine`,
       target: fieldId,
       startedAt: start,
       endsAt: end,
@@ -114,6 +116,7 @@ function buildSell(state, view, { stationId, good }, start) {
     order: {
       type: 'sell',
       label: `Selling ${what} at ${station.name}`,
+      flightLabel: `Flying to ${station.name} to sell ${what}`,
       target: stationId,
       startedAt: start,
       endsAt: end,
@@ -137,6 +140,7 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
     order: {
       type: 'buy',
       label: `Buying ${lower(good)} at ${station.name}`,
+      flightLabel: `Flying to ${station.name} to buy ${lower(good)}`,
       target: stationId,
       startedAt: start,
       endsAt: end,
@@ -156,6 +160,7 @@ function buildFly(state, view, { stationId }, start) {
     order: {
       type: 'fly',
       label: `Flying to ${station.name}`,
+      flightLabel: `Flying to ${station.name}`,
       target: stationId,
       startedAt: start,
       endsAt: end,
@@ -174,6 +179,7 @@ function buildRefit(state, view, { modules }, start) {
     order: {
       type: 'refit',
       label: `Refitting at ${station.name}`,
+      flightLabel: `Flying to ${station.name} for a refit`,
       target: SHIPYARD_ID,
       startedAt: start,
       endsAt: end,
@@ -321,7 +327,77 @@ export function startNextOrder(state, ship, at) {
 }
 
 function refund(state, spec) {
-  if (spec.type === 'refit' && spec.paid) state.credits += spec.paid;
+  if (spec?.type === 'refit' && spec.paid) state.credits += spec.paid;
+}
+
+const placeName = (id) => (findStation(id) ?? findField(id))?.name ?? 'its target';
+
+/**
+ * Tonnes a mining order has mined by `now`. The hold fills as the ship
+ * mines, so a cancelled trip keeps what it has (see cancelOrder).
+ */
+export function minedSoFar(order, now) {
+  const step = order?.steps[order.stepIndex ?? 0];
+  const leg = order?.legs.at(-1);
+  if (step?.kind !== 'mined' || !leg || leg.from !== leg.to) return 0;
+  const t = (now - leg.start) / Math.max(1, leg.end - leg.start);
+  return Math.floor(step.amount * Math.min(1, Math.max(0, t)));
+}
+
+/** What a ship carries at `now`, counting ore a mining order has mined so far. */
+export function cargoNow(ship, now) {
+  const cargo = { ...ship.cargo };
+  const mined = minedSoFar(ship.order, now);
+  if (mined > 0) {
+    const good = ship.order.steps[ship.order.stepIndex].good;
+    cargo[good] = (cargo[good] ?? 0) + Math.min(mined, Math.floor(holdOf(ship) - cargoTotal(ship)));
+  }
+  return cargo;
+}
+
+/**
+ * Cancels a ship's current order. At its target the job stops now: a
+ * mining ship keeps what it has mined, and a refit is refunded. A ship
+ * still flying cannot stop in open space, so it finishes the flight and
+ * waits there without doing the job. Queued orders carry on after that.
+ * Returns { ok, mined, flying }.
+ */
+export function cancelOrder(state, ship, at = state.now) {
+  if (!ship) return fail('No such ship.');
+  const order = ship.order;
+  if (!order) return fail(`${ship.name} has no order to cancel.`);
+  const phase = orderPhase(order, at);
+  if (phase.flying) {
+    const leg = order.legs.find((l) => l.from !== l.to && at < l.end) ?? order.legs.find((l) => l.from !== l.to);
+    const name = placeName(leg.to);
+    if (order.type === 'fly') return fail(`${ship.name} cannot stop in open space. It waits at ${name} when it gets there.`);
+    refund(state, order.spec);
+    ship.order = {
+      type: 'fly',
+      label: `Flying to ${name}`,
+      flightLabel: `Flying to ${name}`,
+      target: leg.to,
+      startedAt: order.startedAt,
+      endsAt: leg.end,
+      steps: [{ at: leg.end, kind: 'arrive', station: leg.to }],
+      legs: order.legs.filter((l) => l.end <= leg.end),
+      spec: { type: 'fly', stationId: leg.to },
+      stepIndex: 0,
+    };
+    addLog(state, at, `${ship.name} cancelled its order and waits at ${name} when it gets there`, 'order');
+    return { ok: true, flying: true, mined: 0 };
+  }
+  refund(state, order.spec);
+  const mined = Math.min(minedSoFar(order, at), Math.floor(holdOf(ship) - cargoTotal(ship)));
+  const step = order.steps[order.stepIndex];
+  if (mined > 0) {
+    ship.cargo[step.good] = (ship.cargo[step.good] ?? 0) + mined;
+    logMined(state, ship, { ...step, at, amount: mined });
+  }
+  ship.at = order.target;
+  addLog(state, at, `${ship.name} cancelled its order at ${placeName(order.target)}`, 'order');
+  startNextOrder(state, ship, at);
+  return { ok: true, flying: false, mined };
 }
 
 /** Removes the orders waiting after the current one. Refits are refunded. */
@@ -484,10 +560,38 @@ export function copyOrders(state, to, from) {
 // ---------- Text ----------
 
 /** A short line for a ship's current state, for lists. */
-export function shipStatus(ship) {
+/**
+ * What an order is doing at `now`: flying to its target, or the job there
+ * (mining, a refit). The flight is not part of the job: sales, purchases
+ * and arrivals take no time of their own, so those orders are all flight.
+ * Returns { label, start, end, flying }.
+ */
+export function orderPhase(order, now) {
+  const legs = order.legs ?? [];
+  const leg = legs.find((l) => now < l.end) ?? legs.at(-1);
+  if (!leg) return { label: order.label, start: order.startedAt, end: order.endsAt, flying: false };
+  if (leg.from !== leg.to) {
+    const label = order.flightLabel ?? `Flying to ${(findStation(leg.to) ?? findField(leg.to))?.name ?? 'its target'}`;
+    return { label, start: leg.start, end: leg.end, flying: true };
+  }
+  return { label: order.label, start: leg.start, end: leg.end, flying: false };
+}
+
+/** How long an order flies and how long its job takes, in ms: { flight, work }. */
+export function orderTimes(order) {
+  let flight = 0;
+  let work = 0;
+  for (const leg of order.legs ?? []) {
+    if (leg.from === leg.to) work += leg.end - leg.start;
+    else flight += leg.end - leg.start;
+  }
+  return { flight, work };
+}
+
+export function shipStatus(ship, now) {
   if (ship.order) {
     const more = ship.queue.length ? ` · ${ship.queue.length} more` : '';
-    return `${ship.order.label}${more}`;
+    return `${orderPhase(ship.order, now).label}${more}`;
   }
   const place = findStation(ship.at) ?? findField(ship.at);
   const aboard = Object.entries(ship.cargo)
@@ -509,7 +613,7 @@ export function specLabel(spec) {
     case 'buy':
       return `Buy ${formatNumber(spec.qty)} t ${lower(spec.good)} at ${findStation(spec.stationId)?.name ?? '?'}`;
     case 'fly':
-      return `Fly to ${findStation(spec.stationId)?.name ?? '?'}`;
+      return `Fly to ${placeName(spec.stationId)}`;
     case 'refit':
       return `Refit at ${findStation(SHIPYARD_ID).name}`;
     default:
