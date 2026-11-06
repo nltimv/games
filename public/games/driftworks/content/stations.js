@@ -8,13 +8,13 @@
 
 export const CURVES = {
   // Production stations buying their inputs.
-  input: { high: 1.5, low: 0.7, cap: 800, target: 0.3 },
+  input: { high: 1.5, low: 0.7, cap: 4000, target: 0.3 },
   // Production stations selling their outputs.
-  output: { high: 1.3, low: 0.75, cap: 600, target: 0.6 },
+  output: { high: 1.3, low: 0.75, cap: 3000, target: 0.6 },
   // Trading posts buy almost anything, but cheaply.
-  postBuys: { high: 1.05, low: 0.55, cap: 400, target: 0.35 },
+  postBuys: { high: 1.05, low: 0.55, cap: 2000, target: 0.35 },
   // Trading posts sell a few staples at a markup.
-  postSells: { high: 1.45, low: 1.05, cap: 300, target: 0.55 },
+  postSells: { high: 1.45, low: 1.05, cap: 1500, target: 0.55 },
 };
 
 export const STATION_TYPES = {
@@ -44,7 +44,7 @@ export const STATION_TYPES = {
   },
   shipyard: {
     label: 'Shipyard',
-    description: 'Sells ships. Refits arrive with research.',
+    description: 'Sells ships and fits new modules.',
     buys: [],
     sells: [],
     hulls: ['mule', 'kite'],

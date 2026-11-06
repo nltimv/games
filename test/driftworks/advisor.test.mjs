@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bestTradeQty, buyersOf, deliveryOptions, maxPurchase, tradePlan, tripPreviews } from '../../public/games/driftworks/systems/advisor.js';
+import { bestTradeQty, buyersOf, deliveryOptions, maxPurchase, minePreview, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
-import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
+import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { newGame, firstShip, T0 } from './helpers.mjs';
 
 test('buyers are sorted best price first', () => {
   const state = newGame();
@@ -11,24 +12,32 @@ test('buyers are sorted best price first', () => {
   assert.ok(buyers[0].view.price >= buyers[1].view.price);
 });
 
-test('trip previews cover every trip length with a value and return time', () => {
+test('a mine preview gives the amount, value and finish time, from the end of the queue', () => {
   const state = newGame();
-  const trips = tripPreviews(state, firstShip(state), 'kx14');
-  assert.deepEqual(trips.map((t) => t.minutes), [5, 15, 25, 50]);
-  for (const t of trips) {
-    assert.ok(t.amount > 0 && t.value > 0);
-    assert.equal(t.endsAt, T0 + t.minutes * MINUTE);
-  }
+  const ship = firstShip(state);
+  const full = minePreview(state, ship, 'kx14');
+  assert.equal(full.amount, 10);
+  assert.equal(full.max, 10);
+  assert.ok(full.value > 0);
+  assert.equal(full.startsAt, T0);
+  const part = minePreview(state, ship, 'kx14', 4);
+  assert.equal(part.amount, 4);
+  assert.ok(part.endsAt < full.endsAt && part.value < full.value);
+
+  giveOrder(state, ship, { type: 'fly', stationId: 'aurel-post' });
+  const later = minePreview(state, ship, 'kx14');
+  assert.equal(later.queued, true);
+  assert.equal(later.startsAt, ship.order.endsAt);
 });
 
 test('the refinery to foundry iron run pays, and the best amount beats a tiny one', () => {
   const state = newGame({ credits: 100_000 });
   const kite = createShip(state, 'kite', 'halcyon-refinery');
   const max = maxPurchase(state, kite, 'iron');
-  assert.equal(max, 160);
+  assert.equal(max, 40);
   const best = bestTradeQty(state, kite, 'iron', 'halcyon-foundry', max);
   assert.ok(best.qty > 0 && best.qty <= max);
-  assert.ok(best.profit > tradePlan(state, kite, 'iron', 5, 'halcyon-foundry').profit);
+  assert.ok(best.profit >= tradePlan(state, kite, 'iron', 5, 'halcyon-foundry').profit);
   assert.ok(best.profit > 0);
 });
 

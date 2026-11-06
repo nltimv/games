@@ -4,18 +4,26 @@
 // never has to remember to do any of that itself.
 
 import { checkGoals } from '../systems/goals.js';
+import { addLog } from '../systems/log.js';
 import { createSaveStore, exportSave, importSave } from './save.js';
-import { advance, nextEventAt, registerVisit } from './sim.js';
+import { advance, nextEventAt } from './sim.js';
 import { createGame } from './state.js';
 
 function normalize(state) {
-  state.lastSeenAt ??= state.lastVisitAt;
+  state.lastSeenAt ??= state.now;
+  return state;
+}
+
+function startFresh(saves, now) {
+  const outdated = saves.hasOutdated();
+  const state = createGame({ now });
+  if (outdated) addLog(state, now, 'Driftworks changed a lot in this update, so your company starts over.', 'info');
   return state;
 }
 
 export function createSession({ storage, clock = () => Date.now() } = {}) {
   const saves = createSaveStore(storage);
-  let state = normalize(saves.load() ?? createGame({ now: clock() }));
+  let state = normalize(saves.load() ?? startFresh(saves, clock()));
   const listeners = new Set();
 
   function emit(change) {
@@ -60,8 +68,11 @@ export function createSession({ storage, clock = () => Date.now() } = {}) {
     act(fn) {
       const now = clock();
       const { result, log } = withNewLog(() => {
-        registerVisit(state, now);
+        advance(state, now);
         const outcome = fn(state, now);
+        // Orders that take no time (a sale where the ship is docked) and
+        // anything they unblock happen right away.
+        advance(state, now);
         checkGoals(state, now);
         return outcome;
       });
@@ -70,12 +81,6 @@ export function createSession({ storage, clock = () => Date.now() } = {}) {
       return result;
     },
 
-    /** Opening the game counts as a visit: queued work may start again. */
-    visit(now = clock()) {
-      const { log } = withNewLog(() => registerVisit(state, now));
-      saves.save(state);
-      if (log.length) emit({ source: 'tick', log });
-    },
 
     /** Notes that the player has seen everything up to `now`. */
     markSeen(now = clock()) {

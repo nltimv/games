@@ -1,14 +1,15 @@
 // Buying ships and naming them.
 //
-// Faction shipyards charge a licence fee that grows with each ship of the
-// same hull you already own, so a fleet grows steadily instead of
-// exponentially. (Owning a shipyard later removes the fee.)
+// Each ship costs more than the last, whatever its hull (see SHIP_PRICES),
+// so a fleet grows steadily instead of exponentially.
 
-import { HULLS } from '../content/ships.js';
+import { HULLS, SHIP_PRICES, SHIP_PRICE_GROWTH } from '../content/ships.js';
+import { findResearch } from '../content/research.js';
 import { STATION_TYPES } from '../content/stations.js';
 import { findStation } from '../content/homeSystem.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { addLog } from './log.js';
+import { bestModules, isResearched } from './research.js';
 
 export function createShip(state, hullId, stationId) {
   const hull = HULLS[hullId];
@@ -22,28 +23,39 @@ export function createShip(state, hullId, stationId) {
     at: stationId,
     cargo: {},
     costBasis: {},
+    // Fitted module levels; new ships get the newest researched.
+    modules: bestModules(state),
     order: null,
+    // Orders waiting to start after the current one.
     queue: [],
+    // The orders given since the ship was last idle, for "Run again" and
+    // "Copy orders".
+    plan: [],
   };
   state.nextShipId += 1;
   state.ships.push(ship);
   return ship;
 }
 
-/** Each ship of a hull you own adds this share of the base price. */
-export const LICENCE_STEP = 0.5;
-
-/** What the next ship of `hullId` costs this company. */
-export function hullPrice(state, hullId) {
-  const hull = HULLS[hullId];
-  const owned = state.ships.filter((s) => s.hull === hullId).length;
-  return Math.round((hull.price * (1 + LICENCE_STEP * owned)) / 50) * 50;
+/** What the company's next ship costs, whatever the hull. */
+export function shipPrice(state) {
+  const index = Math.max(0, state.ships.length - 1);
+  if (index < SHIP_PRICES.length) return SHIP_PRICES[index];
+  const raw = SHIP_PRICES.at(-1) * SHIP_PRICE_GROWTH ** (index - SHIP_PRICES.length + 1);
+  return Math.round(raw / 10000) * 10000;
 }
 
+/** Hulls a shipyard stocks, licensed or not. */
 export function hullsForSale(stationId) {
   const station = findStation(stationId);
   if (!station) return [];
   return STATION_TYPES[station.type].hulls ?? [];
+}
+
+/** The research a hull still needs before the company may buy it, or null. */
+export function missingLicence(state, hullId) {
+  const licence = HULLS[hullId]?.licence;
+  return licence && !isResearched(state, licence) ? findResearch(licence) : null;
 }
 
 export function buyShip(state, hullId, stationId) {
@@ -51,7 +63,9 @@ export function buyShip(state, hullId, stationId) {
   if (!hull || !hullsForSale(stationId).includes(hullId)) {
     return { ok: false, error: 'That ship is not sold here.' };
   }
-  const price = hullPrice(state, hullId);
+  const licence = missingLicence(state, hullId);
+  if (licence) return { ok: false, error: `${hull.name}s need the ${licence.name} research.` };
+  const price = shipPrice(state);
   if (state.credits < price) {
     return { ok: false, error: `You need ${formatCredits(price - state.credits)} more.` };
   }

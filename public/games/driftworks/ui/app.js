@@ -15,12 +15,13 @@ import { stationPanel } from './panels/station.js';
 import { fieldPanel } from './panels/field.js';
 import { shipPanel } from './panels/ship.js';
 import { companyPanel, fleetPanel, gatePanel, overviewPanel } from './panels/lists.js';
+import { researchPanel } from './panels/research.js';
+import { currentGuide, guideCard, markGuided } from './tutorial.js';
 
 const TOAST_KINDS = new Set(['sale', 'goal', 'arrival', 'warning', 'purchase']);
 const TOAST_MS = 4200;
 const LOCKED_VIEWS = {
-  galaxy: 'The galaxy map arrives with warp drives in the next update.',
-  research: 'Research arrives in the next update.',
+  galaxy: 'The galaxy map arrives with the warp drive in the next update.',
 };
 
 export function createApp(session, doc = document) {
@@ -31,6 +32,7 @@ export function createApp(session, doc = document) {
     top: doc.querySelector('.dw-top'),
     panel: $('panel'),
     underway: $('underway'),
+    guide: $('guide'),
     nav: $('nav'),
     dock: doc.querySelector('.dw-dock'),
     credits: $('credits'),
@@ -44,9 +46,14 @@ export function createApp(session, doc = document) {
   };
 
   const phoneQuery = matchMedia('(max-width: 760px)');
-  const ui = { view: 'system', selection: null, miner: null, trade: null, overview: false, menu: null };
+  const ui = { view: 'system', selection: null, miner: null, trade: null, overview: false, menu: null, guide: null };
   let shownCredits = null;
   let panelKey = null;
+  // While a slider is being dragged, panels and the menu wait to re-render,
+  // so the drag is not cut short.
+  let dragging = false;
+  let renderHeld = false;
+  let guideKey = null;
 
   const isPhone = () => phoneQuery.matches;
 
@@ -187,6 +194,7 @@ export function createApp(session, doc = document) {
   function panelContent(ctx) {
     if (ui.view === 'fleet') return fleetPanel(ctx);
     if (ui.view === 'company') return companyPanel(ctx);
+    if (ui.view === 'research') return researchPanel(ctx);
     const sel = ui.selection;
     if (!sel) return overviewPanel(ctx);
     if (sel.kind === 'station') return stationPanel(ctx, sel.id);
@@ -197,8 +205,13 @@ export function createApp(session, doc = document) {
   }
 
   function render() {
+    if (dragging) {
+      renderHeld = true;
+      return;
+    }
     const ctx = context();
     shownCredits = renderTopBar(els, session.state, shownCredits);
+    ui.guide = currentGuide(session.state, ui);
 
     const visible = panelVisible();
     els.panel.hidden = !visible;
@@ -212,12 +225,34 @@ export function createApp(session, doc = document) {
     }
     renderInto(els.underway, underwayCard(ctx));
     renderMenu(ctx);
+    renderGuide();
     map.redraw();
 
     for (const btn of els.nav.querySelectorAll('button[data-view]')) {
       if (btn.dataset.view === ui.view) btn.setAttribute('aria-current', 'page');
       else btn.removeAttribute('aria-current');
     }
+  }
+
+  // ---------- Tutorial ----------
+
+  function renderGuide() {
+    const card = guideCard(ui.guide, {
+      onSkip: () => {
+        session.act((state) => {
+          state.tutorial.skipped = true;
+        });
+        toast('Tutorial skipped. Goals stay in the Company view.');
+      },
+    });
+    els.guide.hidden = !card;
+    els.app.classList.toggle('has-guide', Boolean(card));
+    // Only new text is re-rendered, so screen readers hear each step once.
+    const key = ui.guide ? `${ui.guide.goal.id}|${ui.guide.text}` : null;
+    if (card && key !== guideKey) renderInto(els.guide, card);
+    guideKey = key;
+    if (card) els.app.style.setProperty('--dw-guide-h', `${els.guide.offsetHeight}px`);
+    markGuided(doc.body, ui.guide);
   }
 
   // ---------- Toasts ----------
@@ -260,6 +295,7 @@ export function createApp(session, doc = document) {
     getState: () => session.state,
     getSelection: () => (ui.view === 'system' ? ui.selection : null),
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId } : null),
+    getGuideTarget: () => (ui.view === 'system' || !isPhone() ? (ui.guide?.map ?? null) : null),
     onSelect(target) {
       if (target) select(target.kind, target.id);
       else if (ui.menu) closeMenu();
@@ -268,8 +304,10 @@ export function createApp(session, doc = document) {
     onContextMenu: openMenu,
     getSafeArea(width, height) {
       const gap = 12;
-      const top = els.top.getBoundingClientRect().bottom + gap;
+      let top = els.top.getBoundingClientRect().bottom + gap;
       if (isPhone()) {
+        // On phones the tutorial card spans the width: keep the map below it.
+        if (!els.guide.hidden) top = els.guide.getBoundingClientRect().bottom + gap;
         // Scale by width so the map keeps its size when the sheet opens;
         // the free area above the sheet (or the dock) sets the center.
         const cover = els.panel.hidden ? els.dock : els.panel;
@@ -334,6 +372,19 @@ export function createApp(session, doc = document) {
     if (ui.selection || ui.view !== 'system' || ui.overview) close();
   });
   phoneQuery.addEventListener('change', render);
+  doc.addEventListener('pointerdown', (e) => {
+    if (e.target.matches?.('input[type="range"]')) dragging = true;
+  });
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (renderHeld) {
+      renderHeld = false;
+      render();
+    }
+  };
+  doc.addEventListener('pointerup', endDrag);
+  doc.addEventListener('pointercancel', endDrag);
   els.systemName.textContent = `${HOME_SYSTEM.name} system`;
 
   render();

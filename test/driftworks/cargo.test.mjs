@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buyCargo, canCarry, cargoTotal, freeHold, sellCargo } from '../../public/games/driftworks/systems/cargo.js';
-import { LICENCE_STEP, buyShip, createShip, hullPrice } from '../../public/games/driftworks/systems/fleet.js';
-import { HULLS } from '../../public/games/driftworks/content/ships.js';
+import { buyShip, createShip, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
+import { SHIP_PRICES } from '../../public/games/driftworks/content/ships.js';
+import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { newGame, firstShip } from './helpers.mjs';
 
 test('selling ore pays credits and counts toward stats', () => {
@@ -12,7 +13,7 @@ test('selling ore pays credits and counts toward stats', () => {
   const result = sellCargo(state, ship, 'ferrite-ore');
   assert.ok(result.ok);
   assert.equal(result.qty, 60);
-  assert.equal(state.credits, 600 + result.total);
+  assert.equal(state.credits, 250 + result.total);
   assert.equal(state.stats.oreSold, 60);
   assert.equal(state.stats.earned, result.total);
   assert.equal(cargoTotal(ship), 0);
@@ -33,7 +34,7 @@ test('a hauler buys within its hold and credits, and trade profit is tracked', (
   const kite = createShip(state, 'kite', 'halcyon-refinery');
   const bought = buyCargo(state, kite, 'iron', 10_000);
   assert.ok(bought.ok);
-  assert.equal(bought.qty, HULLS.kite.hold);
+  assert.equal(bought.qty, holdOf(kite));
   assert.equal(freeHold(kite), 0);
 
   kite.at = 'halcyon-foundry';
@@ -46,10 +47,10 @@ test('a hauler buys within its hold and credits, and trade profit is tracked', (
 test('a partial sale keeps the matching share of the cost basis', () => {
   const state = newGame({ credits: 100_000 });
   const kite = createShip(state, 'kite', 'halcyon-refinery');
-  const bought = buyCargo(state, kite, 'iron', 100);
+  const bought = buyCargo(state, kite, 'iron', 40);
   kite.at = 'halcyon-foundry';
-  sellCargo(state, kite, 'iron', 40);
-  assert.equal(kite.cargo.iron, 60);
+  sellCargo(state, kite, 'iron', 16);
+  assert.equal(kite.cargo.iron, 24);
   assert.ok(Math.abs(kite.costBasis.iron - bought.total * 0.6) < 1e-6);
 });
 
@@ -72,11 +73,11 @@ test('miners cannot buy goods and holds have a tier limit', () => {
 });
 
 test('ships are bought at a shipyard with enough credits', () => {
-  const state = newGame({ credits: 1000 });
+  const state = newGame({ credits: 100 });
   assert.equal(buyShip(state, 'mule', 'halcyon-shipyard').ok, false, 'too poor');
   assert.equal(buyShip(state, 'mule', 'halcyon-refinery').ok, false, 'not a shipyard');
   state.credits = 10_000;
-  const price = hullPrice(state, 'mule');
+  const price = shipPrice(state);
   const result = buyShip(state, 'mule', 'halcyon-shipyard');
   assert.ok(result.ok);
   assert.equal(result.ship.name, 'Mule-2');
@@ -84,11 +85,18 @@ test('ships are bought at a shipyard with enough credits', () => {
   assert.equal(state.credits, 10_000 - price);
 });
 
-test('the licence fee grows with each ship of the same hull', () => {
-  const state = newGame();
-  const first = hullPrice(state, 'kite');
-  assert.equal(first, HULLS.kite.price, 'no fee for the first of a hull');
-  assert.equal(hullPrice(state, 'mule'), HULLS.mule.price * (1 + LICENCE_STEP), 'Mule-1 is already owned');
-  createShip(state, 'kite', 'halcyon-shipyard');
-  assert.ok(hullPrice(state, 'kite') > first);
+test('each ship costs more than the last, whatever its hull', () => {
+  const state = newGame({ credits: 1_000_000 });
+  assert.equal(shipPrice(state), SHIP_PRICES[0]);
+  createShip(state, 'mule', 'halcyon-shipyard');
+  assert.equal(shipPrice(state), SHIP_PRICES[1]);
+  while (state.ships.length <= SHIP_PRICES.length) createShip(state, 'mule', 'halcyon-shipyard');
+  assert.equal(shipPrice(state), Math.round((SHIP_PRICES.at(-1) * 1.5) / 10000) * 10000);
+});
+
+test('Kites need the Hauler licence', () => {
+  const state = newGame({ credits: 10_000 });
+  assert.match(buyShip(state, 'kite', 'halcyon-shipyard').error, /Hauler licence/);
+  state.research.done.push('kite-licence');
+  assert.ok(buyShip(state, 'kite', 'halcyon-shipyard').ok);
 });

@@ -3,14 +3,14 @@
 import { GOODS } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
 import { findField } from '../../content/homeSystem.js';
-import { formatCredits } from '../../../../shared/js/format.js';
-import { cargoTotal } from '../../systems/cargo.js';
 import { findShip } from '../../systems/fleet.js';
-import { giveOrder } from '../../systems/orders.js';
-import { buyersOf, tripPreviews } from '../../systems/advisor.js';
+import { freeSlots, giveOrder } from '../../systems/orders.js';
+import { buyersOf } from '../../systems/advisor.js';
 import { countdown, h } from '../dom.js';
 import { chip, fieldIcon, panelHead, sectionTitle, swatch } from '../components.js';
-import { at, formatPrice, tonnes } from '../format.js';
+import { amountSlider } from '../amount.js';
+import { orderToast } from '../contextMenu.js';
+import { formatPrice } from '../format.js';
 
 export function richnessLabel(richness) {
   if (richness >= 1.15) return 'Rich';
@@ -43,20 +43,22 @@ export function fieldPanel(ctx, fieldId) {
 }
 
 function minersSection(ctx, field) {
-  const { state, now, ui } = ctx;
+  const { state, ui } = ctx;
   const miners = state.ships.filter((s) => HULLS[s.hull].role === 'miner');
-  const idle = miners.filter((s) => !s.order && s.at);
-  const busy = miners.filter((s) => s.order);
-  const chosen = idle.find((s) => s.id === ui.miner) ?? idle[0] ?? null;
+  // Idle miners first, then busy ones that still have room for an order.
+  const ready = [...miners.filter((s) => !s.order), ...miners.filter((s) => s.order && freeSlots(state, s) > 0)];
+  const full = miners.filter((s) => s.order && freeSlots(state, s) <= 0);
+  const chosen = ready.find((s) => s.id === ui.miner) ?? ready[0] ?? null;
 
   const parts = [sectionTitle('Send a miner')];
+  if (!miners.length) return h('div', { class: 'dw-section' }, parts, h('p', { class: 'dw-note' }, 'You have no mining ship.'));
 
-  if (idle.length > 1) {
+  if (ready.length > 1) {
     parts.push(
       h(
         'div',
-        { class: 'dw-seg', role: 'group', 'aria-label': 'Miner' },
-        idle.map((ship) =>
+        { class: 'dw-seg is-wrap', role: 'group', 'aria-label': 'Miner' },
+        ready.map((ship) =>
           h('button', { type: 'button', 'aria-pressed': String(ship.id === chosen.id), dataset: { key: `pick-${ship.id}` }, onClick: () => ctx.update({ miner: ship.id }) }, ship.name),
         ),
       ),
@@ -64,43 +66,33 @@ function minersSection(ctx, field) {
   }
 
   if (chosen) {
-    const hold = HULLS[chosen.hull].hold;
-    const carried = cargoTotal(chosen);
-    const trips = tripPreviews(state, chosen, field.id, now);
+    const saved = ui.fieldAmount?.shipId === chosen.id && ui.fieldAmount?.fieldId === field.id ? ui.fieldAmount.amount : null;
     parts.push(
-      h(
-        'div',
-        { class: 'dw-choices is-grid', role: 'group', 'aria-label': `Trip length for ${chosen.name}` },
-        trips.map((t) =>
-          h(
-            'button',
-            {
-              type: 'button',
-              class: 'dw-choice',
-              disabled: t.amount <= 0,
-              dataset: { key: `trip-${t.minutes}` },
-              onClick: () => ctx.act((s) => giveOrder(s, findShip(s, chosen.id), { type: 'mine', fieldId: field.id, minutes: t.minutes })),
-            },
-            h('strong', null, `${t.minutes} min`),
-            h('span', null, `${tonnes(t.amount)} · about ${formatCredits(t.value)}`),
-            h('span', null, `back at ${at(t.endsAt)}`),
-          ),
-        ),
-      ),
+      amountSlider(ctx, {
+        shipId: chosen.id,
+        fieldId: field.id,
+        amount: saved,
+        key: `field-amount-${chosen.id}`,
+        onChange: (amount) => {
+          ui.fieldAmount = { shipId: chosen.id, fieldId: field.id, amount };
+        },
+        onConfirm: (amount) => {
+          const result = ctx.act((s) => giveOrder(s, findShip(s, chosen.id), { type: 'mine', fieldId: field.id, amount }));
+          if (result?.ok) {
+            ui.fieldAmount = null;
+            orderToast(ctx, chosen, result);
+          }
+        },
+      }),
     );
-    if (carried > 0) {
-      parts.push(h('p', { class: 'dw-note is-warn' }, `${chosen.name} already carries ${tonnes(carried)}, so only ${tonnes(hold - carried)} of hold is free.`));
-    }
-  } else if (!busy.length) {
-    parts.push(h('p', { class: 'dw-note' }, 'You have no mining ship.'));
   }
 
-  for (const ship of busy) {
+  for (const ship of full) {
     parts.push(
       h(
         'button',
         { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('ship', ship.id), dataset: { key: `busy-${ship.id}` } },
-        h('span', { class: 'dw-grow' }, h('strong', null, ship.name), h('small', null, ship.order.label)),
+        h('span', { class: 'dw-grow' }, h('strong', null, ship.name), h('small', null, `${ship.order.label} · orders full`)),
         countdown(ship.order.endsAt),
       ),
     );

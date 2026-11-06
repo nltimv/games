@@ -2,30 +2,45 @@
 // Each option maps onto the same calls the panels use, so the menu and the
 // panels can never disagree about what an order does.
 
-import { buyCargo, sellCargo } from './cargo.js';
+import { sellCargo } from './cargo.js';
 import { findShip } from './fleet.js';
-import { giveOrder } from './orders.js';
+import { giveOrder, giveOrders, orderRefit } from './orders.js';
 
 const fail = (error) => ({ ok: false, error });
 
-/** Returns { ok } or { ok: false, error }, like the calls it wraps. */
+/** Sells everything a docked, idle ship carries that its station buys. */
+export function sellAllHere(state, ship, goods) {
+  let total = 0;
+  let error = null;
+  for (const good of goods) {
+    const result = sellCargo(state, ship, good);
+    if (result.ok) total += result.total;
+    else error ??= result.error;
+  }
+  return total > 0 ? { ok: true, total } : fail(error ?? 'Nothing to sell here.');
+}
+
+/** Returns { ok, ... } or { ok: false, error }, like the calls it wraps. */
 export function carryOut(state, shipId, option) {
   const ship = findShip(state, shipId);
   if (!ship) return fail('No such ship.');
   switch (option?.kind) {
     case 'mine':
-      return giveOrder(state, ship, { type: 'mine', fieldId: option.fieldId, minutes: option.minutes });
+      return giveOrder(state, ship, { type: 'mine', fieldId: option.fieldId, amount: option.amount ?? null });
     case 'sell':
-      return sellCargo(state, ship, option.good);
-    case 'deliver':
-      return giveOrder(state, ship, { type: 'move', stationId: option.stationId, sell: option.good });
-    case 'trade': {
-      const bought = buyCargo(state, ship, option.good, option.qty);
-      if (!bought.ok) return bought;
-      return giveOrder(state, ship, { type: 'move', stationId: option.stationId, sell: option.good });
-    }
+      if (option.now) return sellAllHere(state, ship, option.goods);
+      return giveOrder(state, ship, { type: 'sell', stationId: option.stationId });
+    case 'buy':
+      return giveOrder(state, ship, { type: 'buy', stationId: option.stationId, good: option.good, qty: option.qty });
+    case 'trade':
+      return giveOrders(state, ship, [
+        { type: 'buy', stationId: option.fromId, good: option.good, qty: option.qty },
+        { type: 'sell', stationId: option.stationId, good: option.good },
+      ]);
+    case 'refit':
+      return orderRefit(state, ship);
     case 'fly':
-      return giveOrder(state, ship, { type: 'move', stationId: option.stationId });
+      return giveOrder(state, ship, { type: 'fly', stationId: option.stationId });
     default:
       return fail('Unknown order.');
   }

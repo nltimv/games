@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSaveStore, deserialize, exportSave, importSave, serialize } from '../../public/games/driftworks/core/save.js';
+import { createSaveStore, deserialize, exportSave, importSave, isOutdated, serialize } from '../../public/games/driftworks/core/save.js';
 import { SAVE_VERSION } from '../../public/games/driftworks/core/state.js';
 import { createMemoryStorage } from '../../public/shared/js/storage.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
@@ -8,7 +8,7 @@ import { newGame, firstShip } from './helpers.mjs';
 
 test('a save survives a round trip', () => {
   const state = newGame();
-  giveOrder(state, firstShip(state), { type: 'mine', fieldId: 'rime', minutes: 15 });
+  giveOrder(state, firstShip(state), { type: 'mine', fieldId: 'rime', amount: null });
   assert.deepEqual(deserialize(serialize(state)), state);
 });
 
@@ -38,4 +38,8 @@ test('junk, wrong shapes and future versions are refused', () => {
   assert.equal(deserialize('[]'), null);
   const future = { ...newGame(), version: SAVE_VERSION + 1 };
   assert.equal(deserialize(JSON.stringify(future)), null);
+  const old = { ...newGame(), version: 1 };
+  assert.equal(deserialize(JSON.stringify(old)), null);
+  assert.equal(isOutdated(JSON.stringify(old)), true);
+  assert.equal(isOutdated(JSON.stringify(newGame())), false);
 });

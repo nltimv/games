@@ -2,9 +2,10 @@
 
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { currentGoal } from '../systems/goals.js';
-import { lowerFirst } from '../systems/orders.js';
+import { lowerFirst, rerunnable } from '../systems/orders.js';
 import { bar, countdown, h } from './dom.js';
 import { plural } from './format.js';
+import { runAllButton } from './panels/lists.js';
 
 const MAX_RUNS = 3;
 const MAX_IDLE_CHIPS = 2;
@@ -26,8 +27,7 @@ export function renderTopBar(els, state, previous) {
   const next = [...busy].sort((a, b) => a.order.endsAt - b.order.endsAt)[0];
   els.nextChip.classList.toggle('is-idle', !next);
   if (next) {
-    const verb = next.order.type === 'mine' ? 'back in' : 'arrives in';
-    els.nextText.replaceChildren(`${next.name} ${verb} `, countdown(next.order.endsAt, { className: '' }));
+    els.nextText.replaceChildren(`${next.name} done in `, countdown(next.order.endsAt, { className: '' }));
   } else {
     els.nextText.textContent = state.ships.length === 1 ? `${state.ships[0].name} is waiting` : 'All ships are waiting';
   }
@@ -58,6 +58,7 @@ export function underwayCard(ctx) {
   );
   const moreIdle = idle.length - idleChips.length;
   const moreBusy = busy.length - runs.length;
+  const again = rerunnable(state);
 
   return [
     h(
@@ -68,6 +69,7 @@ export function underwayCard(ctx) {
     ),
     runs.length ? runs : h('p', { class: 'dw-note' }, 'Nothing is running.'),
     moreBusy > 0 ? h('span', { class: 'dw-note' }, `+${moreBusy} more in Fleet`) : null,
+    again.length > 1 ? runAllButton(ctx, again.length) : null,
     idleChips.length || goal
       ? h(
           'div',
@@ -79,7 +81,7 @@ export function underwayCard(ctx) {
                 'button',
                 { type: 'button', class: 'dw-goal-chip', onClick: () => ctx.setView('company'), dataset: { key: 'goal-chip' } },
                 h('span', { class: 'dw-dot is-goal', 'aria-hidden': 'true' }),
-                h('span', null, 'Goal: ', h('strong', null, goal.title), ` · +${formatCredits(goal.reward)}`),
+                h('span', null, 'Goal: ', h('strong', null, goal.title), goal.reward ? ` · +${formatCredits(goal.reward)}` : ''),
               )
             : null,
         )

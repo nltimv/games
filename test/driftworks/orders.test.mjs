@@ -2,79 +2,238 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { advance, nextEventAt } from '../../public/games/driftworks/core/sim.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
-import { giveOrder, miningYield, shipStatus } from '../../public/games/driftworks/systems/orders.js';
-import { HULLS } from '../../public/games/driftworks/content/ships.js';
+import {
+  clearQueue,
+  copyOrders,
+  freeSlots,
+  giveOrder,
+  orderRefit,
+  planCycle,
+  projectShip,
+  refitAll,
+  repeatToFill,
+  roomForRounds,
+  runAgain,
+  runAllAgain,
+  shipStatus,
+} from '../../public/games/driftworks/systems/orders.js';
+import { holdOf } from '../../public/games/driftworks/systems/modules.js';
+import { travelTime } from '../../public/games/driftworks/systems/travel.js';
+import { findField } from '../../public/games/driftworks/content/homeSystem.js';
 import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
 
-test('longer trips mine more per minute', () => {
-  const state = newGame();
-  const ship = firstShip(state);
-  const perMinute = [5, 15, 25, 50].map((m) => miningYield(ship, 'kx14', m) / m);
-  for (let i = 1; i < perMinute.length; i += 1) assert.ok(perMinute[i] > perMinute[i - 1], perMinute.join(', '));
-});
+const mine = (fieldId = 'kx14', amount = null) => ({ type: 'mine', fieldId, amount });
+const sell = (stationId = 'halcyon-refinery', good) => ({ type: 'sell', stationId, ...(good ? { good } : {}) });
 
-test('mining yield never exceeds the free hold', () => {
+test('a full-hold mining order takes the flight plus hold / (laser x richness)', () => {
   const state = newGame();
   const ship = firstShip(state);
-  ship.cargo.ice = HULLS.mule.hold - 10;
-  assert.equal(miningYield(ship, 'silica-reef', 50), 10);
-});
-
-test('a mining trip brings ore back to the station it left from', () => {
-  const state = newGame();
-  const ship = firstShip(state);
-  const home = ship.at;
-  const result = giveOrder(state, ship, { type: 'mine', fieldId: 'kx14', minutes: 25 });
+  const result = giveOrder(state, ship, mine('carbon-drift'));
   assert.ok(result.ok);
+  assert.equal(result.queued, false);
+  const travel = travelTime(ship, 'halcyon-refinery', 'carbon-drift');
+  const mining = (holdOf(ship) / (10 * findField('carbon-drift').richness)) * MINUTE;
+  assert.equal(ship.order.endsAt, T0 + travel + mining);
+  assert.equal(ship.order.steps[0].amount, holdOf(ship));
   assert.equal(ship.at, null);
-  assert.equal(nextEventAt(state), T0 + 25 * MINUTE);
+  assert.equal(nextEventAt(state), ship.order.endsAt);
+});
 
-  advance(state, T0 + 24 * MINUTE);
-  assert.equal(ship.at, null, 'still out');
-  assert.match(shipStatus(ship), /Mining KX-14/);
-
-  advance(state, T0 + 25 * MINUTE);
-  assert.equal(ship.at, home);
+test('a smaller amount mines faster, and the ship waits at the field', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  const full = giveOrder(state, createShip(state, 'mule', 'halcyon-refinery'), mine('kx14')).order;
+  const part = giveOrder(state, ship, mine('kx14', 4)).order;
+  assert.ok(part.endsAt < full.endsAt);
+  advance(state, part.endsAt);
   assert.equal(ship.order, null);
-  assert.equal(ship.cargo['ferrite-ore'], result.order.steps[0].amount);
-  assert.equal(state.stats.miningTrips, 1);
+  assert.equal(ship.at, 'kx14');
+  assert.equal(ship.cargo['ferrite-ore'], 4);
+  assert.match(shipStatus(ship), /Waiting at KX-14 with 4 t ferrite ore/);
 });
 
-test('a busy ship cannot take a second order', () => {
+test('a sell order flies to the station and sells everything it buys', () => {
   const state = newGame();
   const ship = firstShip(state);
-  giveOrder(state, ship, { type: 'mine', fieldId: 'kx14', minutes: 5 });
-  const second = giveOrder(state, ship, { type: 'mine', fieldId: 'rime', minutes: 5 });
-  assert.equal(second.ok, false);
-  assert.match(second.error, /busy/);
-});
-
-test('haulers cannot mine and bad specs are refused', () => {
-  const state = newGame();
-  const kite = createShip(state, 'kite', 'halcyon-refinery');
-  assert.equal(giveOrder(state, kite, { type: 'mine', fieldId: 'kx14', minutes: 5 }).ok, false);
-  assert.equal(giveOrder(state, firstShip(state), { type: 'mine', fieldId: 'kx14', minutes: 7 }).ok, false);
-  assert.equal(giveOrder(state, firstShip(state), { type: 'teleport' }).ok, false);
-  assert.equal(giveOrder(state, firstShip(state), { type: 'move', stationId: 'halcyon-refinery' }).ok, false, 'already there');
-});
-
-test('a delivery sells its cargo on arrival', () => {
-  const state = newGame();
-  const ship = firstShip(state);
-  ship.cargo['ferrite-ore'] = 50;
+  ship.at = 'kx14';
+  ship.cargo['ferrite-ore'] = 8;
   const credits = state.credits;
-  const result = giveOrder(state, ship, { type: 'move', stationId: 'aurel-post', sell: 'ferrite-ore' });
+  const result = giveOrder(state, ship, sell('aurel-post'));
   assert.ok(result.ok);
   advance(state, result.order.endsAt);
   assert.equal(ship.at, 'aurel-post');
-  assert.equal(ship.cargo['ferrite-ore'], undefined);
+  assert.deepEqual(ship.cargo, {});
   assert.ok(state.credits > credits);
+  assert.equal(state.stats.oreSold, 8);
 });
 
-test('a delivery to a station that does not buy the good is refused', () => {
+test('orders for a busy ship queue up to the slot limit, checked from where it will be', () => {
   const state = newGame();
   const ship = firstShip(state);
-  ship.cargo.ice = 20;
-  const result = giveOrder(state, ship, { type: 'move', stationId: 'aurel-post', sell: 'ice' });
-  assert.equal(result.ok, false);
+  assert.equal(freeSlots(state, ship), 2);
+  giveOrder(state, ship, mine('kx14'));
+  // Its hold will be full after the current order, so another mine is refused...
+  const again = giveOrder(state, ship, mine('rime'));
+  assert.equal(again.ok, false);
+  assert.match(again.error, /hold is full/);
+  // ...but a sale of the ore it will carry is fine.
+  const queued = giveOrder(state, ship, sell());
+  assert.ok(queued.ok && queued.queued);
+  assert.equal(queued.order.startedAt, ship.order.endsAt, 'the estimate starts when the current order ends');
+  assert.equal(freeSlots(state, ship), 0);
+  assert.match(giveOrder(state, ship, { type: 'fly', stationId: 'aurel-post' }).error, /orders are full/);
+
+  // The queue runs on its own.
+  advance(state, queued.order.endsAt);
+  assert.equal(ship.order, null);
+  assert.equal(ship.at, 'halcyon-refinery');
+  assert.equal(state.stats.oreSold, holdOf(ship));
+});
+
+test('the projection follows the queue: place, cargo and time', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine('kx14'));
+  let view = projectShip(state, ship);
+  assert.equal(view.at, 'kx14');
+  assert.equal(view.cargo['ferrite-ore'], holdOf(ship));
+  assert.equal(view.time, ship.order.endsAt);
+  giveOrder(state, ship, sell('aurel-post'));
+  view = projectShip(state, ship);
+  assert.equal(view.at, 'aurel-post');
+  assert.deepEqual(view.cargo, {});
+});
+
+test('a queued order that can no longer run is skipped with a warning', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  ship.cargo.ice = 5;
+  giveOrder(state, ship, { type: 'fly', stationId: 'aurel-post' });
+  giveOrder(state, ship, sell('halcyon-refinery'));
+  ship.cargo = {}; // the ice is gone before the sale starts
+  advance(state, T0 + 30 * MINUTE);
+  assert.equal(ship.order, null);
+  assert.equal(ship.queue.length, 0);
+  assert.equal(state.log.at(-1).kind, 'warning');
+});
+
+test('bad orders are refused', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  const kite = createShip(state, 'kite', 'halcyon-refinery');
+  assert.match(giveOrder(state, kite, mine()).error, /not a mining ship/);
+  assert.equal(giveOrder(state, ship, { type: 'teleport' }).ok, false);
+  assert.equal(giveOrder(state, ship, { type: 'fly', stationId: 'halcyon-refinery' }).ok, false, 'already there');
+  assert.equal(giveOrder(state, ship, sell()).ok, false, 'nothing to sell');
+  assert.equal(giveOrder(state, ship, { type: 'buy', stationId: 'halcyon-refinery', good: 'iron', qty: 5 }).ok, false, 'miners do not buy');
+});
+
+test('clearing the queue keeps the current order and trims the plan', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine());
+  giveOrder(state, ship, sell());
+  assert.equal(ship.plan.length, 2);
+  assert.ok(clearQueue(state, ship).ok);
+  assert.equal(ship.queue.length, 0);
+  assert.ok(ship.order);
+  assert.equal(ship.plan.length, 1);
+  assert.equal(clearQueue(state, ship).ok, false);
+});
+
+test('repeat to fill adds whole rounds of the plan that would work', () => {
+  const state = newGame();
+  state.research.done.push('queue-1'); // 4 orders
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine());
+  assert.equal(roomForRounds(state, ship), 0, 'a second mine would find the hold full');
+  giveOrder(state, ship, sell());
+  assert.deepEqual(planCycle(ship.plan), [mine(), sell()]);
+  assert.equal(roomForRounds(state, ship), 1);
+  assert.ok(repeatToFill(state, ship).ok);
+  assert.equal(ship.queue.length, 3);
+  assert.equal(state.stats.repeats, 1);
+  assert.equal(repeatToFill(state, ship).ok, false, 'no room left');
+});
+
+test('run again repeats the last plan once the ship is idle', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  assert.equal(runAgain(state, ship).ok, false, 'no plan yet');
+  giveOrder(state, ship, mine('carbon-drift'));
+  giveOrder(state, ship, sell());
+  assert.equal(runAgain(state, ship).ok, false, 'still busy');
+  advance(state, T0 + 30 * MINUTE);
+  const result = runAgain(state, ship);
+  assert.ok(result.ok);
+  assert.equal(result.given, 2);
+  assert.equal(ship.order.type, 'mine');
+  assert.deepEqual(ship.plan, [mine('carbon-drift'), sell()]);
+});
+
+test('run all again restarts every idle ship with a plan', () => {
+  const state = newGame();
+  const a = firstShip(state);
+  const b = createShip(state, 'mule', 'halcyon-refinery');
+  createShip(state, 'mule', 'halcyon-refinery'); // never had orders
+  for (const ship of [a, b]) {
+    giveOrder(state, ship, mine('kx14'));
+    giveOrder(state, ship, sell());
+  }
+  advance(state, T0 + 30 * MINUTE);
+  const result = runAllAgain(state);
+  assert.deepEqual(result, { ok: true, count: 2 });
+  assert.ok(a.order && b.order);
+});
+
+test('copy orders gives a ship another ship\'s plan, if its hull can fly it', () => {
+  const state = newGame();
+  const a = firstShip(state);
+  giveOrder(state, a, mine('rime'));
+  giveOrder(state, a, sell());
+  const b = createShip(state, 'mule', 'halcyon-shipyard');
+  const result = copyOrders(state, b, a);
+  assert.ok(result.ok);
+  assert.equal(b.order.target, 'rime');
+  assert.deepEqual(b.queue, [sell()]);
+  assert.equal(state.stats.copies, 1);
+  const kite = createShip(state, 'kite', 'halcyon-shipyard');
+  assert.equal(copyOrders(state, kite, a).ok, false, 'haulers cannot mine');
+});
+
+test('a refit is paid up front, fits the newest modules at the shipyard, and keeps the plan', () => {
+  const state = newGame({ credits: 1000 });
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine());
+  giveOrder(state, ship, sell());
+  advance(state, T0 + 30 * MINUTE);
+  assert.equal(orderRefit(state, ship).ok, false, 'nothing newer yet');
+
+  state.research.done.push('hold-1');
+  const before = state.credits;
+  const result = orderRefit(state, ship);
+  assert.ok(result.ok);
+  assert.equal(state.credits, before - result.cost);
+  advance(state, result.order.endsAt);
+  assert.equal(ship.at, 'halcyon-shipyard');
+  assert.equal(ship.modules.hold, 1);
+  assert.equal(holdOf(ship), 25);
+  assert.equal(state.stats.refits, 1);
+  assert.equal(ship.plan.length, 2, 'Run again still has the route');
+});
+
+test('refit all books every ship that is behind, and clearing refunds a queued refit', () => {
+  const state = newGame({ credits: 1000 });
+  const a = firstShip(state);
+  const b = createShip(state, 'mule', 'halcyon-refinery');
+  state.research.done.push('hold-1');
+  createShip(state, 'mule', 'halcyon-shipyard'); // already has the new racks
+  giveOrder(state, b, mine());
+  const result = refitAll(state);
+  assert.equal(result.count, 2);
+  assert.equal(a.order.type, 'refit');
+  assert.equal(b.queue[0].type, 'refit');
+  const credits = state.credits;
+  clearQueue(state, b);
+  assert.equal(state.credits, credits + result.cost / 2);
 });

@@ -13,6 +13,7 @@ import { createRng, hashString } from '../core/rng.js';
 import { SECOND } from '../core/time.js';
 import { formatDuration } from '../../../shared/js/format.js';
 import { shipPosition } from '../systems/travel.js';
+import { projectShip } from '../systems/orders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
@@ -175,6 +176,11 @@ export function drawSystem(ctx, cam, state, now, view) {
     if (!drawAsset(ctx, `field-${field.good}`, p.x, p.y, w, dpr)) dot(ctx, p.x, p.y, w * 0.2, GOODS[field.good].look.mid);
     const name = compact ? field.name : `${field.name} · ${GOODS[field.good].name.toLowerCase()}`;
     drawLabel(ctx, name, p.x, p.y + w * 0.42 + 9, dpr, { size: compact ? 11 : 12 });
+    const waiting = shipsAt(state, field.id);
+    if (waiting.length && !compact) {
+      const text = waiting.length === 1 ? `${waiting[0].name} waiting` : `${waiting.length} ships waiting`;
+      drawLabel(ctx, text, p.x, p.y + w * 0.42 + 24, dpr, { size: 11, weight: 600, color: 'rgba(220, 236, 255, 0.72)' });
+    }
     targets.push({ kind: 'field', id: field.id, x: p.x, y: p.y, r: Math.max(22, w * 0.45) });
   }
 
@@ -249,10 +255,11 @@ export function drawSystem(ctx, cam, state, now, view) {
     targets.push({ kind: 'ship', id: ship.id, x: p.x, y: p.y, r: ship.order ? 12 : 7, parked: !ship.order });
   });
 
-  // Hover, menu target and selection rings
+  // Hover, menu target, selection and tutorial rings
   drawRing(ctx, targets, view.hover, 'hover');
   drawRing(ctx, targets, view.target, 'target');
   drawRing(ctx, targets, view.selection, 'selected');
+  drawRing(ctx, targets, view.guide, 'guide');
   return targets;
 }
 
@@ -273,7 +280,8 @@ function routePreview(cam, state, view) {
   const target = view.target;
   if (!target?.shipId || target.kind === 'ship') return null;
   const ship = state.ships.find((s) => s.id === target.shipId);
-  const from = ship && !ship.order ? findPlace(ship.at) : null;
+  // A busy ship's new order starts where its last one ends.
+  const from = ship ? findPlace(projectShip(state, ship).at) : null;
   const to = findPlace(target.id);
   if (!from || !to || from === to) return null;
   return { from: toScreen(cam, from.x, from.y), to: toScreen(cam, to.x, to.y) };
@@ -283,6 +291,7 @@ const RINGS = {
   hover: { color: 'rgba(255, 255, 255, 0.35)', gap: 2, width: 1.5 },
   target: { color: 'rgba(255, 211, 110, 0.9)', gap: 4, width: 2 },
   selected: { color: '#8ff5e4', gap: 4, width: 2 },
+  guide: { color: 'rgba(255, 211, 110, 0.95)', gap: 9, width: 2.5, dash: [6, 5] },
 };
 
 function drawRing(ctx, targets, ref, style) {
@@ -292,9 +301,11 @@ function drawRing(ctx, targets, ref, style) {
   const ring = RINGS[style];
   ctx.strokeStyle = ring.color;
   ctx.lineWidth = ring.width;
+  if (ring.dash) ctx.setLineDash(ring.dash);
   ctx.beginPath();
   ctx.arc(target.x, target.y, target.r + ring.gap, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.setLineDash([]);
   if (style !== 'hover') {
     // A soft second ring instead of a blurred glow.
     ctx.globalAlpha = 0.3;

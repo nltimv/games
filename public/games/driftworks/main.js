@@ -14,7 +14,6 @@ const awaySince = session.state.lastSeenAt;
 
 // Catch up first, so the first frame already shows where ships are now.
 session.tick(bootNow);
-session.visit(bootNow);
 
 const app = createApp(session);
 app.showAwayIfNeeded(awaySince, bootNow);

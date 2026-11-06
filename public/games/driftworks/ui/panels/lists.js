@@ -2,16 +2,17 @@
 // log), and the locked warp gates.
 
 import { GOALS, NEXT_CHAPTER } from '../../content/goals.js';
-import { GOODS } from '../../content/goods.js';
+import { GOODS, goodName } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
 import { STATION_TYPES, FACTIONS } from '../../content/stations.js';
-import { HOME_SYSTEM } from '../../content/homeSystem.js';
+import { HOME_SYSTEM, findStation } from '../../content/homeSystem.js';
 import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/format.js';
+import { CONTRACT_RULES, acceptContract, boardOpen, premiumText } from '../../systems/contracts.js';
 import { currentGoal } from '../../systems/goals.js';
-import { shipStatus } from '../../systems/orders.js';
+import { rerunnable, runAllAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, fieldIcon, gateIcon, panelHead, sectionTitle, shipGlyph, stationIcon } from '../components.js';
-import { plural } from '../format.js';
+import { button, chip, fieldIcon, gateIcon, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
+import { plural, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
 
 // ---------- System overview ----------
@@ -87,8 +88,10 @@ export function fleetPanel(ctx) {
       ),
     ),
   );
+  const again = rerunnable(state);
   return [
     panelHead({ title: 'Fleet', subtitle: `${plural(ships.length, 'ship')} · ${idle} waiting for orders`, onClose: ctx.close }),
+    again.length ? runAllButton(ctx, again.length) : null,
     h('ul', { class: 'dw-list' }, rows),
     button('Buy ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
   ];
@@ -106,10 +109,10 @@ export function companyPanel(ctx) {
         'div',
         { class: 'dw-card is-gold' },
         h('span', { class: 'dw-eyebrow' }, 'Current goal'),
-        h('div', { class: 'dw-card-head' }, h('strong', null, goal.title), h('span', { class: 'dw-goal-reward' }, `+${formatCredits(goal.reward)}`)),
+        h('div', { class: 'dw-card-head' }, h('strong', null, goal.title), rewardText(goal)),
         goal.progress ? goalProgress(goal.progress(state)) : null,
       )
-    : h('div', { class: 'dw-card is-aqua' }, h('strong', null, 'All goals done'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));
+    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, 'Act 1 complete'), h('strong', null, 'The warp drive is ready'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));
 
   const goals = GOALS.map((g) => {
     const done = state.goals.includes(g.id);
@@ -119,7 +122,7 @@ export function companyPanel(ctx) {
       { class: `dw-goal${done ? ' is-done' : ''}${!done && !isCurrent ? ' is-locked' : ''}` },
       h('span', { class: 'dw-goal-mark', 'aria-hidden': 'true' }, done ? '✓' : ''),
       h('span', { class: 'dw-goal-title' }, g.title, done ? h('span', { class: 'dw-sr' }, ' (done)') : null),
-      h('span', { class: 'dw-goal-reward' }, `+${formatCredits(g.reward)}`),
+      rewardText(g),
     );
   });
 
@@ -133,6 +136,7 @@ export function companyPanel(ctx) {
   return [
     panelHead({ title: 'Your company', subtitle: `Founded ${new Date(state.createdAt).toLocaleDateString()} · ${HOME_SYSTEM.name}`, onClose: ctx.close }),
     goalCard,
+    contractsSection(ctx),
     h('div', { class: 'dw-section' }, sectionTitle('Goals', `${state.goals.length} / ${GOALS.length}`, { numeric: true }), h('ul', { class: 'dw-list' }, goals)),
     h(
       'div',
@@ -145,6 +149,8 @@ export function companyPanel(ctx) {
         stat('Ore sold', `${formatNumber(stats.oreSold)} t`),
         stat('Trade profit', formatCredits(stats.tradeProfit)),
         stat('Mining trips', formatNumber(stats.miningTrips)),
+        stat('Contracts filled', formatNumber(stats.contracts)),
+        stat('Research done', formatNumber(state.research.done.length)),
       ),
     ),
     h('div', { class: 'dw-section' }, sectionTitle('Log'), h('ul', { class: 'dw-log' }, log)),
@@ -152,12 +158,69 @@ export function companyPanel(ctx) {
   ];
 }
 
-function goalProgress({ value, target }) {
+function goalProgress({ value, target, unit }) {
+  const text = unit === 'credits' ? `${formatCredits(Math.min(value, target))} of ${formatCredits(target)}` : `${formatNumber(Math.min(value, target))} of ${formatNumber(target)} ${unit ?? ''}`;
+  return h('div', { class: 'dw-section' }, bar({ fraction: value / target, variant: 'gold' }), h('span', { class: 'dw-note' }, text.trim()));
+}
+
+function rewardText(goal) {
+  return h('span', { class: 'dw-goal-reward' }, goal.reward ? `+${formatCredits(goal.reward)}` : 'Ends act 1');
+}
+
+/** One button that repeats every idle ship's last orders. */
+export function runAllButton(ctx, count) {
+  return button(`Run all again`, {
+    variant: 'primary',
+    block: true,
+    sub: plural(count, 'ship'),
+    key: 'run-all-again',
+    onClick: () => {
+      const result = ctx.act((s) => runAllAgain(s));
+      if (result?.ok) ctx.toast(`${plural(result.count, 'ship')} running their last orders again`, 'order');
+    },
+  });
+}
+
+// ---------- Contracts ----------
+
+function contractsSection(ctx) {
+  const { state, now } = ctx;
+  if (!boardOpen(state)) return null;
+  const { active, offers } = state.contracts;
+  const full = active.length >= CONTRACT_RULES.maxActive;
+  const what = (c) => `${tonnes(c.qty)} ${goodName(c.good).toLowerCase()} for ${findStation(c.stationId).name}`;
+  const activeCards = active
+    .filter((c) => c.deadline > now)
+    .map((c) =>
+      h(
+        'div',
+        { class: 'dw-card is-gold' },
+        h('div', { class: 'dw-card-head' }, h('strong', null, [swatch(c.good), ` ${what(c)}`]), countdown(c.deadline)),
+        bar({ fraction: c.delivered / c.qty, variant: 'gold' }),
+        h('span', { class: 'dw-note' }, `${tonnes(c.delivered)} delivered · pays ${premiumText(c)} over market`),
+      ),
+    );
+  const offerRows = offers.map((offer) =>
+    h(
+      'li',
+      { class: 'dw-ship-row' },
+      swatch(offer.good),
+      h('span', { class: 'dw-grow' }, h('strong', null, what(offer)), h('small', null, `${premiumText(offer)} over market · ${CONTRACT_RULES.hours} h to deliver`)),
+      button('Accept', {
+        small: true,
+        variant: full ? null : 'primary',
+        disabled: full,
+        key: `accept-${offer.id}`,
+        onClick: () => ctx.act((s, t) => acceptContract(s, offer.id, t)),
+      }),
+    ),
+  );
   return h(
     'div',
     { class: 'dw-section' },
-    bar({ fraction: value / target, variant: 'gold' }),
-    h('span', { class: 'dw-note' }, `${formatCredits(Math.min(value, target))} of ${formatCredits(target)}`),
+    sectionTitle('Contracts', `${active.length} / ${CONTRACT_RULES.maxActive}`, { numeric: true }),
+    activeCards,
+    offerRows.length ? h('ul', { class: 'dw-list' }, offerRows) : h('p', { class: 'dw-note' }, 'No offers right now.'),
   );
 }
 

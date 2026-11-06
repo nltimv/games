@@ -1,9 +1,10 @@
 // Saving and loading. The whole state is plain JSON in localStorage under
 // `driftworks-save`. Each save carries a version; MIGRATIONS upgrade older
-// saves one version at a time, so players never lose progress to an update.
+// saves one version at a time. Saves older than OLDEST_SAVE_VERSION come
+// from before a rebuild and cannot be upgraded: the game starts over.
 
 import { createStore } from '../../../shared/js/storage.js';
-import { SAVE_VERSION } from './state.js';
+import { OLDEST_SAVE_VERSION, SAVE_VERSION } from './state.js';
 
 const SAVE_KEY = 'save';
 
@@ -28,7 +29,7 @@ function isPlausible(data) {
     data &&
     typeof data === 'object' &&
     Number.isInteger(data.version) &&
-    data.version >= 1 &&
+    data.version >= OLDEST_SAVE_VERSION &&
     data.version <= SAVE_VERSION &&
     Array.isArray(data.ships) &&
     Number.isFinite(data.credits)
@@ -49,12 +50,27 @@ export function serialize(state) {
   return JSON.stringify(state);
 }
 
+/** True for a save from before the last rebuild. */
+export function isOutdated(json) {
+  try {
+    const data = typeof json === 'string' ? JSON.parse(json) : json;
+    return Number.isInteger(data?.version) && data.version < OLDEST_SAVE_VERSION;
+  } catch {
+    return false;
+  }
+}
+
 export function createSaveStore(storage) {
   const store = createStore('driftworks', storage);
   return {
     load() {
       const raw = store.getRaw(SAVE_KEY);
       return raw == null ? null : deserialize(raw);
+    },
+    /** Whether the stored save is one this version can no longer load. */
+    hasOutdated() {
+      const raw = store.getRaw(SAVE_KEY);
+      return raw != null && isOutdated(raw);
     },
     save(state) {
       return store.setRaw(SAVE_KEY, serialize(state));

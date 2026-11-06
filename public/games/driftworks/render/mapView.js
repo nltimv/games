@@ -8,6 +8,7 @@
 // times a second at most, instead of every frame.
 
 import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { HULLS, MODULES } from '../content/ships.js';
 import { shipPosition } from '../systems/travel.js';
 import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, zoomAt } from './camera.js';
 import { loadAssets } from './assets.js';
@@ -16,9 +17,10 @@ import { drawSystem, hitTest, renderBackground } from './systemMap.js';
 
 const DRAG_THRESHOLD = 6;
 const LONG_PRESS_MS = 480;
-// Fastest a ship crosses the map, in map units per second (hauler speed at
-// the middle of an eased flight), and how fast docked ships circle.
-const FLIGHT_SPEED = (150 / 60) * 1.5;
+// Fastest a ship crosses the map, in map units per second (the best engines
+// on the fastest hull, at the middle of an eased flight), and how fast
+// docked ships circle.
+const FLIGHT_SPEED = ((Math.max(...MODULES.engine.levels) * Math.max(...Object.values(HULLS).map((hull) => hull.speedScale))) / 60) * 1.5;
 const DRIFT_SPEED = 0.6;
 const IDLE_MIN_MS = 50;
 const IDLE_MAX_MS = 1000;
@@ -28,6 +30,7 @@ const IDLE_MAX_MS = 1000;
  *   getState()               the game state to draw
  *   getSelection()           { kind, id } or null
  *   getMenuTarget()          { kind, id } the order menu is open for, or null
+ *   getGuideTarget()         { kind, id } the tutorial points at, or null
  *   getSafeArea(w, h)        the free screen rect { x, y, width, height }
  *   onSelect(target)         called with { kind, id } or null on a click
  *   onContextMenu(target, p) right-click or long-press on { kind, id } (or
@@ -71,6 +74,7 @@ export function createMapView(canvas, options) {
     targets = drawSystem(ctx, cam, options.getState(), Date.now(), {
       selection: options.getSelection(),
       target: options.getMenuTarget?.() ?? null,
+      guide: options.getGuideTarget?.() ?? null,
       hover,
       dpr,
     });

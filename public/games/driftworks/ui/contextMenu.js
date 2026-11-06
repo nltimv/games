@@ -4,16 +4,19 @@
 // detail, and are the way in for keyboard and screen-reader players.
 
 import { goodName } from '../content/goods.js';
-import { HULLS } from '../content/ships.js';
+import { HULLS, MODULES } from '../content/ships.js';
 import { STATION_TYPES } from '../content/stations.js';
 import { findField, findPlace, findStation } from '../content/homeSystem.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { orderOptions } from '../systems/advisor.js';
 import { carryOut } from '../systems/commands.js';
 import { findShip } from '../systems/fleet.js';
+import { freeSlots, giveOrder, lowerFirst } from '../systems/orders.js';
+import { orderSlots } from '../systems/research.js';
 import { h } from './dom.js';
 import { fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
-import { at, plusCredits, tonnes, trip } from './format.js';
+import { amountSlider } from './amount.js';
+import { at, minusCredits, plusCredits, tonnes } from './format.js';
 
 function headIcon(target) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
@@ -36,52 +39,75 @@ function heading(target) {
   return { title: place?.name ?? 'Gate', subtitle: 'Jump gate · locked' };
 }
 
+function when(option, verb = 'done') {
+  return `${option.queued ? 'After its orders · ' : ''}${verb} ${at(option.endsAt)}`;
+}
+
 /** The text of one option: { label, value, note, good }. */
-function describe(option, now) {
+function describe(option) {
+  const blocked = option.disabled ? option.note : null;
   switch (option.kind) {
     case 'mine':
       return {
-        label: `Mine for ${option.minutes} min`,
-        value: option.disabled ? 'hold full' : `about ${formatCredits(option.value)}`,
-        note: `${tonnes(option.amount)} · back ${at(option.endsAt)}`,
+        label: 'Mine a full hold',
+        value: blocked ?? `about ${formatCredits(option.value)}`,
+        note: blocked ? null : `${tonnes(option.qty)} · ${when(option)}`,
       };
+    case 'mine-amount':
+      return { label: 'Mine an amount', value: blocked ?? '›', note: `1 to ${tonnes(option.max)}` };
     case 'sell':
-      return { label: `Sell ${tonnes(option.qty, option.good)}`, value: plusCredits(option.total), note: 'Right now', good: option.good };
-    case 'deliver':
       return {
-        label: `Deliver ${tonnes(option.qty, option.good)}`,
-        value: `about ${plusCredits(option.total)}`,
-        note: `${trip(option.travel)} away · sells on arrival`,
-        good: option.good,
+        label: option.goods.length === 1 ? `Sell ${goodName(option.goods[0]).toLowerCase()}` : 'Sell all cargo',
+        value: blocked ?? `${option.now ? '' : 'about '}${plusCredits(option.total)}`,
+        note: option.now ? 'Right now' : when(option, 'sold'),
+        good: option.goods[0],
       };
+    case 'buy':
+      return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: when(option, 'loaded'), good: option.good };
     case 'trade':
       return {
         label: `Bring ${tonnes(option.qty, option.good)}`,
-        value: `about ${plusCredits(option.profit)}`,
-        note: `Buys it for ${formatCredits(option.cost)} · arrives ${at(now + option.travel)}`,
+        value: blocked ?? `about ${plusCredits(option.profit)}`,
+        note: `Bought at ${findStation(option.fromId).name} for ${formatCredits(option.cost)} · 2 orders`,
         good: option.good,
       };
+    case 'refit':
+      return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost), note: `${modulesText(option.modules)} · ${when(option)}` };
     case 'fly':
-      return { label: 'Fly here', value: trip(option.travel), note: `Arrives ${at(now + option.travel)}` };
+      return { label: 'Fly here', value: blocked ?? at(option.endsAt), note: option.queued ? 'After its orders' : 'Arrival time' };
     default:
       return { label: option.kind, value: '', note: '' };
   }
 }
 
+/** "Hold 25 t, laser 12 t/min" for the levels a refit fits. */
+export function modulesText(modules) {
+  const parts = [];
+  if (modules.hold != null) parts.push(`hold ${MODULES.hold.levels[modules.hold]} t (Mule)`);
+  if (modules.laser != null && modules.laser > 0) parts.push(`laser ${MODULES.laser.levels[modules.laser]} t/min`);
+  if (modules.engine != null && modules.engine > 0) parts.push(`engines ${MODULES.engine.levels[modules.engine]} u/min`);
+  const text = parts.join(', ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function optionKey(option) {
-  return `menu-${option.kind}-${option.minutes ?? option.good ?? ''}`;
+  return `menu-${option.kind}-${option.good ?? ''}`;
 }
 
 /** Why the ship has no orders for the target. */
 function emptyNote(ship, target) {
-  if (target.kind === 'gate') return 'Gates open with warp drives in the next update.';
-  if (ship.order) return `${ship.name} is busy until ${at(ship.order.endsAt)}.`;
-  if (target.kind === 'field') {
-    if (HULLS[ship.hull].role !== 'miner') return `${ship.name} is a hauler and cannot mine. Select a miner for this.`;
-    return `${ship.name}'s hold is full. Sell the cargo first.`;
-  }
-  if (target.id === ship.at) return `${ship.name} is docked here and carries nothing this station buys.`;
+  if (target.kind === 'gate') return 'Gates open with the warp drive.';
+  if (target.kind === 'field' && HULLS[ship.hull].role !== 'miner') return `${ship.name} is a hauler and cannot mine.`;
   return `${ship.name} has nothing to do here.`;
+}
+
+function shipLine(state, ship) {
+  if (!ship.order) {
+    const place = findPlace(ship.at);
+    return `${ship.name} at ${place?.name ?? 'its post'}`;
+  }
+  const free = freeSlots(state, ship);
+  return `${ship.name} is busy · ${free} of ${orderSlots(state)} orders free`;
 }
 
 /** The menu's content. `ctx` is the app context; `menu` is ui.menu. */
@@ -98,16 +124,35 @@ export function orderMenu(ctx, menu) {
       h('span', { class: 'dw-grow' }, h('strong', { id: 'menu-title' }, title), h('small', null, subtitle)),
     ),
   ];
+  if (!ship) return parts;
+
+  if (menu.slider && target.kind === 'field') {
+    parts.push(
+      h('p', { class: 'dw-menu-note' }, shipLine(state, ship)),
+      amountSlider(ctx, {
+        shipId: ship.id,
+        fieldId: target.id,
+        amount: menu.slider.amount,
+        key: 'menu-amount',
+        onChange: (amount) => {
+          menu.slider.amount = amount;
+        },
+        onConfirm: (amount) => run(ctx, ship.id, { kind: 'mine', fieldId: target.id, amount }),
+      }),
+      menuButton('Back', '‹', 'menu-back', () => ctx.update({ menu: { ...menu, slider: null } })),
+    );
+    return parts;
+  }
 
   const options = orderOptions(state, ship, target, now);
-  if (ship && options.length) {
+  if (options.length) {
     parts.push(
-      h('p', { class: 'dw-menu-note' }, `${ship.name} at ${findStation(ship.at).name}`),
+      h('p', { class: 'dw-menu-note' }, shipLine(state, ship)),
       h(
         'div',
         { class: 'dw-menu-items', role: 'group', 'aria-label': `Orders for ${ship.name}` },
         options.map((option) => {
-          const text = describe(option, now);
+          const text = describe(option);
           return h(
             'button',
             {
@@ -123,34 +168,45 @@ export function orderMenu(ctx, menu) {
         }),
       ),
     );
-  } else if (ship) {
+  } else {
     parts.push(h('p', { class: 'dw-menu-note' }, emptyNote(ship, target)));
   }
 
-  parts.push(
-    h(
-      'button',
-      {
-        type: 'button',
-        class: 'dw-menu-item is-plain',
-        dataset: { key: 'menu-details', menuItem: '' },
-        onClick: () => ctx.select(target.kind, target.id),
-      },
-      h('span', { class: 'dw-menu-row' }, h('strong', { class: 'dw-grow' }, 'Details'), h('span', { class: 'dw-menu-value', 'aria-hidden': 'true' }, '›')),
-    ),
-  );
+  parts.push(menuButton('Details', '›', 'menu-details', () => ctx.select(target.kind, target.id)));
   return parts;
 }
 
+function menuButton(label, mark, key, onClick) {
+  return h(
+    'button',
+    { type: 'button', class: 'dw-menu-item is-plain', dataset: { key, menuItem: '' }, onClick },
+    h('span', { class: 'dw-menu-row' }, h('strong', { class: 'dw-grow' }, label), h('span', { class: 'dw-menu-value', 'aria-hidden': 'true' }, mark)),
+  );
+}
+
+/** A toast that says when an order will be done. */
+export function orderToast(ctx, ship, result) {
+  const order = result?.order;
+  if (!order) return;
+  const text = `${ship.name}: ${lowerFirst(order.label)}`;
+  ctx.toast(result.queued ? `${text} is queued, done about ${at(order.endsAt)}` : `${text}, done at ${at(order.endsAt)}`, 'order');
+}
+
 function run(ctx, shipId, option) {
-  const result = ctx.act((s) => carryOut(s, shipId, option));
+  if (option.kind === 'mine-amount') {
+    ctx.update({ menu: { ...ctx.ui.menu, slider: { amount: option.max } } });
+    requestAnimationFrame(() => document.querySelector('[data-key="menu-amount-range"]')?.focus());
+    return;
+  }
+  const result =
+    option.kind === 'mine' && option.amount != null
+      ? ctx.act((s) => giveOrder(s, findShip(s, shipId), { type: 'mine', fieldId: option.fieldId, amount: option.amount }))
+      : ctx.act((s) => carryOut(s, shipId, option));
   if (!result?.ok) return;
   ctx.closeMenu();
   const ship = findShip(ctx.state, shipId);
-  if (!ship?.order) return; // A sale toasts by itself.
-  const place = findPlace(ship.order.target);
-  const verb = option.kind === 'mine' ? `is off to ${place.name}, back` : `is flying to ${place.name}, arrives`;
-  ctx.toast(`${ship.name} ${verb} at ${at(ship.order.endsAt)}`, option.kind === 'trade' ? 'purchase' : 'arrival');
+  if (result.order) orderToast(ctx, ship, result);
+  else if (result.given) ctx.toast(`${ship.name} has ${result.given} new orders`, 'order');
 }
 
 /**
@@ -176,6 +232,8 @@ export function placeMenu(el, { x, y, touch }) {
 
 /** Arrow keys, Home and End move between the menu's buttons. */
 export function menuKeydown(e, el) {
+  // A slider uses the arrow keys itself.
+  if (e.target.type === 'range') return false;
   const items = [...el.querySelectorAll('[data-menu-item]:not(:disabled)')];
   if (!items.length) return false;
   const index = items.indexOf(document.activeElement);

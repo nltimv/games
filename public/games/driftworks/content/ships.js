@@ -1,17 +1,17 @@
-// Ship hulls for sale at shipyards. Upgrades and bigger hulls arrive with
-// research in later acts.
+// Ship hulls, the modules research unlocks for them, and what ships cost.
+//
+// A ship's numbers come from its hull and the modules fitted to it (see
+// systems/modules.js). New ships leave the shipyard with the best modules
+// researched so far; older ships get them with a refit.
 
 export const HULLS = {
   mule: {
     name: 'Mule-class miner',
     role: 'miner',
     size: 'small',
-    price: 2500,
-    hold: 80,
-    // Tonnes per minute at a field of richness 1.
-    miningRate: 0.8,
-    // Map units per minute when travelling inside a system.
-    speed: 120,
+    // Multiplies the cargo racks' size and the engines' speed.
+    holdScale: 1,
+    speedScale: 1,
     holdClass: 1,
     namePrefix: 'Mule',
     blurb: 'Mines raw ore at asteroid fields.',
@@ -20,15 +20,47 @@ export const HULLS = {
     name: 'Kite-class hauler',
     role: 'hauler',
     size: 'small',
-    price: 3000,
-    hold: 160,
-    miningRate: 0,
-    speed: 150,
+    holdScale: 4,
+    speedScale: 1.2,
     holdClass: 1,
     namePrefix: 'Kite',
     blurb: 'Buys, carries and sells goods between stations.',
+    // The research the shipyard needs before it sells this hull.
+    licence: 'kite-licence',
   },
 };
+
+/**
+ * Module lines and their sizes per level. Level 0 is what the first ships
+ * carry; each research in the line adds a level.
+ *   hold    tonnes of cargo on a Mule (a Kite carries holdScale times more)
+ *   laser   tonnes mined per minute at a field of richness 1
+ *   engine  map units per minute
+ */
+export const MODULES = {
+  hold: { name: 'Cargo racks', levels: [10, 25, 60, 150, 350, 800] },
+  laser: { name: 'Mining laser', levels: [10, 12, 15, 18, 22] },
+  engine: { name: 'Engines', levels: [400, 480, 580] },
+};
+
+export const MODULE_LINES = Object.keys(MODULES);
+
+/** Undocking and docking add this to every flight. */
+export const DOCK_SECONDS = 15;
+
+/** How long a refit takes once the ship is at the shipyard. */
+export const REFIT_MINUTES = 1;
+
+/** How many orders a ship holds (its current one included), per Order queue level. */
+export const ORDER_SLOTS = [2, 4, 6, 8, 12, 16];
+
+/**
+ * What the next ship costs, by how many ships the company has: the second
+ * ship costs SHIP_PRICES[0], the third SHIP_PRICES[1], and so on. Every hull
+ * costs the same. Past the end of the list each ship costs half as much again.
+ */
+export const SHIP_PRICES = [150, 300, 600, 1500, 3000, 6000, 12000, 22000, 40000, 65000, 100000, 150000, 225000, 340000, 500000];
+export const SHIP_PRICE_GROWTH = 1.5;
 
 /** The highest goods tier each hold class may carry. */
 export const HOLD_CLASS_MAX_TIER = {
@@ -42,15 +74,3 @@ export const HOLD_CLASS_NAMES = {
   2: 'Sealed hold',
   3: 'Secure hold',
 };
-
-/**
- * Mining trip lengths the player picks from, matched to a work block.
- * Longer trips yield a bit more per minute, so a real work block is the
- * best play.
- */
-export const TRIP_LENGTHS = [
-  { minutes: 5, bonus: 0 },
-  { minutes: 15, bonus: 0.1 },
-  { minutes: 25, bonus: 0.2 },
-  { minutes: 50, bonus: 0.3 },
-];

@@ -1,8 +1,9 @@
 // Travel inside a system: distances, travel times and where a ship is drawn.
 
-import { HULLS } from '../content/ships.js';
+import { DOCK_SECONDS } from '../content/ships.js';
 import { findPlace } from '../content/homeSystem.js';
 import { MINUTE, SECOND } from '../core/time.js';
+import { speedOf } from './modules.js';
 
 export function distance(aId, bId) {
   const a = findPlace(aId);
@@ -11,12 +12,14 @@ export function distance(aId, bId) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** Travel time in ms: a minute to undock and dock, plus the flight. */
-export function travelTime(hullId, fromId, toId) {
-  if (fromId === toId) return 0;
-  const hull = HULLS[hullId];
-  const minutes = 1 + distance(fromId, toId) / hull.speed;
-  return Math.round((minutes * MINUTE) / (10 * SECOND)) * 10 * SECOND;
+/**
+ * A ship's travel time in ms: undocking and docking, plus the flight at its
+ * engines' speed, to the nearest 5 seconds.
+ */
+export function travelTime(ship, fromId, toId) {
+  if (!fromId || fromId === toId) return 0;
+  const ms = DOCK_SECONDS * SECOND + (distance(fromId, toId) / speedOf(ship)) * MINUTE;
+  return Math.round(ms / (5 * SECOND)) * 5 * SECOND;
 }
 
 /**

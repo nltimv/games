@@ -60,20 +60,18 @@
     <div class="dw-dock">
       <section id="underway" class="dw-underway glass" aria-label="Underway"></section>
       <nav class="dw-nav glass" aria-label="Views" id="nav">
-        <button type="button" data-view="galaxy" aria-disabled="true" title="Arrives with warp drives in the next update">
+        <button type="button" data-view="galaxy" aria-disabled="true" title="Arrives with the warp drive in the next update">
           <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="5.5" width="8" height="5.5" rx="1.4" /><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" /></svg>
           Galaxy
         </button>
         <button type="button" data-view="system">System</button>
         <button type="button" data-view="fleet">Fleet</button>
-        <button type="button" data-view="research" aria-disabled="true" title="Arrives with the next update">
-          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="5.5" width="8" height="5.5" rx="1.4" /><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" /></svg>
-          Research
-        </button>
+        <button type="button" data-view="research">Research</button>
         <button type="button" data-view="company">Company</button>
       </nav>
     </div>
 
+    <section id="guide" class="dw-guide glass" aria-label="Tutorial" aria-live="polite" hidden></section>
     <div id="menu" class="dw-menu glass" role="dialog" aria-labelledby="menu-title" tabindex="-1" hidden></div>
     <div id="toasts" class="dw-toasts" role="status" aria-live="polite"></div>
     <dialog id="modal" class="dw-modal glass" aria-labelledby="modal-title"></dialog>
