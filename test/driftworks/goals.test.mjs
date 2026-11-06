@@ -17,7 +17,7 @@ test('a goal pays its reward exactly once', () => {
   const state = newGame();
   state.stats.oreSold = 1;
   const done = checkGoals(state);
-  assert.deepEqual(done.map((g) => g.id), ['first-orders']);
+  assert.deepEqual(done.map((g) => g.id), ['first-sale']);
   assert.equal(state.credits, 250 + GOALS[0].reward);
   assert.deepEqual(checkGoals(state), []);
   assert.equal(state.credits, 250 + GOALS[0].reward);
@@ -30,7 +30,7 @@ test('goals complete in order: a later goal waits for the ones before it', () =>
   assert.deepEqual(checkGoals(state), []);
   state.stats.oreSold = 1;
   state.research.done.push('hold-1');
-  assert.deepEqual(checkGoals(state).map((g) => g.id), ['first-orders', 'first-research']);
+  assert.deepEqual(checkGoals(state).map((g) => g.id), ['first-sale', 'first-research']);
 });
 
 test('goal ids are unique, the tutorial comes first, and only the last goal is unpaid', () => {

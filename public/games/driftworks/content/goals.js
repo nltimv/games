@@ -5,15 +5,15 @@
 
 const mules = (s) => s.ships.filter((ship) => ship.hull === 'mule');
 const researched = (s, id) => s.research.done.includes(id);
-const plans = (s, type) => s.ships.some((ship) => ship.plan.some((spec) => spec.type === type));
+const hasOrders = (ship) => Boolean(ship.order) || ship.plan.length > 0;
 
 export const GOALS = [
   {
-    id: 'first-orders',
-    title: 'Mine ore and queue its sale',
-    reward: 50,
+    id: 'first-sale',
+    title: 'Mine ore and sell it',
+    reward: 100,
     tutorial: true,
-    done: (s) => (plans(s, 'mine') && plans(s, 'sell')) || s.stats.oreSold > 0,
+    done: (s) => s.stats.oreSold > 0,
   },
   {
     id: 'first-research',
@@ -27,14 +27,7 @@ export const GOALS = [
     title: 'Buy a second Mule and give it orders',
     reward: 100,
     tutorial: true,
-    done: (s) => mules(s).length >= 2 && mules(s).every((ship) => ship.plan.length > 0),
-  },
-  {
-    id: 'first-sale',
-    title: 'Sell ore',
-    reward: 100,
-    tutorial: true,
-    done: (s) => s.stats.oreSold > 0,
+    done: (s) => mules(s).length >= 2 && mules(s).every(hasOrders),
   },
   {
     id: 'first-contract',
@@ -58,11 +51,11 @@ export const GOALS = [
     done: (s) => s.stats.refits > 0,
   },
   {
-    id: 'fill-queue',
-    title: 'Research Order queue I and fill a queue',
+    id: 'queue-research',
+    title: 'Research Order queue I',
     reward: 200,
     tutorial: true,
-    done: (s) => researched(s, 'queue-1') && (s.stats.repeats > 0 || s.ships.some((ship) => (ship.order ? 1 : 0) + ship.queue.length >= 3)),
+    done: (s) => researched(s, 'queue-1'),
   },
   {
     id: 'first-hauler',

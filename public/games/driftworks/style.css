@@ -1432,6 +1432,13 @@ button.dw-chip:hover {
   line-height: 1.45;
 }
 
+.dw-guide-tip {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--glass-muted);
+}
+
 .dw-link {
   padding: 4px 6px;
   margin: -4px -6px;
@@ -1728,7 +1735,8 @@ button.dw-chip:hover {
   /* With the sheet open, the guide shrinks to its instruction so the map
      keeps some room between them. */
   .dw-app:not(.is-panel-closed) .dw-guide .dw-guide-head,
-  .dw-app:not(.is-panel-closed) .dw-guide .dw-card-head {
+  .dw-app:not(.is-panel-closed) .dw-guide .dw-card-head,
+  .dw-app:not(.is-panel-closed) .dw-guide .dw-guide-tip {
     display: none;
   }
 

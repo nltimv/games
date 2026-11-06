@@ -248,7 +248,7 @@ export function createApp(session, doc = document) {
     els.guide.hidden = !card;
     els.app.classList.toggle('has-guide', Boolean(card));
     // Only new text is re-rendered, so screen readers hear each step once.
-    const key = ui.guide ? `${ui.guide.goal.id}|${ui.guide.text}` : null;
+    const key = ui.guide ? `${ui.guide.goal.id}|${ui.guide.text}|${ui.guide.tip ?? ''}` : null;
     if (card && key !== guideKey) renderInto(els.guide, card);
     guideKey = key;
     if (card) els.app.style.setProperty('--dw-guide-h', `${els.guide.offsetHeight}px`);

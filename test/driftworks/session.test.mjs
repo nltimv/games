@@ -4,6 +4,7 @@ import { createSession } from '../../public/games/driftworks/core/session.js';
 import { createMemoryStorage } from '../../public/shared/js/storage.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
 import { sellCargo } from '../../public/games/driftworks/systems/cargo.js';
+import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { MINUTE, T0 } from './helpers.mjs';
 
 function setup() {
@@ -22,9 +23,15 @@ const SELL = { type: 'sell', stationId: 'halcyon-refinery' };
 test('a new session starts a company and actions save it', () => {
   const { session, storage, changes } = setup();
   session.act((state) => giveOrder(state, state.ships[0], MINE));
-  const result = session.act((state) => giveOrder(state, state.ships[0], SELL));
+  assert.ok(session.act((state) => giveOrder(state, state.ships[0], SELL)).ok);
+  // A sale on the spot completes the first goal within the same action.
+  const result = session.act((state) => {
+    const ship = createShip(state, 'mule', 'halcyon-refinery');
+    ship.cargo['ferrite-ore'] = 10;
+    return sellCargo(state, ship, 'ferrite-ore');
+  });
   assert.ok(result.ok);
-  assert.ok(session.state.goals.includes('first-orders'), 'goals are checked right after an action');
+  assert.ok(session.state.goals.includes('first-sale'), 'goals are checked right after an action');
   assert.ok(storage.getItem('driftworks-save'));
   assert.equal(changes.at(-1).source, 'act');
   assert.ok(changes.at(-1).log.some((e) => e.kind === 'goal'));
