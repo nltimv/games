@@ -122,11 +122,68 @@ test('several selected ships get the orders they can all take, each its own', ()
   assert.deepEqual(result, { ok: true, count: 2, error: null });
   assert.ok(a.order && b.order && !kite.order);
 
-  // The refinery buys the ore both Mules will carry; all three can fly there.
+  // The refinery buys the ore both Mules will carry and sells goods the
+  // Kite can buy; all three can fly there.
   const atRefinery = groupOrderOptions(state, ships, station('halcyon-refinery'));
-  assert.deepEqual(kinds(atRefinery), ['sell', 'fly']);
+  assert.equal(atRefinery[0].kind, 'sell');
   assert.equal(atRefinery[0].members.length, 2);
   assert.ok(atRefinery[0].total > 0);
-  assert.equal(atRefinery[1].members.length, 3);
+  assert.ok(atRefinery.some((o) => o.kind === 'buy' && o.members.length === 1));
+  assert.equal(atRefinery.at(-1).kind, 'fly');
+  assert.equal(atRefinery.at(-1).members.length, 3);
   assert.equal(carryOutGroup(state, { members: [] }).ok, false);
+});
+
+test('several haulers buy a good together, sharing the credits and the stock', () => {
+  const state = newGame({ credits: 100_000 });
+  const kites = [1, 2, 3].map(() => createShip(state, 'kite', 'halcyon-foundry'));
+  const mule = firstShip(state);
+  const options = groupOrderOptions(state, [...kites, mule], station('halcyon-refinery'));
+  const buys = options.filter((o) => o.kind === 'buy');
+  assert.ok(buys.length >= 1 && buys.length <= 3);
+  for (let i = 1; i < buys.length; i += 1) assert.ok(buys[i - 1].margin >= buys[i].margin);
+  const [buy] = buys;
+  assert.equal(buy.members.length, 3, 'the Mule cannot buy');
+  assert.equal(buy.of, 4);
+  const own = orderOptions(state, kites[0], station('halcyon-refinery')).find((o) => o.kind === 'buy' && o.good === buy.good);
+  assert.equal(buy.qty, own.qty * 3);
+  assert.ok(buy.cost > own.cost * 3, 'each tonne raises the price of the next');
+
+  const result = carryOutGroup(state, buy);
+  assert.deepEqual(result, { ok: true, count: 3, error: null });
+  advance(state, state.now + 60 * 60_000);
+  for (const kite of kites) assert.equal(kite.cargo[buy.good], own.qty);
+});
+
+test('a group buy never asks for more than the credits pay for', () => {
+  const state = newGame({ credits: 100_000 });
+  const kites = [1, 2, 3].map(() => createShip(state, 'kite', 'halcyon-foundry'));
+  const target = station('halcyon-refinery');
+  const good = orderOptions(state, kites[0], target).find((o) => o.kind === 'buy').good;
+  const own = orderOptions(state, kites[0], target).find((o) => o.good === good);
+  // Enough for one and a half holds.
+  state.credits = Math.ceil(own.cost * 1.5);
+  const buy = groupOrderOptions(state, kites, target).find((o) => o.kind === 'buy' && o.good === good);
+  assert.equal(buy.members.length, 2);
+  assert.ok(buy.cost <= state.credits);
+  assert.equal(buy.members[0].option.qty, own.qty);
+  assert.ok(buy.members[1].option.qty < own.qty);
+  assert.equal(buy.members.reduce((sum, m) => sum + m.option.qty, 0), buy.qty);
+});
+
+test('haulers docked together can bring a good to another station', () => {
+  const state = newGame({ credits: 100_000 });
+  const kites = [1, 2].map(() => createShip(state, 'kite', 'halcyon-refinery'));
+  const trades = groupOrderOptions(state, kites, station('halcyon-foundry')).filter((o) => o.kind === 'trade');
+  assert.ok(trades.length >= 1);
+  const [trade] = trades;
+  assert.equal(trade.fromId, 'halcyon-refinery');
+  assert.ok(trade.profit > 0 && trade.members.length >= 1);
+  assert.equal(trade.members.reduce((sum, m) => sum + m.option.qty, 0), trade.qty);
+  assert.equal(carryOutGroup(state, trade).count, trade.members.length);
+  for (const { shipId } of trade.members) {
+    const kite = state.ships.find((s) => s.id === shipId);
+    assert.equal(kite.order.type, 'buy');
+    assert.equal(kite.queue[0].type, 'sell');
+  }
 });

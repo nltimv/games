@@ -243,24 +243,70 @@ export function orderOptions(state, ship, target, at = state.now) {
   return options;
 }
 
-// Orders that make sense for a whole group of ships at once.
-const GROUP_KINDS = ['mine', 'sell', 'refit', 'fly'];
+// Orders that make sense for a whole group of ships at once, in menu order.
+const GROUP_KINDS = ['mine', 'sell', 'trade', 'buy', 'refit', 'fly'];
+
+// Buys are merged per good, trades per good and place to buy, the rest per kind.
+function groupKey(option) {
+  if (option.kind === 'buy') return `buy:${option.good}`;
+  if (option.kind === 'trade') return `trade:${option.fromId}:${option.good}`;
+  return option.kind;
+}
 
 /**
- * Orders for several selected ships at once, merged by kind: the full-hold
- * mine, sell everything, refit and fly. Each has `members`
- * ([{ shipId, option }], the ships that can take it, with their own
- * option), `of` (how many ships were asked), the summed `value` (mine),
- * `total` (sell) or `cost` (refit), and `disabled` with a `note` when no
- * ship can take it.
+ * Haulers that buy the same good in the same place share the credits and
+ * the stock, and every tonne bought raises the price of the next. This
+ * works out how much the group can buy (for a trade: how much still pays),
+ * splits it over the ships in order, and prices the whole lot.
+ */
+function sharePurchase(state, ships, group, at) {
+  const { kind, good, stationId } = group;
+  const source = kind === 'trade' ? group.fromId : stationId;
+  const wanted = group.members.reduce((sum, member) => sum + member.option.qty, 0);
+  let qty = affordableQty(state, source, good, state.credits, wanted, at);
+  if (kind === 'trade') {
+    const ship = ships.find((s) => s.id === group.members[0]?.shipId);
+    qty = ship ? bestTradeQty(state, ship, good, stationId, qty, at, source).qty : 0;
+  }
+  const members = [];
+  let left = qty;
+  for (const member of group.members) {
+    const take = Math.min(member.option.qty, left);
+    if (take < 1) break;
+    members.push({ shipId: member.shipId, option: { ...member.option, qty: take } });
+    left -= take;
+  }
+  const cost = quote(state, source, good, qty, at).total;
+  if (kind === 'buy') {
+    const resale = bestBuyer(state, good, qty, at);
+    return { ...group, members, qty, cost, margin: (resale?.sale.total ?? 0) - cost };
+  }
+  const sale = saleValue(state, stationId, good, qty, at);
+  return { ...group, members, qty, cost, profit: sale.total - cost, contract: contractForSale(state, stationId, [good], at) };
+}
+
+/**
+ * Orders for several selected ships at once, merged: the full-hold mine,
+ * sell everything, refit and fly per kind, and haulers' buys and trades
+ * per good. Each has `members` ([{ shipId, option }], the ships that can
+ * take it, with their own option), `of` (how many ships were asked), the
+ * summed `value` (mine), `total` (sell) or `cost` (refit), and `disabled`
+ * with a `note` when no ship can take it. Buys and trades have the
+ * group's `qty`, `cost` and `margin` or `profit`, with the amount split
+ * over the members so that together they never buy more than the credits
+ * and the stock allow.
  */
 export function groupOrderOptions(state, ships, target, at = state.now) {
   const groups = new Map();
   for (const ship of ships) {
     for (const option of orderOptions(state, ship, target, at)) {
       if (!GROUP_KINDS.includes(option.kind)) continue;
-      if (!groups.has(option.kind)) groups.set(option.kind, { kind: option.kind, members: [], notes: [], goods: new Set(), value: 0, total: 0, cost: 0, contract: null });
-      const group = groups.get(option.kind);
+      const key = groupKey(option);
+      if (!groups.has(key)) {
+        const { kind, good, fromId, stationId } = option;
+        groups.set(key, { kind, good, fromId, stationId, members: [], notes: [], goods: new Set(), value: 0, total: 0, cost: 0, contract: null });
+      }
+      const group = groups.get(key);
       if (option.disabled) {
         group.notes.push(option.note);
         continue;
@@ -273,10 +319,18 @@ export function groupOrderOptions(state, ships, target, at = state.now) {
       for (const good of option.goods ?? []) group.goods.add(good);
     }
   }
-  return GROUP_KINDS.filter((kind) => groups.has(kind)).map((kind) => {
-    const { notes, goods, ...group } = groups.get(kind);
+  const merged = [...groups.values()].map(({ notes, goods, ...rest }) => {
+    let group = { ...rest, goods: [...goods] };
+    if ((group.kind === 'buy' || group.kind === 'trade') && group.members.length) group = sharePurchase(state, ships, group, at);
     const disabled = group.members.length === 0;
-    return { ...group, goods: [...goods], of: ships.length, disabled, note: disabled ? (notes[0] ?? null) : null };
+    return { ...group, of: ships.length, disabled, note: disabled ? (notes[0] ?? null) : null };
+  });
+  // Best buys and trades first, and only the best few, as for one ship.
+  const worth = (option) => option.profit ?? option.margin ?? 0;
+  return GROUP_KINDS.flatMap((kind) => {
+    const ofKind = merged.filter((option) => option.kind === kind);
+    if (kind !== 'buy' && kind !== 'trade') return ofKind;
+    return ofKind.sort((a, b) => worth(b) - worth(a)).slice(0, MAX_TRADES);
   });
 }
 

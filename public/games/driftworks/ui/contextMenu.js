@@ -198,6 +198,16 @@ function describeGroup(option) {
         good: option.goods.length === 1 ? option.goods[0] : null,
         contract: option.contract,
       };
+    case 'buy':
+      return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), good: option.good };
+    case 'trade':
+      return {
+        label: `Bring ${tonnes(option.qty, option.good)}`,
+        value: blocked ?? `about ${plusCredits(option.profit)}`,
+        note: `from ${findStation(option.fromId).name} for ${formatCredits(option.cost)}`,
+        good: option.good,
+        contract: option.contract,
+      };
     case 'refit':
       return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost) };
     case 'fly':
@@ -205,6 +215,10 @@ function describeGroup(option) {
     default:
       return { label: option.kind, value: '' };
   }
+}
+
+function groupKey(option) {
+  return `menu-${option.kind}-${option.good ?? ''}${option.kind === 'trade' ? `-${option.fromId}` : ''}`;
 }
 
 /** The menu for several selected ships: each order goes to every ship that can take it. */
@@ -222,9 +236,9 @@ function groupItems(ctx, menu) {
           const text = describeGroup(option);
           return h(
             'button',
-            { type: 'button', class: 'dw-menu-item', disabled: option.disabled, dataset: { key: `menu-${option.kind}-`, menuItem: '' }, onClick: () => runGroup(ctx, option) },
+            { type: 'button', class: 'dw-menu-item', disabled: option.disabled, dataset: { key: groupKey(option), menuItem: '' }, onClick: () => runGroup(ctx, option) },
             h('span', { class: 'dw-menu-row' }, text.good ? swatch(text.good) : null, h('strong', { class: 'dw-grow' }, text.label, contractTag(text.contract)), h('span', { class: 'dw-menu-value' }, text.value)),
-            h('small', null, whoText(option)),
+            h('small', null, text.note && !option.disabled ? `${whoText(option)} · ${text.note}` : whoText(option)),
           );
         }),
       ),
