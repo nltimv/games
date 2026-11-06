@@ -16,7 +16,7 @@ import { bestModules } from '../../systems/research.js';
 import { travelTime } from '../../systems/travel.js';
 import { bestTradeQty, buyersOf, maxPurchase, saleHere, tradePlan } from '../../systems/advisor.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
+import { button, chip, contractTag, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { formatPrice, minusCredits, plural, plusCredits, tonnes, trip } from '../format.js';
 
@@ -65,7 +65,7 @@ function marketSection(ctx, station, docked) {
       'div',
       { class: 'dw-market-row' },
       swatch(v.good),
-      h('span', { class: 'dw-name' }, goodName(v.good), contractFor(state, station.id, v.good, now) ? h('span', { class: 'dw-tag' }, 'contract') : null),
+      h('span', { class: 'dw-name' }, goodName(v.good), contractTag(contractFor(state, station.id, v.good, now))),
       h('span', { class: 'dw-price' }, formatPrice(v.price)),
       bar({ fraction: 1 - v.fill, small: true }),
       trendMark(v.pressure),
@@ -184,7 +184,7 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
           dataset: { key: `trade-dest-${dest.id}` },
           onClick: () => ctx.update({ trade: { ...trade, dest: dest.id } }),
         },
-        h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, profitText(p.profit))),
+        h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name, contractTag(contractFor(state, dest.id, good, now))), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, profitText(p.profit))),
         h('span', null, `${trip(p.travel)} away · sells for about ${formatCredits(p.sell.total)}`),
       );
     }),
@@ -221,7 +221,7 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     ),
     destChoices,
     line(`Buy ${tonnes(plan.qty, good)} here`, minusCredits(plan.buy.total)),
-    line(`Sell at ${chosen.dest.name}`, `about ${plusCredits(plan.sell.total)}`),
+    line([`Sell at ${chosen.dest.name}`, contractTag(contractFor(state, chosen.dest.id, good, now))], `about ${plusCredits(plan.sell.total)}`),
     line('Expected profit', profitText(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`),
     plan.profit <= 0 ? h('p', { class: 'dw-note is-warn' }, 'Prices here and there are too close right now. They drift back over a few hours.') : null,
     h(
@@ -381,7 +381,7 @@ function dockedCard(ctx, station, ship) {
     const sale = saleHere(state, ship, good, now);
     if (sale && sale.qty > 0) {
       actions.push(
-        button(`Sell ${tonnes(sale.qty, good)}`, {
+        button([`Sell ${tonnes(sale.qty, good)}`, contractTag(contractFor(state, station.id, good, now))], {
           variant: 'primary',
           sub: plusCredits(sale.total),
           key: `sell-${ship.id}-${good}`,
@@ -431,7 +431,7 @@ function elsewhereSection(ctx, station) {
     const time = travelTime(ship, ship.at, station.id);
     const sellable = Object.keys(ship.cargo).find((g) => ship.cargo[g] > 0 && marketView(state, station.id, g, now)?.side === 'buys');
     const action = sellable
-      ? button(`Deliver ${tonnes(ship.cargo[sellable], sellable)}`, {
+      ? button([`Deliver ${tonnes(ship.cargo[sellable], sellable)}`, contractTag(contractFor(state, station.id, sellable, now))], {
           small: true,
           variant: 'primary',
           key: `bring-${ship.id}`,

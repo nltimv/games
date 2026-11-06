@@ -6,6 +6,7 @@ import { goodName } from '../../content/goods.js';
 import { HOME_SYSTEM, findPlace, findStation } from '../../content/homeSystem.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { cargoTotal } from '../../systems/cargo.js';
+import { contractForSale } from '../../systems/contracts.js';
 import { sellAllHere } from '../../systems/commands.js';
 import { findShip } from '../../systems/fleet.js';
 import { holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
@@ -34,7 +35,7 @@ import { bestModules, orderSlots } from '../../systems/research.js';
 import { minePreview, saleValue } from '../../systems/advisor.js';
 import { findEntry } from '../../systems/market.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
+import { button, chip, contractTag, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { at, plusCredits, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
@@ -202,7 +203,7 @@ function newOrders(ctx, ship) {
       if (!goods.length) continue;
       const total = goods.reduce((sum, g) => sum + saleValue(state, station.id, g, view.cargo[g], now).total, 0);
       const here = !queued && ship.at === station.id;
-      rows.push({ station, goods, total, here });
+      rows.push({ station, goods, total, here, contract: contractForSale(state, station.id, goods, now) });
     }
     rows.sort((a, b) => b.total - a.total);
     sections.push(
@@ -223,7 +224,12 @@ function newOrders(ctx, ship) {
                     dataset: { key: `sell-${row.station.id}` },
                     onClick: () => (row.here ? ctx.act((s) => sellAllHere(s, findShip(s, ship.id), row.goods)) : give({ type: 'sell', stationId: row.station.id })),
                   },
-                  h('span', { class: 'dw-choice-row' }, h('strong', null, row.here ? 'Sell here' : `Sell at ${row.station.name}`), h('strong', { class: 'is-good' }, `${row.here ? '' : 'about '}${plusCredits(row.total)}`)),
+                  h(
+                    'span',
+                    { class: 'dw-choice-row' },
+                    h('strong', null, row.here ? 'Sell here' : `Sell at ${row.station.name}`, contractTag(row.contract)),
+                    h('strong', { class: 'is-good' }, `${row.here ? '' : 'about '}${plusCredits(row.total)}`),
+                  ),
                   h('span', null, row.goods.map((g) => goodName(g).toLowerCase()).join(', ')),
                 ),
               ),

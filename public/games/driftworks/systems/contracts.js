@@ -103,6 +103,15 @@ export function contractFor(state, stationId, good, at = state.now) {
   return state.contracts.active.find((c) => c.stationId === stationId && c.good === good && c.deadline > at && c.delivered < c.qty) ?? null;
 }
 
+/** The active contract a sale of any of `goods` at `stationId` would count towards, or null. */
+export function contractForSale(state, stationId, goods, at = state.now) {
+  for (const good of goods) {
+    const contract = contractFor(state, stationId, good, at);
+    if (contract) return contract;
+  }
+  return null;
+}
+
 /** The extra a sale of `qty` at `average` per tonne would earn, without changing anything. */
 export function contractBonus(state, stationId, good, qty, average, at = state.now) {
   const contract = contractFor(state, stationId, good, at);

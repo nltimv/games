@@ -5,6 +5,7 @@ import { sellCargo } from '../../public/games/driftworks/systems/cargo.js';
 import { CONTRACT_RULES, acceptContract, contractBonus, refreshBoard } from '../../public/games/driftworks/systems/contracts.js';
 import { quote } from '../../public/games/driftworks/systems/market.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
+import { groupOrderOptions, orderOptions } from '../../public/games/driftworks/systems/advisor.js';
 import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
 
 const HOUR = 60 * MINUTE;
@@ -85,4 +86,21 @@ test('with a hauler, some offers ask for refined goods', () => {
   createShip(state, 'kite', 'halcyon-shipyard');
   draw();
   assert.ok([...seen].some((good) => ['iron', 'silicon', 'graphite', 'water'].includes(good)));
+});
+
+test('a sale that counts towards a contract says so in the order menu', () => {
+  const state = withBoard();
+  const offer = state.contracts.offers[0];
+  assert.ok(acceptContract(state, offer.id, T0).ok);
+  const ship = firstShip(state);
+  ship.at = offer.stationId === 'halcyon-refinery' ? 'aurel-post' : 'halcyon-refinery';
+  ship.cargo[offer.good] = 10;
+  const [sell] = orderOptions(state, ship, { kind: 'station', id: offer.stationId }).filter((o) => o.kind === 'sell');
+  assert.equal(sell.contract?.good, offer.good);
+  const [group] = groupOrderOptions(state, [ship], { kind: 'station', id: offer.stationId }).filter((o) => o.kind === 'sell');
+  assert.equal(group.contract?.good, offer.good);
+  // Only the contract's station is tagged.
+  const other = ['halcyon-refinery', 'aurel-post'].find((id) => id !== offer.stationId);
+  const [plain] = orderOptions(state, ship, { kind: 'station', id: other }).filter((o) => o.kind === 'sell');
+  assert.equal(plain?.contract ?? null, null);
 });

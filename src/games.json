@@ -33,6 +33,7 @@
     "path": "/games/driftworks/",
     "thumbnail": "/games/driftworks/thumbnail.svg",
     "genre": "Idle trading",
-    "controls": "Click or tap the map and panels; drag to pan, scroll or pinch to zoom"
+    "status": "Early Access",
+    "controls": "Click to select, right-click for orders, right-drag to pan; tap, drag and press and hold on touch devices"
   }
 ]

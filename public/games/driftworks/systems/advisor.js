@@ -6,7 +6,7 @@ import { HULLS } from '../content/ships.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { affordableQty, findEntry, marketEntries, marketView, quote } from './market.js';
 import { canCarry, cargoTotal, freeHold } from './cargo.js';
-import { contractBonus } from './contracts.js';
+import { contractBonus, contractForSale } from './contracts.js';
 import { holdOf } from './modules.js';
 import { buildOrder, freeSlots, orderTimes, projectShip, refitOffer, SHIPYARD_ID } from './orders.js';
 import { travelTime } from './travel.js';
@@ -128,9 +128,11 @@ function slotNote(free, needed) {
  * worked out from where it will be then. Each option has a `kind`:
  *   mine         { fieldId, amount: null, qty, value, endsAt }   a full hold
  *   mine-amount  { fieldId, max }                                opens the slider
- *   sell         { stationId, total, endsAt, now }               `now`: sells on the spot
+ *   sell         { stationId, total, endsAt, now, contract }     `now`: sells on the spot;
+ *                                                                `contract`: the one it counts towards
  *   buy          { stationId, good, qty, cost, endsAt }          haulers
- *   trade        { fromId, stationId, good, qty, cost, profit }  haulers: buy where it
+ *   trade        { fromId, stationId, good, qty, cost, profit,   haulers: buy where it
+ *                  contract }
  *                                                                is, sell here
  *   refit        { cost, modules, endsAt }                       at the shipyard
  *   fly          { stationId, endsAt }
@@ -182,7 +184,9 @@ export function orderOptions(state, ship, target, at = state.now) {
     const total = goods.reduce((sum, g) => sum + saleValue(state, stationId, g, view.cargo[g], at).total, 0);
     const now = !queued && ship.at === stationId;
     const blocked = now ? null : slotNote(free, 1);
-    options.push({ kind: 'sell', stationId, goods, total, ...(now ? { endsAt: at } : timesOf({ type: 'sell', stationId })), now, queued, disabled: Boolean(blocked), note: blocked });
+        const times = now ? { endsAt: at } : timesOf({ type: 'sell', stationId });
+    const contract = contractForSale(state, stationId, goods, times.endsAt ?? at);
+    options.push({ kind: 'sell', stationId, goods, total, ...times, now, contract, queued, disabled: Boolean(blocked), note: blocked });
   }
 
   if (role === 'hauler') {
@@ -197,7 +201,8 @@ export function orderOptions(state, ship, target, at = state.now) {
         const best = bestTradeQty(state, view, entry.good, stationId, max, at, view.at);
         if (best.qty <= 0 || best.profit <= 0) continue;
         const plan = tradePlan(state, view, entry.good, best.qty, stationId, at, view.at);
-        trades.push({ kind: 'trade', fromId: view.at, stationId, good: entry.good, qty: plan.qty, cost: plan.buy.total, profit: plan.profit, queued });
+        const contract = contractForSale(state, stationId, [entry.good], at);
+        trades.push({ kind: 'trade', fromId: view.at, stationId, good: entry.good, qty: plan.qty, cost: plan.buy.total, profit: plan.profit, contract, queued });
       }
       trades.sort((a, b) => b.profit - a.profit);
       for (const trade of trades.slice(0, MAX_TRADES)) {
@@ -254,7 +259,7 @@ export function groupOrderOptions(state, ships, target, at = state.now) {
   for (const ship of ships) {
     for (const option of orderOptions(state, ship, target, at)) {
       if (!GROUP_KINDS.includes(option.kind)) continue;
-      if (!groups.has(option.kind)) groups.set(option.kind, { kind: option.kind, members: [], notes: [], goods: new Set(), value: 0, total: 0, cost: 0 });
+      if (!groups.has(option.kind)) groups.set(option.kind, { kind: option.kind, members: [], notes: [], goods: new Set(), value: 0, total: 0, cost: 0, contract: null });
       const group = groups.get(option.kind);
       if (option.disabled) {
         group.notes.push(option.note);
@@ -264,6 +269,7 @@ export function groupOrderOptions(state, ships, target, at = state.now) {
       group.value += option.value ?? 0;
       group.total += option.total ?? 0;
       group.cost += option.cost ?? 0;
+      group.contract ??= option.contract ?? null;
       for (const good of option.goods ?? []) group.goods.add(good);
     }
   }

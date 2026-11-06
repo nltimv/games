@@ -12,7 +12,7 @@ entry to [`src/games.json`](src/games.json).
 | **Snake** | Arcade | Arrow keys / WASD / swipe |
 | **Minesweeper** | Puzzle | Click to reveal, right-click or long-press to flag |
 | **Pipelines** | Puzzle | Connect matching dots with pipes |
-| **Driftworks** | Idle trading | A space trading company for short breaks: mine, trade and grow a fleet between work sessions. Built from ES modules with tests; see [`public/games/driftworks/`](public/games/driftworks/) |
+| **Driftworks** (Early Access) | Idle trading | A space trading company for short breaks: mine, trade and grow a fleet between work sessions. Built from ES modules with tests; see [`public/games/driftworks/`](public/games/driftworks/) |
 
 ## Project layout
 
@@ -58,6 +58,8 @@ build step. See [CONTRIBUTING.md](CONTRIBUTING.md) for the conventions.
      "controls": "Describe controls here"
    }
    ```
+   Add `"status": "Early Access"` (or any short label) to show a badge on
+   the game's card while it is still being built.
 3. Restart the server (or just refresh, in dev mode) — the lobby picks up the
    new entry automatically.
 

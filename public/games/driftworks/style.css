@@ -632,6 +632,12 @@ button.dw-chip:hover {
   gap: 8px;
 }
 
+/* The amount keeps to one line; the name next to it wraps instead. */
+.dw-choice-row > :last-child {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .dw-seg {
   display: flex;
   gap: 4px;
@@ -1368,6 +1374,8 @@ button.dw-chip:hover {
 }
 
 .dw-tag {
+  display: inline-block;
+  white-space: nowrap;
   margin-left: 6px;
   padding: 1px 7px;
   border-radius: 999px;

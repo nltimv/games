@@ -3,6 +3,7 @@
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { assetUrl } from '../render/assets.js';
+import { premiumText } from '../systems/contracts.js';
 import { h, svgIcon } from './dom.js';
 
 export function swatch(good) {
@@ -102,4 +103,9 @@ export function shipGlyph(hullId) {
 /** A "label ··· value" line for summaries. */
 export function line(left, right, className) {
   return h('div', { class: `dw-line${className ? ` ${className}` : ''}` }, h('span', null, left), h('span', null, right));
+}
+
+/** The tag on a sale that counts towards a contract: "contract +50%". */
+export function contractTag(contract) {
+  return contract ? h('span', { class: 'dw-tag' }, `contract ${premiumText(contract)}`) : null;
 }
