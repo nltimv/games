@@ -6,14 +6,14 @@ export const GOALS = [
   {
     id: 'first-trip',
     title: 'Send Mule-1 mining',
-    hint: 'Right-click an asteroid field on the map (or press and hold it) and pick a trip length.',
+    hint: 'Select Mule-1, then right-click an asteroid field (press and hold on a phone) and pick a trip length.',
     reward: 100,
     done: (s) => s.stats.miningTrips >= 1,
   },
   {
     id: 'first-sale',
     title: 'Sell ore to a station',
-    hint: 'When a miner is back, right-click its station and sell the cargo.',
+    hint: 'When a miner is back, select it and right-click its station to sell the cargo.',
     reward: 150,
     done: (s) => s.stats.oreSold >= 1,
   },
@@ -42,7 +42,7 @@ export const GOALS = [
   {
     id: 'trade-profit',
     title: 'Make 1,000 cr profit from trading',
-    hint: 'The refinery sells iron that the foundry buys for more. With a hauler at the refinery, right-click the foundry.',
+    hint: 'The refinery sells iron that the foundry buys for more. Select a hauler at the refinery and right-click the foundry.',
     reward: 500,
     done: (s) => s.stats.tradeProfit >= 1000,
     progress: (s) => ({ value: s.stats.tradeProfit, target: 1000 }),

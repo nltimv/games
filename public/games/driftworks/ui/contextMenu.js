@@ -1,7 +1,7 @@
-// The order menu: right-click (or press and hold) a field or station on the
-// map, pick a ship, then pick what it should do there. It is the quick way
-// to give orders; the panels offer the same orders with more detail, and are
-// the way in for keyboard and screen-reader players.
+// The order menu: select a ship, then right-click (or press and hold) a
+// field or station on the map and pick what the ship should do there. It is
+// the quick way to give orders; the panels offer the same orders with more
+// detail, and are the way in for keyboard and screen-reader players.
 
 import { goodName } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
@@ -11,30 +11,9 @@ import { formatCredits } from '../../../shared/js/format.js';
 import { orderOptions } from '../systems/advisor.js';
 import { carryOut } from '../systems/commands.js';
 import { findShip } from '../systems/fleet.js';
-import { travelTime } from '../systems/travel.js';
 import { h } from './dom.js';
 import { fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
 import { at, plusCredits, tonnes, trip } from './format.js';
-
-/** Ships that can do something at the target, closest first. */
-export function menuCandidates(state, target, now) {
-  return state.ships
-    .map((ship) => ({ ship, options: orderOptions(state, ship, target, now) }))
-    .filter((c) => c.options.length > 0)
-    .sort((a, b) => travelTime(a.ship.hull, a.ship.at, target.id) - travelTime(b.ship.hull, b.ship.at, target.id));
-}
-
-/**
- * The ships offered in the menu and the one it shows orders for: the one
- * picked in the menu, else the selected ship, else the closest.
- */
-export function menuChoice(state, ui, menu, now) {
-  if (menu.target.kind !== 'field' && menu.target.kind !== 'station') return { candidates: [], chosen: null };
-  const candidates = menuCandidates(state, menu.target, now);
-  const preferred = [menu.shipId, ui.selection?.kind === 'ship' ? ui.selection.id : null];
-  const chosen = preferred.map((id) => candidates.find((c) => c.ship.id === id)).find(Boolean) ?? candidates[0] ?? null;
-  return { candidates, chosen };
-}
 
 function headIcon(target) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
@@ -44,7 +23,7 @@ function headIcon(target) {
   return null;
 }
 
-function heading(target, state) {
+function heading(target) {
   if (target.kind === 'field') {
     const field = findField(target.id);
     return { title: field.name, subtitle: `Asteroid field · ${goodName(field.good).toLowerCase()}` };
@@ -52,10 +31,6 @@ function heading(target, state) {
   if (target.kind === 'station') {
     const station = findStation(target.id);
     return { title: station.name, subtitle: STATION_TYPES[station.type].label };
-  }
-  if (target.kind === 'ship') {
-    const ship = findShip(state, target.id);
-    return { title: ship?.name ?? 'Ship', subtitle: ship ? HULLS[ship.hull].name : '' };
   }
   const place = findPlace(target.id);
   return { title: place?.name ?? 'Gate', subtitle: 'Jump gate · locked' };
@@ -97,23 +72,24 @@ function optionKey(option) {
   return `menu-${option.kind}-${option.minutes ?? option.good ?? ''}`;
 }
 
-/** What to say when no ship can act on the target right now. */
-function emptyNote(state, target) {
+/** Why the ship has no orders for the target. */
+function emptyNote(ship, target) {
   if (target.kind === 'gate') return 'Gates open with warp drives in the next update.';
-  const busy = state.ships.filter((s) => s.order).sort((a, b) => a.order.endsAt - b.order.endsAt);
-  const wouldDo = (s) => (target.kind === 'field' ? HULLS[s.hull].role === 'miner' : true);
-  const next = busy.find(wouldDo);
-  if (target.kind === 'field' && !state.ships.some(wouldDo)) return 'Only mining ships can mine. Mules are sold at Halcyon Shipyard.';
-  if (next) return `${next.name} is free again at ${at(next.order.endsAt)}.`;
-  if (target.kind === 'field') return 'Your miners are full. Sell their cargo first.';
-  return 'No ship has anything to do here right now.';
+  if (ship.order) return `${ship.name} is busy until ${at(ship.order.endsAt)}.`;
+  if (target.kind === 'field') {
+    if (HULLS[ship.hull].role !== 'miner') return `${ship.name} is a hauler and cannot mine. Select a miner for this.`;
+    return `${ship.name}'s hold is full. Sell the cargo first.`;
+  }
+  if (target.id === ship.at) return `${ship.name} is docked here and carries nothing this station buys.`;
+  return `${ship.name} has nothing to do here.`;
 }
 
 /** The menu's content. `ctx` is the app context; `menu` is ui.menu. */
 export function orderMenu(ctx, menu) {
-  const { state, now, ui } = ctx;
+  const { state, now } = ctx;
   const target = menu.target;
-  const { title, subtitle } = heading(target, state);
+  const ship = findShip(state, menu.shipId);
+  const { title, subtitle } = heading(target);
   const parts = [
     h(
       'div',
@@ -123,66 +99,32 @@ export function orderMenu(ctx, menu) {
     ),
   ];
 
-  if (target.kind === 'ship') {
-    const ship = findShip(state, target.id);
+  const options = orderOptions(state, ship, target, now);
+  if (ship && options.length) {
     parts.push(
+      h('p', { class: 'dw-menu-note' }, `${ship.name} at ${findStation(ship.at).name}`),
       h(
-        'p',
-        { class: 'dw-menu-note' },
-        ship?.order ? `${ship.name} is busy until ${at(ship.order.endsAt)}.` : `Now right-click (or press and hold) a field or station to send ${ship?.name ?? 'it'} there.`,
+        'div',
+        { class: 'dw-menu-items', role: 'group', 'aria-label': `Orders for ${ship.name}` },
+        options.map((option) => {
+          const text = describe(option, now);
+          return h(
+            'button',
+            {
+              type: 'button',
+              class: 'dw-menu-item',
+              disabled: Boolean(option.disabled),
+              dataset: { key: optionKey(option), menuItem: '' },
+              onClick: () => run(ctx, ship.id, option),
+            },
+            h('span', { class: 'dw-menu-row' }, text.good ? swatch(text.good) : null, h('strong', { class: 'dw-grow' }, text.label), h('span', { class: 'dw-menu-value' }, text.value)),
+            text.note ? h('small', null, text.note) : null,
+          );
+        }),
       ),
     );
-  } else {
-    const { candidates, chosen } = menuChoice(state, ui, menu, now);
-
-    if (candidates.length > 1) {
-      parts.push(
-        h(
-          'div',
-          { class: 'dw-seg dw-menu-ships', role: 'group', 'aria-label': 'Ship' },
-          candidates.map(({ ship }) =>
-            h(
-              'button',
-              {
-                type: 'button',
-                'aria-pressed': String(ship.id === chosen.ship.id),
-                dataset: { key: `menu-ship-${ship.id}`, menuItem: '' },
-                onClick: () => ctx.update({ menu: { ...menu, shipId: ship.id } }),
-              },
-              ship.name,
-            ),
-          ),
-        ),
-      );
-    } else if (chosen) {
-      parts.push(h('p', { class: 'dw-menu-note' }, `${chosen.ship.name} at ${findStation(chosen.ship.at).name}`));
-    }
-
-    if (chosen) {
-      parts.push(
-        h(
-          'div',
-          { class: 'dw-menu-items', role: 'group', 'aria-label': `Orders for ${chosen.ship.name}` },
-          chosen.options.map((option) => {
-            const text = describe(option, now);
-            return h(
-              'button',
-              {
-                type: 'button',
-                class: 'dw-menu-item',
-                disabled: Boolean(option.disabled),
-                dataset: { key: optionKey(option), menuItem: '' },
-                onClick: () => run(ctx, chosen.ship.id, option),
-              },
-              h('span', { class: 'dw-menu-row' }, text.good ? swatch(text.good) : null, h('strong', { class: 'dw-grow' }, text.label), h('span', { class: 'dw-menu-value' }, text.value)),
-              text.note ? h('small', null, text.note) : null,
-            );
-          }),
-        ),
-      );
-    } else {
-      parts.push(h('p', { class: 'dw-menu-note' }, emptyNote(state, target)));
-    }
+  } else if (ship) {
+    parts.push(h('p', { class: 'dw-menu-note' }, emptyNote(ship, target)));
   }
 
   parts.push(
@@ -238,9 +180,7 @@ export function menuKeydown(e, el) {
   if (!items.length) return false;
   const index = items.indexOf(document.activeElement);
   let next = null;
-  // From the menu itself, Down goes to the first order, past the ships.
-  if (e.key === 'ArrowDown' && index < 0) next = items.find((el) => el.classList.contains('dw-menu-item')) ?? items[0];
-  else if (e.key === 'ArrowDown') next = items[(index + 1) % items.length];
+  if (e.key === 'ArrowDown') next = items[(index + 1) % items.length];
   else if (e.key === 'ArrowUp') next = index <= 0 ? items.at(-1) : items[index - 1];
   else if (e.key === 'Home') next = items[0];
   else if (e.key === 'End') next = items.at(-1);

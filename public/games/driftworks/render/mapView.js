@@ -30,9 +30,9 @@ const IDLE_MAX_MS = 1000;
  *   getMenuTarget()          { kind, id } the order menu is open for, or null
  *   getSafeArea(w, h)        the free screen rect { x, y, width, height }
  *   onSelect(target)         called with { kind, id } or null on a click
- *   onContextMenu(target, p) right-click or long-press on { kind, id };
- *                            p is the viewport point { x, y }, with
- *                            `touch` or `keyboard` set when they opened it
+ *   onContextMenu(target, p) right-click or long-press on { kind, id } (or
+ *                            null); p is the viewport point { x, y }, with
+ *                            `touch` set for a long-press
  */
 export function createMapView(canvas, options) {
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -251,17 +251,6 @@ export function createMapView(canvas, options) {
   );
 
   canvas.addEventListener('keydown', (e) => {
-    // The context-menu key (or Shift+F10) opens the menu for what is selected.
-    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
-      const sel = options.getSelection();
-      const target = sel && targets.find((t) => t.kind === sel.kind && t.id === sel.id);
-      if (target) {
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        options.onContextMenu?.(sel, { x: rect.left + target.x, y: rect.top + target.y, keyboard: true });
-      }
-      return;
-    }
     const step = 50;
     const keys = {
       ArrowLeft: () => panBy(cam, step, 0, extent),

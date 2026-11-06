@@ -64,6 +64,7 @@ function statusCard(ctx, ship) {
     'div',
     { class: 'dw-card is-gold' },
     h('div', { class: 'dw-card-head' }, h('strong', null, `Docked at ${station.name}`), h('span', null, 'Waiting for orders')),
+    h('p', { class: 'dw-note' }, `${ctx.isPhone() ? 'Press and hold' : 'Right-click'} a field or station on the map to send ${ship.name} there, or pick an order below.`),
     h('div', { class: 'dw-row-actions' }, button(`Open ${station.name}`, { small: true, key: 'open-station', onClick: () => ctx.select('station', station.id) })),
   );
 }

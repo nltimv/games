@@ -1133,15 +1133,6 @@ button.dw-chip:hover {
   color: var(--glass-muted);
 }
 
-.dw-menu-ships {
-  overflow-x: auto;
-}
-
-.dw-menu-ships button {
-  flex: 1 0 auto;
-  padding: 0 12px;
-}
-
 .dw-menu-items {
   display: flex;
   flex-direction: column;

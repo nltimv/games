@@ -10,7 +10,7 @@ import { shipPosition } from '../systems/travel.js';
 import { renderInto, updateLive, h } from './dom.js';
 import { renderTopBar, underwayCard } from './hud.js';
 import { showAway, showSettings } from './modals.js';
-import { menuChoice, menuKeydown, orderMenu, placeMenu } from './contextMenu.js';
+import { menuKeydown, orderMenu, placeMenu } from './contextMenu.js';
 import { stationPanel } from './panels/station.js';
 import { fieldPanel } from './panels/field.js';
 import { shipPanel } from './panels/ship.js';
@@ -102,19 +102,24 @@ export function createApp(session, doc = document) {
 
   // ---------- Order menu ----------
 
+  // The menu gives orders to the selected ship: pick a ship first, then
+  // right-click (or press and hold) the place to send it.
   function openMenu(target, point) {
-    if (!target) {
-      if (ui.menu) closeMenu();
+    if (ui.menu) closeMenu({ refocus: false });
+    if (!target) return;
+    if (target.kind === 'ship') {
+      select('ship', target.id);
       return;
     }
-    // A ship is picked first, then the place to send it.
-    if (target.kind === 'ship') select('ship', target.id);
-    ui.menu = { target, x: point.x, y: point.y, touch: Boolean(point.touch), shipId: null };
+    const ship = ui.view === 'system' && ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
+    if (!ship) {
+      toast(`Select a ship first, then ${point.touch ? 'press and hold' : 'right-click'} where it should go.`);
+      return;
+    }
+    ui.menu = { target, x: point.x, y: point.y, touch: Boolean(point.touch), shipId: ship.id };
     render();
-    // Keyboard and mouse users can arrow through it; on touch, focus only
-    // gets in the way.
-    if (point.keyboard) (els.menu.querySelector('.dw-menu-item:not(:disabled)') ?? els.menu).focus({ preventScroll: true });
-    else if (!ui.menu.touch) els.menu.focus({ preventScroll: true });
+    // Mouse users can arrow through it; on touch, focus only gets in the way.
+    if (!ui.menu.touch) els.menu.focus({ preventScroll: true });
   }
 
   function closeMenu({ refocus = true } = {}) {
@@ -257,11 +262,7 @@ export function createApp(session, doc = document) {
   const map = createMapView(els.map, {
     getState: () => session.state,
     getSelection: () => (ui.view === 'system' ? ui.selection : null),
-    getMenuTarget() {
-      if (!ui.menu) return null;
-      const { chosen } = menuChoice(session.state, ui, ui.menu, Date.now());
-      return { ...ui.menu.target, shipId: chosen?.ship.id ?? null };
-    },
+    getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId } : null),
     onSelect(target) {
       if (target) select(target.kind, target.id);
       else if (ui.menu) closeMenu();

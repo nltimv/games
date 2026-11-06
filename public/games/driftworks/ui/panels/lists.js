@@ -40,7 +40,7 @@ export function overviewPanel(ctx) {
       subtitle: `${FACTIONS[system.faction].name} space · your home`,
       onClose: ctx.isPhone() ? ctx.close : null,
     }),
-    h('p', { class: 'dw-note' }, 'Right-click (or press and hold) a field or station on the map to give a ship orders. Pick one to see everything it offers.'),
+    h('p', { class: 'dw-note' }, 'Select a ship, then right-click (or press and hold) a field or station on the map to give it orders. Pick a place to see everything it offers.'),
     h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)),
     h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)),
     h(
