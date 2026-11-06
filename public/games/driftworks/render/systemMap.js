@@ -1,8 +1,12 @@
 // Draws a star system on a 2D canvas: the star, orbits, the asteroid belt,
 // planets, fields, stations, gates and ships. Returns the clickable things
 // with their screen positions, so hit testing always matches the drawing.
+//
+// Everything with a look is an asset (see assets.js) and every label is a
+// cached sprite (see labels.js), so a frame is mostly image copies: no
+// gradients, no blur.
 
-import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { HOME_SYSTEM, findPlace, findStation } from '../content/homeSystem.js';
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { createRng, hashString } from '../core/rng.js';
@@ -10,41 +14,25 @@ import { SECOND } from '../core/time.js';
 import { formatDuration } from '../../../shared/js/format.js';
 import { shipPosition } from '../systems/travel.js';
 import { scaleOf, toScreen } from './camera.js';
+import { drawAsset } from './assets.js';
+import { drawLabel } from './labels.js';
 
-export const FONT = "'Nunito Sans', 'Segoe UI', system-ui, sans-serif";
+// Sizes of map art in CSS pixels at an icon scale of 1.
+const SIZE = { field: 58, station: 44, gate: 30, ship: 22, parkedShip: 17 };
 
-const STATION_COLORS = ['#e9fffb', '#7fe9de', '#1b9aa8'];
-const PLANET_COLORS = {
-  rocky: ['#fff4ea', '#f0a987', '#7a3b33'],
-  ice: ['#ffffff', '#bdf4ff', '#2f86b8'],
-};
-const SHIP_COLORS = {
-  miner: { body: '#d9fff8', glow: 'rgba(111, 240, 216, 0.55)' },
-  hauler: { body: '#fff0c8', glow: 'rgba(255, 211, 110, 0.55)' },
-};
-
-// Seeded decoration, built once so the belt and fields look the same on
-// every visit.
-const DECOR = (() => {
+// Seeded belt rocks, built once so the belt looks the same on every visit.
+// Grouped by brightness so each group is one fill.
+const BELT = (() => {
   const rng = createRng(hashString(`${HOME_SYSTEM.id}:decor`));
-  const belt = [];
+  const groups = [0.22, 0.32, 0.42, 0.52].map((alpha) => ({ alpha, rocks: [] }));
   for (let i = 0; i < 180; i += 1) {
     const angle = rng() * Math.PI * 2;
     const r = HOME_SYSTEM.belt.radius + (rng() - 0.5) * HOME_SYSTEM.belt.width * 1.2;
-    belt.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r, size: 0.6 + rng() * 1.3, alpha: 0.2 + rng() * 0.35 });
+    const size = 0.6 + rng() * 1.3;
+    const group = groups[Math.floor(rng() * groups.length)];
+    group.rocks.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r, size });
   }
-  const fields = {};
-  for (const field of HOME_SYSTEM.fields) {
-    const frng = createRng(hashString(`${field.id}:rocks`));
-    const rocks = [{ dx: 0, dy: 0, size: 8 }];
-    for (let i = 0; i < 8; i += 1) {
-      const angle = frng() * Math.PI * 2;
-      const dist = 9 + frng() * 16;
-      rocks.push({ dx: Math.cos(angle) * dist, dy: Math.sin(angle) * dist, size: 2.2 + frng() * 4 });
-    }
-    fields[field.id] = rocks;
-  }
-  return { belt, fields };
+  return groups;
 })();
 
 /** Pre-renders the sky (gradient wash and stars) for a canvas size. */
@@ -52,7 +40,7 @@ export function renderBackground(width, height, dpr) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(width * dpr));
   canvas.height = Math.max(1, Math.round(height * dpr));
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { alpha: false });
   ctx.scale(dpr, dpr);
 
   const base = ctx.createLinearGradient(0, 0, width * 0.6, height);
@@ -73,9 +61,9 @@ export function renderBackground(width, height, dpr) {
 
   const rng = createRng(hashString('sky'));
   const count = Math.round((width * height) / 5200);
+  ctx.fillStyle = '#ffffff';
   for (let i = 0; i < count; i += 1) {
     ctx.globalAlpha = 0.2 + rng() * 0.6;
-    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.arc(rng() * width, rng() * height, 0.4 + rng() * 0.9, 0, Math.PI * 2);
     ctx.fill();
@@ -84,59 +72,21 @@ export function renderBackground(width, height, dpr) {
   return canvas;
 }
 
-function radial(ctx, x, y, r, [light, mid, dark]) {
-  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
-  g.addColorStop(0, light);
-  g.addColorStop(0.45, mid);
-  g.addColorStop(1, dark);
-  return g;
+/**
+ * How big icons are drawn. Grows gently with zoom, and a little with the
+ * screen (so phones fit the whole system), but the art is always scaled as
+ * a whole, so it looks the same everywhere.
+ */
+export function iconScale(cam) {
+  const zoom = Math.min(1.5, Math.max(0.85, Math.sqrt(cam.zoom)));
+  const screen = Math.min(1.1, Math.max(0.78, 0.62 + 0.5 * cam.base));
+  return zoom * screen;
 }
 
-function label(ctx, text, x, y, { size = 12, weight = 700, color = 'rgba(230, 242, 255, 0.92)', align = 'center' } = {}) {
-  ctx.font = `${weight} ${size}px ${FONT}`;
-  ctx.textAlign = align;
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(2, 8, 24, 0.85)';
-  ctx.shadowBlur = 4;
+function dot(ctx, x, y, r, color) {
   ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
-  ctx.shadowBlur = 0;
-}
-
-function hexPath(ctx, x, y, r) {
   ctx.beginPath();
-  for (let i = 0; i < 6; i += 1) {
-    const a = (Math.PI / 3) * i;
-    const px = x + Math.cos(a) * r;
-    const py = y + Math.sin(a) * r;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-}
-
-/** A small glyph inside the station hex, one per station type. */
-function stationGlyph(ctx, type, x, y, r) {
-  ctx.fillStyle = 'rgba(3, 48, 61, 0.75)';
-  ctx.strokeStyle = 'rgba(3, 48, 61, 0.75)';
-  ctx.lineWidth = 1.4;
-  const g = r * 0.38;
-  ctx.beginPath();
-  if (type === 'refinery') ctx.arc(x, y, g, 0, Math.PI * 2);
-  else if (type === 'foundry') ctx.rect(x - g, y - g, g * 2, g * 2);
-  else if (type === 'tradingPost') {
-    ctx.moveTo(x, y - g * 1.2);
-    ctx.lineTo(x + g * 1.2, y);
-    ctx.lineTo(x, y + g * 1.2);
-    ctx.lineTo(x - g * 1.2, y);
-    ctx.closePath();
-  } else {
-    ctx.moveTo(x - g, y + g * 0.6);
-    ctx.lineTo(x, y - g * 0.8);
-    ctx.lineTo(x + g, y + g * 0.6);
-    ctx.stroke();
-    return;
-  }
+  ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -144,155 +94,130 @@ function shipsAt(state, placeId) {
   return state.ships.filter((s) => !s.order && s.at === placeId);
 }
 
-function sizeFactor(cam) {
-  return Math.min(1.5, Math.max(0.85, Math.sqrt(cam.zoom)));
-}
-
 /**
- * Draws the system. `view` has { selection, hover } as { kind, id } or null.
- * Returns hit targets: [{ kind, id, x, y, r }] in screen pixels.
+ * Draws the system. `view` has { selection, hover, target } as { kind, id }
+ * or null, and the canvas `dpr`. Returns hit targets: [{ kind, id, x, y, r }]
+ * in screen pixels.
  */
 export function drawSystem(ctx, cam, state, now, view) {
   const system = HOME_SYSTEM;
+  const dpr = view.dpr ?? 1;
   const s = scaleOf(cam);
-  const k = sizeFactor(cam);
+  const u = iconScale(cam);
   // Zoomed far out (phones), labels get shorter so they do not collide.
   const compact = s < 0.5;
   const targets = [];
   const sun = toScreen(cam, 0, 0);
 
-  // Star glow
-  const glowR = 200 * s;
-  const glow = ctx.createRadialGradient(sun.x, sun.y, 0, sun.x, sun.y, glowR);
-  glow.addColorStop(0, 'rgba(255, 227, 163, 0.5)');
-  glow.addColorStop(0.35, 'rgba(255, 180, 94, 0.16)');
-  glow.addColorStop(1, 'rgba(255, 154, 61, 0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(sun.x, sun.y, glowR, 0, Math.PI * 2);
-  ctx.fill();
+  drawAsset(ctx, 'sun-glow', sun.x, sun.y, 400 * s, dpr);
 
   // Orbits
   ctx.lineWidth = 1;
   system.orbits.forEach((radius, i) => {
-    ctx.strokeStyle = i === system.orbits.length - 1 ? 'rgba(190, 220, 255, 0.13)' : 'rgba(190, 220, 255, 0.17)';
-    ctx.setLineDash(i === system.orbits.length - 1 ? [3, 7] : []);
+    const outer = i === system.orbits.length - 1;
+    ctx.strokeStyle = outer ? 'rgba(190, 220, 255, 0.13)' : 'rgba(190, 220, 255, 0.17)';
+    ctx.setLineDash(outer ? [3, 7] : []);
     ctx.beginPath();
     ctx.arc(sun.x, sun.y, radius * s, 0, Math.PI * 2);
     ctx.stroke();
   });
   ctx.setLineDash([]);
 
-  // Belt
+  // Belt: a faint band and a few hundred rocks, one fill per brightness.
   ctx.strokeStyle = 'rgba(160, 190, 230, 0.06)';
   ctx.lineWidth = system.belt.width * s;
   ctx.beginPath();
   ctx.arc(sun.x, sun.y, system.belt.radius * s, 0, Math.PI * 2);
   ctx.stroke();
   ctx.fillStyle = '#9fb6d6';
-  for (const rock of DECOR.belt) {
-    const p = toScreen(cam, rock.x, rock.y);
-    ctx.globalAlpha = rock.alpha;
+  const rockScale = Math.min(1.5, Math.max(0.85, Math.sqrt(cam.zoom)));
+  for (const group of BELT) {
+    ctx.globalAlpha = group.alpha;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, rock.size * k, 0, Math.PI * 2);
+    for (const rock of group.rocks) {
+      const x = sun.x + rock.x * s;
+      const y = sun.y + rock.y * s;
+      const r = rock.size * rockScale;
+      ctx.moveTo(x + r, y);
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+    }
     ctx.fill();
   }
   ctx.globalAlpha = 1;
 
-  // Star
+  // Star: the art's disc is 26/32 of its width.
   const sunR = Math.max(9, system.star.radius * s);
-  const body = ctx.createRadialGradient(sun.x - sunR * 0.3, sun.y - sunR * 0.35, sunR * 0.1, sun.x, sun.y, sunR);
-  body.addColorStop(0, '#ffffff');
-  body.addColorStop(0.35, '#fff1c2');
-  body.addColorStop(0.8, '#ffbd5c');
-  body.addColorStop(1, '#ff9b3a');
-  ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.arc(sun.x, sun.y, sunR, 0, Math.PI * 2);
-  ctx.fill();
+  if (!drawAsset(ctx, 'sun', sun.x, sun.y, (sunR * 64) / 26, dpr)) dot(ctx, sun.x, sun.y, sunR, '#ffd58a');
 
-  // Planets
+  // Planets: the disc is 29/32 of the art.
   for (const planet of system.planets) {
     const p = toScreen(cam, planet.x, planet.y);
     const r = Math.max(4, planet.radius * s);
-    ctx.fillStyle = radial(ctx, p.x, p.y, r, PLANET_COLORS[planet.kind] ?? PLANET_COLORS.rocky);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fill();
-    if (!compact) label(ctx, planet.name, p.x, p.y + r + 11, { weight: 600, color: 'rgba(220, 236, 255, 0.7)' });
+    if (!drawAsset(ctx, `planet-${planet.kind}`, p.x, p.y, (r * 64) / 29, dpr)) dot(ctx, p.x, p.y, r, '#c99a86');
+    if (!compact) drawLabel(ctx, planet.name, p.x, p.y + r + 11, dpr, { weight: 600, color: 'rgba(220, 236, 255, 0.7)' });
   }
 
   // Gates (locked in act 1)
   for (const gate of system.gates) {
     const p = toScreen(cam, gate.x, gate.y);
-    ctx.strokeStyle = 'rgba(180, 215, 255, 0.45)';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y, 9 * k, 13 * k, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(180, 215, 255, 0.08)';
-    ctx.fill();
-    label(ctx, compact ? gate.short : gate.name, p.x, p.y + 13 * k + 11, { size: 11, color: 'rgba(200, 225, 255, 0.72)' });
-    if (!compact) label(ctx, 'locked', p.x, p.y + 13 * k + 25, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.45)' });
-    targets.push({ kind: 'gate', id: gate.id, x: p.x, y: p.y, r: 18 * k });
+    const w = SIZE.gate * u;
+    const half = (w * 64) / 48 / 2;
+    if (!drawAsset(ctx, 'gate', p.x, p.y, w, dpr)) dot(ctx, p.x, p.y, 6 * u, 'rgba(180, 215, 255, 0.4)');
+    drawLabel(ctx, compact ? gate.short : gate.name, p.x, p.y + half + 6, dpr, { size: 11, color: 'rgba(200, 225, 255, 0.72)' });
+    if (!compact) drawLabel(ctx, 'locked', p.x, p.y + half + 20, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.45)' });
+    targets.push({ kind: 'gate', id: gate.id, x: p.x, y: p.y, r: Math.max(16, half) });
   }
 
   // Asteroid fields
   for (const field of system.fields) {
     const p = toScreen(cam, field.x, field.y);
-    const look = GOODS[field.good].look;
-    for (const rock of DECOR.fields[field.id]) {
-      const rx = p.x + rock.dx * s * 1.1;
-      const ry = p.y + rock.dy * s * 1.1;
-      const rr = rock.size * k;
-      ctx.fillStyle = radial(ctx, rx, ry, rr, ['#ffffff', look.light, look.dark]);
-      ctx.beginPath();
-      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    const spread = Math.max(16 * k, 27 * s);
-    label(ctx, compact ? field.name : `${field.name} · ${GOODS[field.good].name.toLowerCase()}`, p.x, p.y + spread + 12, { size: compact ? 11 : 12 });
-    targets.push({ kind: 'field', id: field.id, x: p.x, y: p.y, r: Math.max(22, spread + 4) });
+    const w = SIZE.field * u;
+    if (!drawAsset(ctx, `field-${field.good}`, p.x, p.y, w, dpr)) dot(ctx, p.x, p.y, w * 0.2, GOODS[field.good].look.mid);
+    const name = compact ? field.name : `${field.name} · ${GOODS[field.good].name.toLowerCase()}`;
+    drawLabel(ctx, name, p.x, p.y + w * 0.42 + 9, dpr, { size: compact ? 11 : 12 });
+    targets.push({ kind: 'field', id: field.id, x: p.x, y: p.y, r: Math.max(22, w * 0.45) });
   }
 
-  // Stations
+  // Stations: the hex is 36/64 of the art's width.
   for (const station of system.stations) {
     const p = toScreen(cam, station.x, station.y);
-    const r = 11 * k;
-    const fill = ctx.createLinearGradient(p.x, p.y - r, p.x, p.y + r);
-    fill.addColorStop(0, STATION_COLORS[0]);
-    fill.addColorStop(0.5, STATION_COLORS[1]);
-    fill.addColorStop(1, STATION_COLORS[2]);
-    ctx.shadowColor = 'rgba(46, 197, 192, 0.55)';
-    ctx.shadowBlur = 12;
-    hexPath(ctx, p.x, p.y, r);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    stationGlyph(ctx, station.type, p.x, p.y, r);
-
-    label(ctx, compact ? station.short : station.name, p.x, p.y + r + 13, { size: compact ? 11 : 12, weight: 800, color: '#ffffff' });
+    const w = SIZE.station * u;
+    const hex = (w * 36) / 64 / 2;
+    if (!drawAsset(ctx, `station-${station.type}`, p.x, p.y, w, dpr)) dot(ctx, p.x, p.y, hex, '#7fe9de');
+    drawLabel(ctx, compact ? station.short : station.name, p.x, p.y + hex + 13, dpr, { size: compact ? 11 : 12, weight: 800, color: '#ffffff' });
     const docked = shipsAt(state, station.id);
     if (docked.length && !compact) {
       const text = docked.length === 1 ? `${docked[0].name} docked` : `${docked.length} ships docked`;
-      label(ctx, text, p.x, p.y + r + 28, { size: 11, weight: 600, color: 'rgba(220, 236, 255, 0.72)' });
+      drawLabel(ctx, text, p.x, p.y + hex + 28, dpr, { size: 11, weight: 600, color: 'rgba(220, 236, 255, 0.72)' });
     }
-    targets.push({ kind: 'station', id: station.id, x: p.x, y: p.y, r: 20 * k });
+    targets.push({ kind: 'station', id: station.id, x: p.x, y: p.y, r: Math.max(18, hex * 1.7) });
   }
 
-  // Ships
+  // The route the ship picked in the order menu would fly.
+  const preview = routePreview(cam, state, view);
+  if (preview) {
+    ctx.strokeStyle = 'rgba(255, 211, 110, 0.6)';
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(preview.from.x, preview.from.y);
+    ctx.lineTo(preview.to.x, preview.to.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Ships. Ships waiting at a place circle just outside its art, so they
+  // never hide behind it.
+  const clearance = { station: ((SIZE.station * 36) / 64 / 2) * u + 7, field: SIZE.field * 0.4 * u };
   state.ships.forEach((ship, index) => {
     const pos = shipPosition(ship, now, index);
-    const ahead = shipPosition(ship, now + 2 * SECOND, index);
     const p = toScreen(cam, pos.x, pos.y);
+    if (pos.place) pushOut(cam, p, pos.place, clearance);
     const role = HULLS[ship.hull].role;
-    const colors = SHIP_COLORS[role] ?? SHIP_COLORS.miner;
 
     if (pos.moving && pos.to) {
-      const dest = toScreen(cam, ...placeXY(pos.to));
+      const place = findPlace(pos.to);
+      const dest = toScreen(cam, place?.x ?? 0, place?.y ?? 0);
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
       ctx.lineWidth = 1.2;
       ctx.setLineDash([3, 4]);
@@ -303,23 +228,11 @@ export function drawSystem(ctx, cam, state, now, view) {
       ctx.setLineDash([]);
     }
 
+    const ahead = shipPosition(ship, now + 2 * SECOND, index);
     const heading = Math.atan2(ahead.y - pos.y, ahead.x - pos.x);
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.rotate(Number.isFinite(heading) ? heading : 0);
-    ctx.shadowColor = colors.glow;
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = colors.body;
-    const size = (ship.order ? 5 : 3.6) * k;
-    ctx.beginPath();
-    ctx.moveTo(size * 1.3, 0);
-    ctx.lineTo(-size, size * 0.85);
-    ctx.lineTo(-size * 0.5, 0);
-    ctx.lineTo(-size, -size * 0.85);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-    ctx.shadowBlur = 0;
+    const w = (ship.order ? SIZE.ship : SIZE.parkedShip) * u;
+    const rotate = Number.isFinite(heading) ? heading : 0;
+    if (!drawAsset(ctx, `ship-${role}`, p.x, p.y, w, dpr, { rotate })) dot(ctx, p.x, p.y, 3, '#d9fff8');
 
     if (ship.order) {
       const left = formatDuration(ship.order.endsAt - now);
@@ -327,7 +240,7 @@ export function drawSystem(ctx, cam, state, now, view) {
       // Put the label on the side facing away from the star, where there
       // is more room.
       const outward = p.x >= sun.x;
-      label(ctx, `${ship.name}${verb} · ${left}`, p.x + (outward ? 10 : -10), p.y - 12, {
+      drawLabel(ctx, `${ship.name}${verb} · ${left}`, p.x + (outward ? 10 : -10), p.y - 12, dpr, {
         size: 11,
         align: outward ? 'left' : 'right',
         color: 'rgba(230, 242, 255, 0.85)',
@@ -336,37 +249,61 @@ export function drawSystem(ctx, cam, state, now, view) {
     targets.push({ kind: 'ship', id: ship.id, x: p.x, y: p.y, r: ship.order ? 12 : 7, parked: !ship.order });
   });
 
-  // Hover and selection rings
-  drawRing(ctx, targets, view.hover, now, false);
-  drawRing(ctx, targets, view.selection, now, true);
+  // Hover, menu target and selection rings
+  drawRing(ctx, targets, view.hover, 'hover');
+  drawRing(ctx, targets, view.target, 'target');
+  drawRing(ctx, targets, view.selection, 'selected');
   return targets;
 }
 
-function placeXY(id) {
-  const place =
-    HOME_SYSTEM.stations.find((s) => s.id === id) ??
-    HOME_SYSTEM.fields.find((f) => f.id === id) ??
-    HOME_SYSTEM.gates.find((g) => g.id === id);
-  return place ? [place.x, place.y] : [0, 0];
+function pushOut(cam, p, placeId, clearance) {
+  const place = findPlace(placeId);
+  if (!place) return;
+  const min = findStation(placeId) ? clearance.station : clearance.field;
+  const c = toScreen(cam, place.x, place.y);
+  const dx = p.x - c.x;
+  const dy = p.y - c.y;
+  const d = Math.hypot(dx, dy);
+  if (d >= min || d === 0) return;
+  p.x = c.x + (dx / d) * min;
+  p.y = c.y + (dy / d) * min;
 }
 
-function drawRing(ctx, targets, ref, now, selected) {
+function routePreview(cam, state, view) {
+  const target = view.target;
+  if (!target?.shipId || target.kind === 'ship') return null;
+  const ship = state.ships.find((s) => s.id === target.shipId);
+  const from = ship && !ship.order ? findPlace(ship.at) : null;
+  const to = findPlace(target.id);
+  if (!from || !to || from === to) return null;
+  return { from: toScreen(cam, from.x, from.y), to: toScreen(cam, to.x, to.y) };
+}
+
+const RINGS = {
+  hover: { color: 'rgba(255, 255, 255, 0.35)', gap: 2, width: 1.5 },
+  target: { color: 'rgba(255, 211, 110, 0.9)', gap: 4, width: 2 },
+  selected: { color: '#8ff5e4', gap: 4, width: 2 },
+};
+
+function drawRing(ctx, targets, ref, style) {
   if (!ref) return;
   const target = targets.find((t) => t.kind === ref.kind && t.id === ref.id);
   if (!target) return;
-  ctx.save();
-  ctx.lineWidth = 1.5;
-  if (selected) {
-    ctx.strokeStyle = '#8ff5e4';
-    ctx.setLineDash([4, 4]);
-    ctx.lineDashOffset = -(now / 120) % 8;
-  } else {
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-  }
+  const ring = RINGS[style];
+  ctx.strokeStyle = ring.color;
+  ctx.lineWidth = ring.width;
   ctx.beginPath();
-  ctx.arc(target.x, target.y, target.r + (selected ? 4 : 2), 0, Math.PI * 2);
+  ctx.arc(target.x, target.y, target.r + ring.gap, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.restore();
+  if (style !== 'hover') {
+    // A soft second ring instead of a blurred glow.
+    ctx.globalAlpha = 0.3;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, target.r + ring.gap + 3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
 }
 
 /** The nearest target within its radius of (x, y), moving ships first. */

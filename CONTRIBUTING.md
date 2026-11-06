@@ -32,6 +32,7 @@ A bigger game should be split into ES modules loaded with
 | `systems/` | Game rules as plain functions on the state | content, core helpers |
 | `render/` | Canvas drawing and the camera | content, systems |
 | `ui/` | DOM panels, dialogs, wiring | everything above |
+| `assets/` | Art as SVG files (map objects, icons) | n/a |
 
 Rules of thumb:
 
@@ -40,6 +41,11 @@ Rules of thumb:
   in `core/save.js` when its shape changes, so players never lose progress.
 - Change state only through the session (`session.act()` in Driftworks),
   which advances the clock, checks goals and saves in one place.
+- Draw a canvas only when something changed, not every frame. Driftworks'
+  map redraws on input, on game updates, and when ships have moved about a
+  pixel. Avoid `shadowBlur` and per-frame gradients: draw art from
+  `assets/` (rasterised once per size by `render/assets.js`) and cached
+  label sprites instead. Phones notice.
 
 `public/package.json` sets `"type": "module"` so Node treats the browser
 modules as ES modules in tests. The browser ignores it.

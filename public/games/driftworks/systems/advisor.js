@@ -5,7 +5,7 @@
 import { HULLS, TRIP_LENGTHS } from '../content/ships.js';
 import { HOME_SYSTEM, findField } from '../content/homeSystem.js';
 import { MINUTE } from '../core/time.js';
-import { affordableQty, findEntry, marketView, quote } from './market.js';
+import { affordableQty, findEntry, marketEntries, marketView, quote } from './market.js';
 import { canCarry, freeHold } from './cargo.js';
 import { miningYield } from './orders.js';
 import { travelTime } from './travel.js';
@@ -91,3 +91,66 @@ export function bestTradeQty(state, ship, good, destId, maxQty, at = state.now) 
   return best;
 }
 
+const MAX_TRADES = 3;
+
+/**
+ * What an idle, docked `ship` could do at a map target ({ kind, id }), for
+ * the order menu. Each option has a `kind` and the numbers to show:
+ *   mine     { fieldId, minutes, amount, value, endsAt }
+ *   sell     { good, qty, total }                 (at the station it is at)
+ *   deliver  { stationId, good, qty, total, travel }
+ *   trade    { stationId, good, qty, cost, profit, travel }
+ *   fly      { stationId, travel }
+ * A busy ship, or a target it cannot use, gets an empty list.
+ */
+export function orderOptions(state, ship, target, at = state.now) {
+  if (!ship || ship.order || !ship.at || !target) return [];
+  const hull = HULLS[ship.hull];
+  const aboard = Object.keys(ship.cargo).filter((good) => ship.cargo[good] > 0);
+
+  if (target.kind === 'field') {
+    if (hull.role !== 'miner') return [];
+    return tripPreviews(state, ship, target.id, at).map((trip) => ({
+      kind: 'mine',
+      fieldId: target.id,
+      minutes: trip.minutes,
+      amount: trip.amount,
+      value: trip.value,
+      endsAt: trip.endsAt,
+      disabled: trip.amount <= 0,
+    }));
+  }
+  if (target.kind !== 'station') return [];
+
+  const stationId = target.id;
+  if (stationId === ship.at) {
+    return aboard
+      .map((good) => ({ good, sale: saleHere(state, ship, good, at) }))
+      .filter(({ sale }) => sale && sale.qty > 0)
+      .map(({ good, sale }) => ({ kind: 'sell', good, qty: sale.qty, total: sale.total }));
+  }
+
+  const travel = travelTime(ship.hull, ship.at, stationId);
+  const options = [];
+  for (const good of aboard) {
+    if (findEntry(stationId, good)?.side !== 'buys') continue;
+    const sale = quote(state, stationId, good, Math.floor(ship.cargo[good]), at);
+    if (sale.qty > 0) options.push({ kind: 'deliver', stationId, good, qty: sale.qty, total: sale.total, travel });
+  }
+  if (hull.role === 'hauler') {
+    const trades = [];
+    for (const entry of marketEntries(ship.at)) {
+      if (entry.side !== 'sells' || findEntry(stationId, entry.good)?.side !== 'buys') continue;
+      const max = maxPurchase(state, ship, entry.good, at);
+      if (max <= 0) continue;
+      const best = bestTradeQty(state, ship, entry.good, stationId, max, at);
+      if (best.qty <= 0 || best.profit <= 0) continue;
+      const plan = tradePlan(state, ship, entry.good, best.qty, stationId, at);
+      trades.push({ kind: 'trade', stationId, good: entry.good, qty: plan.qty, cost: plan.buy.total, profit: plan.profit, travel });
+    }
+    trades.sort((a, b) => b.profit - a.profit);
+    options.push(...trades.slice(0, MAX_TRADES));
+  }
+  options.push({ kind: 'fly', stationId, travel });
+  return options;
+}

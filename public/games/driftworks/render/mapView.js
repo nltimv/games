@@ -1,22 +1,41 @@
-// The interactive map: owns the canvas, the camera, the frame loop and
-// pointer input (drag to pan, wheel or pinch to zoom, click to select).
+// The interactive map: owns the canvas, the camera, when to draw, and
+// pointer input (drag to pan, wheel or pinch to zoom, click to select,
+// right-click or long-press for the order menu).
+//
+// The map only draws when something changed: input, a camera glide, a game
+// update (invalidate), or ships moving far enough to show. Ships crawl at a
+// pixel or two a second, so when nothing else happens the map redraws a few
+// times a second at most, instead of every frame.
 
 import { HOME_SYSTEM } from '../content/homeSystem.js';
-import { createCamera, easePan, fitCamera, panBy, resetView, zoomAt } from './camera.js';
+import { shipPosition } from '../systems/travel.js';
+import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, zoomAt } from './camera.js';
+import { loadAssets } from './assets.js';
+import { clearLabels } from './labels.js';
 import { drawSystem, hitTest, renderBackground } from './systemMap.js';
 
-const FRAME_MS = 1000 / 30;
 const DRAG_THRESHOLD = 6;
+const LONG_PRESS_MS = 480;
+// Fastest a ship crosses the map, in map units per second (hauler speed at
+// the middle of an eased flight), and how fast docked ships circle.
+const FLIGHT_SPEED = (150 / 60) * 1.5;
+const DRIFT_SPEED = 0.6;
+const IDLE_MIN_MS = 50;
+const IDLE_MAX_MS = 1000;
 
 /**
  * options:
- *   getState()        the game state to draw
- *   getSelection()    { kind, id } or null
- *   getSafeArea(w, h) the free screen rect { x, y, width, height }
- *   onSelect(target)  called with { kind, id } or null on a click
+ *   getState()               the game state to draw
+ *   getSelection()           { kind, id } or null
+ *   getMenuTarget()          { kind, id } the order menu is open for, or null
+ *   getSafeArea(w, h)        the free screen rect { x, y, width, height }
+ *   onSelect(target)         called with { kind, id } or null on a click
+ *   onContextMenu(target, p) right-click or long-press on { kind, id };
+ *                            p is the viewport point { x, y }, with
+ *                            `touch` or `keyboard` set when they opened it
  */
 export function createMapView(canvas, options) {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { alpha: false });
   const cam = createCamera();
   const extent = HOME_SYSTEM.extent;
   let width = 0;
@@ -25,8 +44,9 @@ export function createMapView(canvas, options) {
   let sky = null;
   let targets = [];
   let hover = null;
+  let running = false;
   let raf = 0;
-  let lastFrame = 0;
+  let idleTimer = 0;
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
@@ -36,35 +56,67 @@ export function createMapView(canvas, options) {
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     sky = renderBackground(width, height, dpr);
+    // Resizing clears the canvas: draw now so it never flashes empty.
     draw(true);
+    invalidate();
   }
 
+  /** Draws one frame. Returns true while the camera is still gliding. */
   function draw(snap = false) {
-    if (!sky) return;
-    fitCamera(cam, options.getSafeArea(width, height), extent, snap ? 1 : 0.2);
-    easePan(cam, extent);
+    if (!sky) return false;
+    const fitting = fitCamera(cam, options.getSafeArea(width, height), extent, snap ? 1 : 0.2);
+    const panning = easePan(cam, extent);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.drawImage(sky, 0, 0, width, height);
     targets = drawSystem(ctx, cam, options.getState(), Date.now(), {
       selection: options.getSelection(),
+      target: options.getMenuTarget?.() ?? null,
       hover,
+      dpr,
     });
+    return fitting || panning;
   }
 
-  function frame(t) {
+  /** Asks for a redraw on the next animation frame. */
+  function invalidate() {
+    if (!running || raf) return;
+    clearTimeout(idleTimer);
+    idleTimer = 0;
     raf = requestAnimationFrame(frame);
-    if (t - lastFrame < FRAME_MS - 2) return;
-    lastFrame = t;
-    draw();
+  }
+
+  function frame() {
+    raf = 0;
+    if (draw()) invalidate();
+    else scheduleIdle();
+  }
+
+  // With nothing else going on, redraw when ships have moved about a pixel.
+  function scheduleIdle() {
+    clearTimeout(idleTimer);
+    const state = options.getState();
+    if (!state.ships.length) return;
+    const now = Date.now();
+    const flying = state.ships.some((ship, i) => ship.order && shipPosition(ship, now, i).moving);
+    const pixelsPerSecond = (flying ? FLIGHT_SPEED : DRIFT_SPEED) * scaleOf(cam);
+    const delay = Math.min(IDLE_MAX_MS, Math.max(IDLE_MIN_MS, 1000 / Math.max(0.001, pixelsPerSecond)));
+    idleTimer = setTimeout(() => {
+      idleTimer = 0;
+      invalidate();
+    }, delay);
   }
 
   function start() {
-    if (!raf) raf = requestAnimationFrame(frame);
+    running = true;
+    invalidate();
   }
 
   function stop() {
+    running = false;
     cancelAnimationFrame(raf);
     raf = 0;
+    clearTimeout(idleTimer);
+    idleTimer = 0;
   }
 
   // ---- Pointer input ----
@@ -72,18 +124,42 @@ export function createMapView(canvas, options) {
   const pointers = new Map();
   let drag = null;
   let pinch = null;
+  let longPress = 0;
+  let lastPointerType = 'mouse';
 
   function localPoint(e) {
     const rect = canvas.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  function cancelLongPress() {
+    clearTimeout(longPress);
+    longPress = 0;
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
+    lastPointerType = e.pointerType;
+    // The right button opens the menu (contextmenu below), never drags.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     canvas.setPointerCapture(e.pointerId);
     cam.panTarget = null;
     const p = localPoint(e);
     pointers.set(e.pointerId, p);
-    if (pointers.size === 1) drag = { start: p, last: p, moved: false };
+    cancelLongPress();
+    if (pointers.size === 1) {
+      drag = { start: p, last: p, moved: false, handled: false };
+      if (e.pointerType !== 'mouse') {
+        const client = { x: e.clientX, y: e.clientY, touch: true };
+        longPress = setTimeout(() => {
+          longPress = 0;
+          if (!drag || drag.moved || pointers.size !== 1) return;
+          const hit = hitTest(targets, drag.start.x, drag.start.y);
+          if (!hit) return;
+          drag.handled = true;
+          options.onContextMenu?.(hit, client);
+        }, LONG_PRESS_MS);
+      }
+    }
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) };
@@ -95,7 +171,11 @@ export function createMapView(canvas, options) {
     const p = localPoint(e);
     if (!pointers.has(e.pointerId)) {
       if (e.pointerType === 'mouse') {
-        hover = hitTest(targets, p.x, p.y);
+        const next = hitTest(targets, p.x, p.y);
+        if (next?.kind !== hover?.kind || next?.id !== hover?.id) {
+          hover = next;
+          invalidate();
+        }
         canvas.style.cursor = hover ? 'pointer' : 'grab';
       }
       return;
@@ -106,27 +186,34 @@ export function createMapView(canvas, options) {
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
       if (pinch.dist > 0) zoomAt(cam, (a.x + b.x) / 2, (a.y + b.y) / 2, dist / pinch.dist, extent);
       pinch.dist = dist;
+      invalidate();
       return;
     }
-    if (drag) {
+    if (drag && !drag.handled) {
       if (!drag.moved && Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > DRAG_THRESHOLD) {
         drag.moved = true;
+        cancelLongPress();
         canvas.style.cursor = 'grabbing';
       }
-      if (drag.moved) panBy(cam, p.x - drag.last.x, p.y - drag.last.y, extent);
+      if (drag.moved) {
+        panBy(cam, p.x - drag.last.x, p.y - drag.last.y, extent);
+        invalidate();
+      }
       drag.last = p;
     }
   });
 
   function endPointer(e) {
+    if (!pointers.has(e.pointerId)) return;
     const wasDrag = drag;
     pointers.delete(e.pointerId);
+    cancelLongPress();
     if (pointers.size < 2) pinch = null;
     if (pointers.size === 0) {
       drag = null;
       canvas.style.cursor = hover ? 'pointer' : 'grab';
     }
-    if (e.type === 'pointerup' && wasDrag && !wasDrag.moved && pointers.size === 0) {
+    if (e.type === 'pointerup' && wasDrag && !wasDrag.moved && !wasDrag.handled && pointers.size === 0) {
       const p = localPoint(e);
       options.onSelect(hitTest(targets, p.x, p.y));
     }
@@ -135,7 +222,19 @@ export function createMapView(canvas, options) {
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', endPointer);
   canvas.addEventListener('pointerleave', () => {
-    if (!pointers.size) hover = null;
+    if (!pointers.size && hover) {
+      hover = null;
+      invalidate();
+    }
+  });
+
+  canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    // Touch screens get the menu from our own long-press, which also works
+    // where the browser sends no contextmenu (iOS).
+    if (lastPointerType !== 'mouse') return;
+    const p = localPoint(e);
+    options.onContextMenu?.(hitTest(targets, p.x, p.y), { x: e.clientX, y: e.clientY });
   });
 
   canvas.addEventListener(
@@ -146,11 +245,23 @@ export function createMapView(canvas, options) {
       const p = localPoint(e);
       const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       zoomAt(cam, p.x, p.y, Math.exp(-delta * 0.0015), extent);
+      invalidate();
     },
     { passive: false },
   );
 
   canvas.addEventListener('keydown', (e) => {
+    // The context-menu key (or Shift+F10) opens the menu for what is selected.
+    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      const sel = options.getSelection();
+      const target = sel && targets.find((t) => t.kind === sel.kind && t.id === sel.id);
+      if (target) {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        options.onContextMenu?.(sel, { x: rect.left + target.x, y: rect.top + target.y, keyboard: true });
+      }
+      return;
+    }
     const step = 50;
     const keys = {
       ArrowLeft: () => panBy(cam, step, 0, extent),
@@ -167,26 +278,44 @@ export function createMapView(canvas, options) {
     if (!action) return;
     e.preventDefault();
     action();
+    invalidate();
   });
 
   function zoomBy(factor) {
     zoomAt(cam, cam.cx, cam.cy, factor, extent);
+    invalidate();
   }
 
   canvas.style.cursor = 'grab';
   new ResizeObserver(resize).observe(canvas);
   resize();
 
+  // Art and the web font arrive after the first frame; draw again then.
+  loadAssets().then(invalidate);
+  document.fonts?.ready.then(() => {
+    clearLabels();
+    invalidate();
+  });
+  document.fonts?.addEventListener?.('loadingdone', () => {
+    clearLabels();
+    invalidate();
+  });
+
   return {
     start,
     stop,
-    redraw: () => draw(),
+    /** Redraws on the next frame (after a game or UI change). */
+    redraw: invalidate,
     zoomIn: () => zoomBy(1.3),
     zoomOut: () => zoomBy(1 / 1.3),
-    fit: () => resetView(cam),
+    fit: () => {
+      resetView(cam);
+      invalidate();
+    },
     /** Slides the view so world point (x, y) sits in the middle. */
     focusOn(x, y) {
       cam.panTarget = { x, y };
+      invalidate();
     },
   };
 }

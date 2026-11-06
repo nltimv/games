@@ -41,5 +41,5 @@ function parkedPosition(placeId, at, index) {
   if (!place) return { x: 0, y: 0, moving: false };
   const angle = at / (40 * SECOND) + index * 2.1;
   const r = 16 + (index % 3) * 4;
-  return { x: place.x + Math.cos(angle) * r, y: place.y + Math.sin(angle) * r, moving: false };
+  return { x: place.x + Math.cos(angle) * r, y: place.y + Math.sin(angle) * r, moving: false, place: placeId };
 }

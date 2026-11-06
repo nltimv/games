@@ -10,7 +10,7 @@ import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/
 import { currentGoal } from '../../systems/goals.js';
 import { shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, gateIcon, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
+import { button, chip, fieldIcon, gateIcon, panelHead, sectionTitle, shipGlyph, stationIcon } from '../components.js';
 import { plural } from '../format.js';
 import { richnessLabel } from './field.js';
 
@@ -22,7 +22,7 @@ export function overviewPanel(ctx) {
     h(
       'button',
       { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('station', station.id), dataset: { key: `ov-${station.id}` } },
-      h('span', { class: 'dw-ship-icon', 'aria-hidden': 'true' }, stationIcon()),
+      h('span', { class: 'dw-ship-icon is-art', 'aria-hidden': 'true' }, stationIcon(station.type, { size: 34 })),
       h('span', { class: 'dw-grow' }, h('strong', null, station.name), h('small', null, STATION_TYPES[station.type].description)),
     ),
   );
@@ -30,7 +30,7 @@ export function overviewPanel(ctx) {
     h(
       'button',
       { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('field', field.id), dataset: { key: `ov-${field.id}` } },
-      swatch(field.good),
+      h('span', { class: 'dw-ship-icon is-art', 'aria-hidden': 'true' }, fieldIcon(field.good, 34)),
       h('span', { class: 'dw-grow' }, h('strong', null, field.name), h('small', null, `${GOODS[field.good].name} · ${richnessLabel(field.richness).toLowerCase()}`)),
     ),
   );
@@ -40,7 +40,7 @@ export function overviewPanel(ctx) {
       subtitle: `${FACTIONS[system.faction].name} space · your home`,
       onClose: ctx.isPhone() ? ctx.close : null,
     }),
-    h('p', { class: 'dw-note' }, 'Pick a station or field here or on the map to see what you can do there.'),
+    h('p', { class: 'dw-note' }, 'Right-click (or press and hold) a field or station on the map to give a ship orders. Pick one to see everything it offers.'),
     h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)),
     h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)),
     h(

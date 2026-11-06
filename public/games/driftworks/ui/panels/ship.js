@@ -141,7 +141,7 @@ function idleActions(ctx, ship) {
 
   if (hull.role === 'hauler') {
     sections.push(
-      h('p', { class: 'dw-note' }, `To trade, open the station ${ship.name} is docked at and pick Buy next to a good.`),
+      h('p', { class: 'dw-note' }, `To trade, right-click another station on the map: the menu lists the best buys here to sell there. The station panel has Buy for each good too.`),
     );
   }
 

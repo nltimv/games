@@ -1,6 +1,7 @@
 // Wires the session, the map and the panels together. UI-only state (which
-// view is open, what is selected, a trade being planned) lives here; game
-// state lives in the session and only changes through session.act().
+// view is open, what is selected, a trade being planned, the order menu)
+// lives here; game state lives in the session and only changes through
+// session.act().
 
 import { createMapView } from '../render/mapView.js';
 import { HOME_SYSTEM, findPlace } from '../content/homeSystem.js';
@@ -9,6 +10,7 @@ import { shipPosition } from '../systems/travel.js';
 import { renderInto, updateLive, h } from './dom.js';
 import { renderTopBar, underwayCard } from './hud.js';
 import { showAway, showSettings } from './modals.js';
+import { menuChoice, menuKeydown, orderMenu, placeMenu } from './contextMenu.js';
 import { stationPanel } from './panels/station.js';
 import { fieldPanel } from './panels/field.js';
 import { shipPanel } from './panels/ship.js';
@@ -37,11 +39,12 @@ export function createApp(session, doc = document) {
     nextText: $('next-text'),
     toasts: $('toasts'),
     modal: $('modal'),
+    menu: $('menu'),
     systemName: $('system-name'),
   };
 
   const phoneQuery = matchMedia('(max-width: 760px)');
-  const ui = { view: 'system', selection: null, miner: null, trade: null, overview: false };
+  const ui = { view: 'system', selection: null, miner: null, trade: null, overview: false, menu: null };
   let shownCredits = null;
   let panelKey = null;
 
@@ -56,7 +59,9 @@ export function createApp(session, doc = document) {
   // ---------- Navigation ----------
 
   function select(kind, id, extra = {}) {
-    Object.assign(ui, { view: 'system', selection: { kind, id }, overview: false, ...extra });
+    // Picking a field right after a ship sends that ship (when it can mine).
+    const miner = kind === 'field' && ui.selection?.kind === 'ship' ? { miner: ui.selection.id } : {};
+    Object.assign(ui, { view: 'system', selection: { kind, id }, overview: false, menu: null, ...miner, ...extra });
     if (kind !== 'station' || ui.trade?.stationId !== id) ui.trade = null;
     render();
     focusPanelIfNeeded();
@@ -72,6 +77,7 @@ export function createApp(session, doc = document) {
     ui.selection = null;
     ui.trade = null;
     ui.overview = false;
+    ui.menu = null;
     if (ui.view !== 'system') ui.view = 'system';
     render();
     if (isPhone()) map.focusOn(0, 0);
@@ -90,7 +96,46 @@ export function createApp(session, doc = document) {
     }
     ui.view = view;
     ui.trade = null;
+    ui.menu = null;
     render();
+  }
+
+  // ---------- Order menu ----------
+
+  function openMenu(target, point) {
+    if (!target) {
+      if (ui.menu) closeMenu();
+      return;
+    }
+    // A ship is picked first, then the place to send it.
+    if (target.kind === 'ship') select('ship', target.id);
+    ui.menu = { target, x: point.x, y: point.y, touch: Boolean(point.touch), shipId: null };
+    render();
+    // Keyboard and mouse users can arrow through it; on touch, focus only
+    // gets in the way.
+    if (point.keyboard) (els.menu.querySelector('.dw-menu-item:not(:disabled)') ?? els.menu).focus({ preventScroll: true });
+    else if (!ui.menu.touch) els.menu.focus({ preventScroll: true });
+  }
+
+  function closeMenu({ refocus = true } = {}) {
+    if (!ui.menu) return;
+    const hadFocus = els.menu.contains(doc.activeElement);
+    ui.menu = null;
+    render();
+    if (hadFocus && refocus) els.map.focus({ preventScroll: true });
+  }
+
+  function renderMenu(ctx) {
+    if (!ui.menu) {
+      if (!els.menu.hidden) {
+        els.menu.hidden = true;
+        els.menu.replaceChildren();
+      }
+      return;
+    }
+    renderInto(els.menu, orderMenu(ctx, ui.menu));
+    els.menu.hidden = false;
+    placeMenu(els.menu, ui.menu);
   }
 
   let focusAfterRender = false;
@@ -122,6 +167,8 @@ export function createApp(session, doc = document) {
       setView,
       isPhone,
       openSettings,
+      toast,
+      closeMenu,
       update(patch) {
         Object.assign(ui, patch);
         render();
@@ -162,6 +209,8 @@ export function createApp(session, doc = document) {
       panelKey = key;
     }
     renderInto(els.underway, underwayCard(ctx));
+    renderMenu(ctx);
+    map.redraw();
 
     for (const btn of els.nav.querySelectorAll('button[data-view]')) {
       if (btn.dataset.view === ui.view) btn.setAttribute('aria-current', 'page');
@@ -185,7 +234,7 @@ export function createApp(session, doc = document) {
     if (change.result && change.result.ok === false && change.result.error) toast(change.result.error, 'warning');
     for (const entry of change.log.filter((e) => TOAST_KINDS.has(e.kind)).slice(-3)) toast(entry.text, entry.kind);
     if (change.source === 'load') {
-      Object.assign(ui, { view: 'system', selection: null, trade: null, miner: null, overview: false });
+      Object.assign(ui, { view: 'system', selection: null, trade: null, miner: null, overview: false, menu: null });
       shownCredits = null;
     }
     render();
@@ -208,7 +257,17 @@ export function createApp(session, doc = document) {
   const map = createMapView(els.map, {
     getState: () => session.state,
     getSelection: () => (ui.view === 'system' ? ui.selection : null),
-    onSelect: (target) => (target ? select(target.kind, target.id) : ui.selection ? close() : null),
+    getMenuTarget() {
+      if (!ui.menu) return null;
+      const { chosen } = menuChoice(session.state, ui, ui.menu, Date.now());
+      return { ...ui.menu.target, shipId: chosen?.ship.id ?? null };
+    },
+    onSelect(target) {
+      if (target) select(target.kind, target.id);
+      else if (ui.menu) closeMenu();
+      else if (ui.selection) close();
+    },
+    onContextMenu: openMenu,
     getSafeArea(width, height) {
       const gap = 12;
       const top = els.top.getBoundingClientRect().bottom + gap;
@@ -240,8 +299,39 @@ export function createApp(session, doc = document) {
     if (action === 'out') map.zoomOut();
     if (action === 'fit') map.fit();
   });
+  // Any press outside the menu closes it. A press on the map only closes it,
+  // like a desktop menu, so it does not also select or drag.
+  doc.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (!ui.menu || els.menu.contains(e.target)) return;
+      closeMenu({ refocus: false });
+      if (e.target === els.map) e.stopPropagation();
+    },
+    true,
+  );
+  els.map.addEventListener('wheel', () => closeMenu({ refocus: false }), { passive: true });
+  window.addEventListener('resize', () => closeMenu({ refocus: false }));
+  els.menu.addEventListener('keydown', (e) => {
+    if (menuKeydown(e, els.menu)) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu();
+    }
+  });
+  // Tabbing out of the menu closes it. (Presses on the map are handled
+  // above; touch can move focus to the map without meaning to leave.)
+  els.menu.addEventListener('focusout', (e) => {
+    const to = e.relatedTarget;
+    if (to && to !== els.map && !els.menu.contains(to)) closeMenu({ refocus: false });
+  });
   doc.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || els.modal.open) return;
+    if (ui.menu) {
+      closeMenu();
+      return;
+    }
     if (e.target.closest?.('textarea, input')) return;
     if (ui.selection || ui.view !== 'system' || ui.overview) close();
   });
@@ -258,6 +348,8 @@ export function createApp(session, doc = document) {
     /** Called every second: refresh countdowns and timed bars. */
     updateLive(now) {
       updateLive(doc.body, now);
+      // Map labels count down too.
+      map.redraw();
     },
   };
 }

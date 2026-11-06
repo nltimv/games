@@ -1,5 +1,6 @@
 // Driftworks boot: load or start a company, catch up on time away, then run
-// a one-second clock for the simulation and a ~30 fps loop for the map.
+// a one-second clock for the simulation. The map draws only when something
+// changes (see render/mapView.js).
 
 import { createSession } from './core/session.js';
 import { createApp } from './ui/app.js';

@@ -16,7 +16,7 @@
 <body>
   <div class="dw-app" id="app">
     <canvas id="map" class="dw-map" tabindex="0" role="img"
-      aria-label="System map. Use the panel or the Fleet view to pick stations, fields and ships. Arrow keys pan, plus and minus zoom."></canvas>
+      aria-label="System map. Right-click or press and hold a field or station to give a ship orders, or use the panel and the Fleet view. Arrow keys pan, plus and minus zoom."></canvas>
 
     <header class="dw-top glass">
       <a class="dw-round glass-btn" href="/" aria-label="Back to Games Hub" title="Back to Games Hub">
@@ -74,6 +74,7 @@
       </nav>
     </div>
 
+    <div id="menu" class="dw-menu glass" role="dialog" aria-labelledby="menu-title" tabindex="-1" hidden></div>
     <div id="toasts" class="dw-toasts" role="status" aria-live="polite"></div>
     <dialog id="modal" class="dw-modal glass" aria-labelledby="modal-title"></dialog>
   </div>

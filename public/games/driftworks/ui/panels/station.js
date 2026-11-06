@@ -27,7 +27,7 @@ export function stationPanel(ctx, stationId) {
   const incoming = state.ships.filter((s) => s.order?.target === stationId);
 
   return [
-    panelHead({ icon: stationIcon(), title: station.name, subtitle: type.description, onClose: ctx.close }),
+    panelHead({ icon: stationIcon(station.type), title: station.name, subtitle: type.description, onClose: ctx.close }),
     h(
       'div',
       { class: 'dw-chips' },
