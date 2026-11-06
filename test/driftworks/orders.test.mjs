@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { advance, nextEventAt } from '../../public/games/driftworks/core/sim.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import {
+  canCopy,
+  canRepeat,
+  canRunAgain,
   clearQueue,
   copyOrders,
   freeSlots,
@@ -171,6 +174,36 @@ test('run again repeats the last plan once the ship is idle', () => {
   assert.deepEqual(ship.plan, [mine('carbon-drift'), sell()]);
 });
 
+test('a sale given after the mining ends still joins the route, so it can be repeated', () => {
+  const state = newGame();
+  state.research.done.push('queue-1'); // 4 orders
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine('carbon-drift'));
+  advance(state, T0 + 10 * MINUTE); // the ship waits at the field with a full hold
+  assert.equal(ship.order, null);
+  giveOrder(state, ship, sell());
+  assert.deepEqual(ship.plan, [mine('carbon-drift'), sell()]);
+  assert.ok(canRepeat(state, ship), 'busy with the sale: one more round fits');
+  advance(state, T0 + 20 * MINUTE);
+  assert.equal(roomForRounds(state, ship), 2);
+  assert.ok(canRepeat(state, ship));
+  assert.ok(canRunAgain(state, ship));
+  // With an empty hold, the next order starts a new route.
+  giveOrder(state, ship, mine('kx14'));
+  assert.deepEqual(ship.plan, [mine('kx14')]);
+});
+
+test('run again and repeat are only offered when the orders would work', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  ship.plan = [sell()]; // nothing in the hold to sell
+  assert.equal(canRunAgain(state, ship), false);
+  assert.equal(canRepeat(state, ship), false);
+  ship.plan = [mine('carbon-drift'), sell()];
+  assert.ok(canRunAgain(state, ship));
+  assert.equal(canRepeat(state, ship), false, 'with 2 slots an idle ship fits one round: that is Run again');
+});
+
 test('run all again restarts every idle ship with a plan', () => {
   const state = newGame();
   const a = firstShip(state);
@@ -199,6 +232,16 @@ test('copy orders gives a ship another ship\'s plan, if its hull can fly it', ()
   assert.equal(state.stats.copies, 1);
   const kite = createShip(state, 'kite', 'halcyon-shipyard');
   assert.equal(copyOrders(state, kite, a).ok, false, 'haulers cannot mine');
+});
+
+test('a plan that would not work for the new ship cannot be copied', () => {
+  const state = newGame();
+  const a = firstShip(state);
+  a.plan = [sell()];
+  const b = createShip(state, 'mule', 'halcyon-shipyard');
+  assert.equal(canCopy(state, a, b), false, 'b has nothing to sell');
+  a.plan = [mine('rime'), sell()];
+  assert.ok(canCopy(state, a, b));
 });
 
 test('a refit is paid up front, fits the newest modules at the shipyard, and keeps the plan', () => {

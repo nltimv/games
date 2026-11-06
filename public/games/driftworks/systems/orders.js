@@ -283,10 +283,13 @@ export function giveOrder(state, ship, spec) {
     remember(ship, spec);
     return { ok: true, queued: true, order: check.order };
   }
+  // An idle ship with an empty hold starts a new plan. One that still carries
+  // cargo is halfway through its route (it mined, then waited for the order
+  // to sell), so the new order adds to the plan. A refit keeps the plan.
+  const midRoute = cargoTotal(ship) > 0;
   const result = startOrder(state, ship, spec);
   if (!result.ok) return result;
-  // An idle ship starts a new plan; a refit keeps the old one.
-  if (spec.type !== 'refit') ship.plan = [];
+  if (spec.type !== 'refit' && !midRoute) ship.plan = [];
   remember(ship, spec);
   return { ok: true, queued: false, order: result.order };
 }
@@ -383,22 +386,34 @@ export function planCycle(plan) {
 }
 
 /**
- * How many more rounds of its plan a ship has room for, counting only
- * rounds that would work (a second "mine" with a full hold would not).
+ * How many of `specs`, given in turn after the ship's other orders, would
+ * fit in its free slots and work (a second "mine" with a full hold would not).
  */
+function ordersThatWork(state, ship, specs) {
+  const room = Math.min(specs.length, freeSlots(state, ship));
+  const view = projectShip(state, ship);
+  for (let i = 0; i < room; i += 1) {
+    const built = buildOrder(state, view, specs[i], view.time);
+    if (!built.ok) return i;
+    applySteps(view, built.order);
+  }
+  return room;
+}
+
+/** How many more whole rounds of its plan a ship has room for, counting only rounds that would work. */
 export function roomForRounds(state, ship) {
   const cycle = planCycle(ship.plan);
   if (!cycle.length) return 0;
   const max = Math.floor(freeSlots(state, ship) / cycle.length);
-  const view = projectShip(state, ship);
-  for (let rounds = 0; rounds < max; rounds += 1) {
-    for (const spec of cycle) {
-      const built = buildOrder(state, view, spec, view.time);
-      if (!built.ok) return rounds;
-      applySteps(view, built.order);
-    }
-  }
-  return max;
+  return Math.floor(ordersThatWork(state, ship, Array.from({ length: max }, () => cycle).flat()) / cycle.length);
+}
+
+/**
+ * Whether Repeat to fill is worth offering: a busy ship needs one round, an
+ * idle one two (a single round is what Run again does).
+ */
+export function canRepeat(state, ship) {
+  return roomForRounds(state, ship) > (ship.order ? 0 : 1);
 }
 
 /** Adds rounds of the ship's plan until its orders are full. */
@@ -413,6 +428,11 @@ export function repeatToFill(state, ship) {
   return result;
 }
 
+/** Whether an idle ship remembers a plan whose first order would work now. */
+export function canRunAgain(state, ship) {
+  return !ship.order && ship.plan.length > 0 && ordersThatWork(state, ship, ship.plan) > 0;
+}
+
 /** Gives an idle ship the orders it ran last time. */
 export function runAgain(state, ship) {
   if (!ship) return fail('No such ship.');
@@ -421,9 +441,9 @@ export function runAgain(state, ship) {
   return giveOrders(state, ship, ship.plan.slice(0, MAX_PLAN));
 }
 
-/** Ships that are idle and remember a plan. */
+/** Ships that are idle and could run their last orders again. */
 export function rerunnable(state) {
-  return state.ships.filter((ship) => !ship.order && ship.plan.length);
+  return state.ships.filter((ship) => canRunAgain(state, ship));
 }
 
 /** "Run all again": every idle ship repeats its last orders. */
@@ -439,17 +459,23 @@ export function runAllAgain(state) {
   return { ok: true, count };
 }
 
-/** Whether `from`'s plan suits `to` (miners mine, haulers buy). */
-export function canCopy(from, to) {
+/**
+ * Whether `to` can fly `from`'s plan: the hull suits it (miners mine, haulers
+ * buy) and every order that fits in `to`'s slots would work from where it is.
+ */
+export function canCopy(state, from, to) {
   if (!from || !to || from === to || !from.plan.length) return false;
   const role = HULLS[to.hull].role;
-  return from.plan.every((spec) => (spec.type === 'mine' ? role === 'miner' : spec.type === 'buy' ? role === 'hauler' : true));
+  const suits = from.plan.every((spec) => (spec.type === 'mine' ? role === 'miner' : spec.type === 'buy' ? role === 'hauler' : true));
+  if (!suits) return false;
+  const fits = Math.min(from.plan.length, freeSlots(state, to));
+  return fits > 0 && ordersThatWork(state, to, from.plan) === fits;
 }
 
 /** Gives `to` the orders `from` was last given. */
 export function copyOrders(state, to, from) {
   if (!to || !from) return fail('No such ship.');
-  if (!canCopy(from, to)) return fail(`${to.name} cannot fly ${from.name}'s orders.`);
+  if (!canCopy(state, from, to)) return fail(`${to.name} cannot fly ${from.name}'s orders.`);
   const result = giveOrders(state, to, from.plan.slice(0, MAX_PLAN));
   if (result.ok) state.stats.copies += 1;
   return result;

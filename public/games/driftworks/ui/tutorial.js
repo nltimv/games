@@ -4,8 +4,10 @@
 // to play; it can be skipped.
 
 import { GOALS } from '../content/goals.js';
+import { cargoTotal } from '../systems/cargo.js';
 import { tutorialGoal } from '../systems/goals.js';
-import { isResearched } from '../systems/research.js';
+import { canCopy, canRepeat, canRunAgain, projectShip } from '../systems/orders.js';
+import { isResearched, orderSlots } from '../systems/research.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { h } from './dom.js';
 import { at } from './format.js';
@@ -40,6 +42,20 @@ function copyTo(state, ui, ship, from) {
   return { text: `Press Copy orders from ${from.name}: ${ship.name} flies the same route.`, selector: key(`copy-${from.id}`) };
 }
 
+/**
+ * Steps that give a Mule a route of its own to repeat: mine a full hold, then
+ * sell it. Used when no other ship has a route it could copy.
+ */
+function route(state, ui, ship, lead = '') {
+  if (!isSelected(ui, 'ship', ship.id)) return { text: `${lead}Select ${ship.name}.`, map: { kind: 'ship', id: ship.id } };
+  if (!cargoTotal(projectShip(state, ship))) {
+    if (menuOn(ui, FIELD)) return { text: 'Pick Mine a full hold.', selector: key('menu-mine-') };
+    return { text: `Give ${ship.name} a route: right-click Carbon Drift and pick Mine a full hold, then queue a sale at Halcyon Refinery.`, map: { kind: 'field', id: FIELD } };
+  }
+  if (menuOn(ui, REFINERY)) return { text: 'Pick Sell.', selector: key('menu-sell-') };
+  return { text: `Queue the sale: right-click Halcyon Refinery and pick Sell. ${ship.name} remembers the route.`, map: { kind: 'station', id: REFINERY } };
+}
+
 const GUIDES = {
   'first-orders'(state, ui) {
     const mule = state.ships[0];
@@ -61,9 +77,9 @@ const GUIDES = {
     const fleet = mules(state);
     if (fleet.length < 2) return buyMule(state, ui, `A second Mule costs ${formatCredits(150)}.`);
     const idle = fleet.find((ship) => !ship.plan.length);
-    const from = fleet.find((ship) => ship.plan.length);
-    if (!idle || !from) return null;
-    return copyTo(state, ui, idle, from);
+    if (!idle) return null;
+    const from = fleet.find((ship) => canCopy(state, ship, idle));
+    return from ? copyTo(state, ui, idle, from) : route(state, ui, idle);
   },
   'first-sale'(state) {
     const mule = state.ships[0];
@@ -78,8 +94,9 @@ const GUIDES = {
     const fleet = mules(state);
     if (fleet.length < 3) return buyMule(state, ui, 'A third Mule pays for itself in about an hour.');
     const idle = fleet.find((ship) => !ship.plan.length && !ship.order);
-    const from = fleet.find((ship) => ship.plan.length);
-    return idle && from ? copyTo(state, ui, idle, from) : null;
+    if (!idle) return null;
+    const from = fleet.find((ship) => canCopy(state, ship, idle));
+    return from ? copyTo(state, ui, idle, from) : route(state, ui, idle);
   },
   'first-refit'(state, ui) {
     if (!isSelected(ui, 'station', SHIPYARD)) {
@@ -89,10 +106,25 @@ const GUIDES = {
   },
   'fill-queue'(state, ui) {
     if (!isResearched(state, 'queue-1')) return research(state, ui, 'queue-1', 'Order queue I', 'Longer queues keep ships busy while you work.');
-    const ship = mules(state).find((s) => s.plan.length);
-    if (!ship) return { text: 'Give a Mule some orders, then repeat them.' };
-    if (!isSelected(ui, 'ship', ship.id)) return { text: `Every ship now holds 4 orders. Select ${ship.name}.`, map: { kind: 'ship', id: ship.id } };
-    return { text: 'Press Repeat to fill: the ship repeats its route until its orders are full. Run again repeats them later.', selector: key('repeat-fill') };
+    // Guide to a ship that shows the button, the selected one if it can.
+    const fleet = mules(state);
+    const selected = fleet.find((ship) => isSelected(ui, 'ship', ship.id));
+    const pick = (test) => (selected && test(selected) ? selected : fleet.find(test));
+    const lead = `Every ship now holds ${orderSlots(state)} orders. `;
+    const repeater = pick((ship) => canRepeat(state, ship));
+    if (repeater) {
+      if (repeater !== selected) return { text: `${lead}Select ${repeater.name}.`, map: { kind: 'ship', id: repeater.id } };
+      return { text: 'Press Repeat to fill: the ship repeats its route until its orders are full. Run again repeats them later.', selector: key('repeat-fill') };
+    }
+    // A plan of three or more orders fills the queue with one Run again.
+    const rerun = pick((ship) => canRunAgain(state, ship) && ship.plan.length >= 3);
+    if (rerun) {
+      if (rerun !== selected) return { text: `${lead}Select ${rerun.name}.`, map: { kind: 'ship', id: rerun.id } };
+      return { text: `Press Run again: ${rerun.name} takes on all ${rerun.plan.length} of its last orders.`, selector: key('run-again') };
+    }
+    // No ship has a route to repeat yet, so build one first.
+    const ship = selected ?? fleet.find((s) => !s.order) ?? fleet[0];
+    return ship ? route(state, ui, ship, lead) : null;
   },
 };
 

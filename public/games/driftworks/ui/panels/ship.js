@@ -11,6 +11,8 @@ import { findShip } from '../../systems/fleet.js';
 import { holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
 import {
   canCopy,
+  canRepeat,
+  canRunAgain,
   clearQueue,
   copyOrders,
   freeSlots,
@@ -96,10 +98,10 @@ function ordersSection(ctx, ship) {
 
   const actions = [];
   const rounds = roomForRounds(state, ship);
-  if (!ship.order && ship.plan.length) {
+  if (canRunAgain(state, ship)) {
     actions.push(button('Run again', { variant: 'primary', small: true, key: 'run-again', onClick: () => report(ctx, ship, ctx.act((s) => runAgain(s, findShip(s, ship.id)))) }));
   }
-  if (rounds > (ship.order ? 0 : 1)) {
+  if (canRepeat(state, ship)) {
     actions.push(
       button(`Repeat to fill`, {
         small: true,
@@ -114,7 +116,7 @@ function ordersSection(ctx, ship) {
   }
 
   // Copy another ship's orders onto this one.
-  const sources = ship.order || ship.plan.length ? [] : state.ships.filter((other) => canCopy(other, ship));
+  const sources = ship.order || ship.plan.length ? [] : state.ships.filter((other) => canCopy(state, other, ship));
   const copy = sources.length
     ? h(
         'div',

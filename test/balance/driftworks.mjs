@@ -176,7 +176,7 @@ function play(profileName, days) {
       click();
       report.buys.push({ at: now, n: state.ships.length, hull, price });
       // A new ship copies a sister ship's orders when one has a plan.
-      const source = state.ships.find((s) => canCopy(s, bought.ship));
+      const source = state.ships.find((s) => canCopy(state, s, bought.ship));
       if (source && copyOrders(state, bought.ship, source).ok) click();
     }
 
