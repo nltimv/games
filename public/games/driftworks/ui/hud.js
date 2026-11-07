@@ -19,7 +19,12 @@ const ACTIVITY_ICONS = {
   survey: '<path d="M2.5 8a5.5 5.5 0 1 0 5.5-5.5"/><path d="M8 8l3.6-3.6"/><circle cx="8" cy="8" r="1.1"/>',
   refit: '<path d="M10.6 2.6a3 3 0 0 0-3.1 4.1l-4.6 4.6a1.3 1.3 0 0 0 1.8 1.8l4.6-4.6a3 3 0 0 0 4.1-3.1l-1.9 1.9-1.6-.3-.3-1.6z"/>',
   wait: '<path d="M6 4.5v7M10 4.5v7"/>',
+  investigate: '<circle cx="6.8" cy="6.8" r="4"/><path d="M9.8 9.8l3.6 3.6"/>',
+  salvage: '<path d="M8 2v6.5a2.6 2.6 0 1 1-2.6-2.6"/><path d="M5.5 2h5"/>',
 };
+
+// Orders at a signal name its system, as the signal itself may still be unknown.
+const SIGNAL_ORDERS = new Set(['investigate', 'salvage']);
 
 function activityIcon(kind) {
   const paths = ACTIVITY_ICONS[kind] ?? ACTIVITY_ICONS.fly;
@@ -105,7 +110,7 @@ function runRow(ctx, ship, now) {
   const { order } = ship;
   const phase = orderPhase(order, now);
   const jumpTo = phase.jumping ? findSystem(systemOf(order.legs.find((l) => now < l.end)?.to ?? order.target)) : null;
-  const target = order.type === 'survey' ? findSystem(order.steps.at(-1)?.system)?.name : findPlace(order.target)?.name;
+  const target = order.type === 'survey' ? findSystem(order.steps.at(-1)?.system)?.name : SIGNAL_ORDERS.has(order.type) ? findSystem(systemOf(order.target))?.name : findPlace(order.target)?.name;
   const where = jumpTo ? jumpTo.name : `${phase.flying && order.type !== 'fly' ? 'to ' : ''}${target ?? '?'}`;
   return h(
     'button',

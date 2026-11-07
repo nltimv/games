@@ -8,6 +8,7 @@
 
 import { findPlace, findStation, systemOf } from '../content/galaxy.js';
 import { markSurveyed } from '../systems/explore.js';
+import { investigateSignal, salvageSignal } from '../systems/signals.js';
 import { markSeen, refreshSeen } from '../systems/knowledge.js';
 import { openStanding } from '../systems/standing.js';
 import { buyCargo, freeHold, sellCargo } from '../systems/cargo.js';
@@ -56,6 +57,14 @@ const STEP_HANDLERS = {
   survey(state, ship, step) {
     ship.at = step.station;
     markSurveyed(state, step.system, step.at);
+  },
+  investigate(state, ship, step) {
+    ship.at = step.station;
+    investigateSignal(state, ship, step.signal, step.at);
+  },
+  salvage(state, ship, step) {
+    ship.at = step.station;
+    salvageSignal(state, ship, step.signal, freeHold(ship), step.at);
   },
   sell(state, ship, step) {
     ship.at = step.station;

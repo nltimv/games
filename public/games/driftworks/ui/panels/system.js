@@ -19,8 +19,10 @@ import { findShip } from '../../systems/fleet.js';
 import { giveOrder } from '../../systems/orders.js';
 import { canJump, jumpFee, jumpTime, shipSystem } from '../../systems/travel.js';
 import { hazardNote, isShielded, shieldingNeeded } from '../../systems/shielding.js';
+import { fieldsOf, signalTitle } from '../../systems/signals.js';
+import { signalPanel } from './signal.js';
 import { h } from '../dom.js';
-import { button, contractMark, fieldIcon, gateIcon, panelHead, sectionTitle, stationIcon, swatch } from '../components.js';
+import { button, contractMark, fieldIcon, gateIcon, panelHead, sectionTitle, signalIcon, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { ago, formatPrice, plural, span } from '../format.js';
 
@@ -118,7 +120,8 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
   const stationRows = system.stations.map((station) =>
     placeRow(ctx, 'station', station, stationIcon(station.type, { size: 34, tint: stationTint(station) }), STATION_TYPES[station.type].description, contractMarksFor(marks.get(station.id))),
   );
-  const fieldRows = system.fields.map((field) =>
+  const fields = fieldsOf(state, system);
+  const fieldRows = fields.map((field) =>
     placeRow(ctx, 'field', field, fieldIcon(field.good, 34), `${GOODS[field.good].name} · ${richnessLabel(field.richness).toLowerCase()}`),
   );
   const gateRows = system.gates.map((gate) =>
@@ -144,7 +147,15 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
     ctx.ui.view === 'galaxy' && isResearched(state, 'market-charts') ? pricesSection(ctx, system) : null,
     ships.length ? h('div', { class: 'dw-section' }, sectionTitle('Your ships here', String(ships.length), { numeric: true }), h('ul', { class: 'dw-list' }, ships.map((ship) => shipRow(ctx, ship)))) : null,
     system.stations.length ? h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)) : null,
-    system.fields.length ? h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)) : null,
+    fields.length ? h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)) : null,
+    system.signal
+      ? h(
+          'div',
+          { class: 'dw-section' },
+          sectionTitle('Signal'),
+          h('div', { class: 'dw-list' }, placeRow(ctx, 'signal', { id: system.signal.id, name: signalTitle(state, system.signal) }, signalIcon(state, system.signal, 34), 'Out past the planets')),
+        )
+      : null,
     h('div', { class: 'dw-section' }, sectionTitle('Warp gates'), h('div', { class: 'dw-list' }, gateRows)),
   ];
 }
@@ -196,6 +207,8 @@ export function gatePanel(ctx, gateId) {
   const { state } = ctx;
   const gate = findGate(gateId);
   if (!gate) return systemPanel(ctx, ctx.ui.systemId, { overview: true });
+  // An ancient gate is its system's signal, investigated.
+  if (gate.ancient) return signalPanel(ctx, findSystem(systemOf(gateId)).signal.id);
   const system = findSystem(systemOf(gateId));
   const far = findSystem(gate.to);
   const known = isSurveyed(state, gate.to);

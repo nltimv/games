@@ -8,8 +8,8 @@
 // gradients, no blur.
 
 import { HOME_SYSTEM } from '../content/homeSystem.js';
-import { findFaction, findPlace, findStation, findSystem, laneBetween, systemOf } from '../content/galaxy.js';
-import { HOME_SKY, sceneryOf, stationTint } from '../content/scenery.js';
+import { ancientLaneFrom, findFaction, findPlace, findStation, findSystem, laneBetween, systemOf } from '../content/galaxy.js';
+import { ANCIENT_TINT, HOME_SKY, sceneryOf, stationTint } from '../content/scenery.js';
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { createRng, hashString } from '../core/rng.js';
@@ -18,6 +18,7 @@ import { contractMarks } from '../systems/contracts.js';
 import { isSurveyed } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { shieldingNeeded } from '../systems/shielding.js';
+import { derelictLeft, fieldsOf, isGateOpen, isInvestigated, signalTitle } from '../systems/signals.js';
 import { orderPhase, projectShip } from '../systems/orders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
@@ -26,7 +27,7 @@ import { drawContractMarks } from './marks.js';
 import { createLabelSpace, drawCount, flock, flockName } from './flocks.js';
 
 // Sizes of map art in CSS pixels at an icon scale of 1.
-const SIZE = { field: 58, station: 44, gate: 30, ship: 32, parkedShip: 28 };
+const SIZE = { field: 58, station: 44, gate: 30, ship: 32, parkedShip: 28, signal: 44 };
 // Gap between a place's art and the ships waiting around it.
 const PARK_GAP = 17;
 
@@ -145,6 +146,13 @@ function gateNote(state, system, gate) {
   return lane ? `${Math.round(jumpTime(state, lane) / 60000)} min jump` : '';
 }
 
+/** An ancient gate's second label line: open with its jump time, or closed. */
+function ancientNote(state, signal) {
+  if (!isGateOpen(state, signal)) return 'closed';
+  const lane = ancientLaneFrom(systemOf(signal.id))?.lane;
+  return lane ? `open · ${Math.round(jumpTime(state, lane) / 60000)} min jump` : 'open';
+}
+
 /**
  * Draws the system `view.systemId` (Aurel by default). `view` has
  * { selection, hover, target } as { kind, id } or null, and the canvas
@@ -221,8 +229,33 @@ export function drawSystem(ctx, cam, state, now, view) {
     targets.push({ kind: 'gate', id: gate.id, x: p.x, y: p.y, r: Math.max(16, half) });
   }
 
+  // The system's signal: unknown until a scout investigates it. A rich
+  // field then draws with the other fields, an ancient gate as a gold gate.
+  const signal = isSurveyed(state, system.id) ? system.signal : null;
+  if (signal && !(signal.kind === 'rich' && isInvestigated(state, signal))) {
+    const p = toScreen(cam, signal.x, signal.y);
+    const known = isInvestigated(state, signal);
+    if (known && signal.kind === 'gate') {
+      const gate = signal.gate;
+      const w = SIZE.gate * u;
+      const half = (w * 64) / 48 / 2;
+      drawAsset(ctx, 'gate', p.x, p.y, w, dpr, { tint: ANCIENT_TINT, alpha: isGateOpen(state, signal) ? 1 : 0.7 });
+      drawLabel(ctx, compact ? gate.short : gate.name, p.x, p.y + half + 6, dpr, { size: 11, color: 'rgba(255, 236, 190, 0.92)' });
+      if (!compact) drawLabel(ctx, ancientNote(state, signal), p.x, p.y + half + 20, dpr, { size: 10, weight: 600, color: 'rgba(255, 230, 180, 0.6)' });
+      targets.push({ kind: 'gate', id: gate.id, x: p.x, y: p.y, r: Math.max(16, half) });
+    } else {
+      const w = SIZE.signal * u;
+      const pulse = known ? 1 : 0.75 + 0.25 * Math.sin(now / 500);
+      if (!drawAsset(ctx, known ? 'derelict' : 'signal', p.x, p.y, w, dpr, { alpha: pulse })) dot(ctx, p.x, p.y, w * 0.2, ANCIENT_TINT);
+      const left = known ? derelictLeft(state, signal) : 0;
+      const name = known && !compact && left > 0 ? `${signalTitle(state, signal)} · ${left} t ${GOODS[signal.good].name.toLowerCase()}` : signalTitle(state, signal);
+      drawLabel(ctx, name, p.x, p.y + w * 0.42 + 9, dpr, { size: compact ? 11 : 12, color: 'rgba(255, 240, 205, 0.92)' });
+      targets.push({ kind: 'signal', id: signal.id, x: p.x, y: p.y, r: Math.max(20, w * 0.45) });
+    }
+  }
+
   // Asteroid fields
-  for (const field of system.fields) {
+  for (const field of fieldsOf(state, system)) {
     const p = toScreen(cam, field.x, field.y);
     const w = SIZE.field * u;
     if (!drawAsset(ctx, `field-${field.good}`, p.x, p.y, w, dpr)) dot(ctx, p.x, p.y, w * 0.2, GOODS[field.good].look.mid);

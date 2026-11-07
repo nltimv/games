@@ -1198,6 +1198,11 @@ button.dw-price-row[aria-pressed='true'] {
   color: #dfe7f2;
 }
 
+.dw-act.is-investigate,
+.dw-act.is-salvage {
+  color: #f5c96a;
+}
+
 .dw-underway-foot {
   display: flex;
   flex-wrap: wrap;

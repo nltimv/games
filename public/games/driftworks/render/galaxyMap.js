@@ -17,6 +17,7 @@ import { contractMarks } from '../systems/contracts.js';
 import { chartedSystems } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { shieldingNeeded } from '../systems/shielding.js';
+import { derelictLeft, isGateOpen, isInvestigated } from '../systems/signals.js';
 import { shipRoute } from '../systems/orders.js';
 import { scaleOf, toScreen, toWorld } from './camera.js';
 import { drawAsset } from './assets.js';
@@ -251,6 +252,23 @@ let chart = null;
  * the unknown). Worked out again only when a survey (or a new galaxy)
  * changes it.
  */
+/** The open ancient lanes, with their two systems. */
+function ancientLanes(state) {
+  const open = [];
+  for (const lane of currentGalaxy().ancientLanes ?? []) {
+    if (isGateOpen(state, findSystem(lane.a)?.signal)) open.push({ lane, a: findSystem(lane.a), b: findSystem(lane.b) });
+  }
+  return open;
+}
+
+/** The small mark beside a system with a signal to look at: unknown, or a derelict with cargo left. */
+function signalMark(state, system) {
+  const signal = system.signal;
+  if (!signal) return null;
+  if (!isInvestigated(state, signal)) return 'signal';
+  return signal.kind === 'derelict' && derelictLeft(state, signal) > 0 ? 'derelict' : null;
+}
+
 function chartOf(state) {
   const key = `${currentGalaxy().seed}|${(state.surveyed ?? []).join(',')}`;
   if (chart?.key === key) return chart;
@@ -459,6 +477,22 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     ctx.stroke();
   }
   ctx.setLineDash([]);
+  // Open ancient gates: a gold lane straight across the map.
+  for (const { lane, a, b } of ancientLanes(state)) {
+    const pa = toScreen(cam, a.gx, a.gy);
+    const pb = toScreen(cam, b.gx, b.gy);
+    if (!crosses(pa, pb)) continue;
+    ctx.strokeStyle = 'rgba(245, 201, 106, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([9, 6]);
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const mid = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+    if (times && onScreen(mid)) drawLabel(ctx, `${Math.round(jumpTime(state, lane) / 60000)} min`, mid.x, mid.y, dpr, { size: 10, weight: 600, color: 'rgba(255, 230, 180, 0.7)' });
+  }
   if (times) {
     for (const lane of chart.lanes) {
       const a = toScreen(cam, lane.a.gx, lane.a.gy);
@@ -521,6 +555,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.stroke();
+      const mark = signalMark(state, system);
+      if (mark) drawAsset(ctx, mark, p.x + r * 1.15, p.y - r * 1.15, Math.max(12, r * 1.6), dpr, { alpha: mark === 'signal' ? 0.75 + 0.25 * Math.sin(now / 500) : 1 });
     } else {
       ctx.fillStyle = 'rgba(150, 180, 220, 0.18)';
       const blocked = Boolean(shieldingNeeded(state, system));

@@ -43,6 +43,8 @@ export const ASSETS = {
   'station-shipyard': { file: 'station-shipyard.svg' },
   'station-factory': { file: 'station-factory.svg' },
   gate: { file: 'gate.svg' },
+  signal: { file: 'signal.svg' },
+  derelict: { file: 'derelict.svg' },
   'ship-miner': { file: 'ship-miner.svg' },
   'ship-hauler': { file: 'ship-hauler.svg' },
   'ship-scout': { file: 'ship-scout.svg' },

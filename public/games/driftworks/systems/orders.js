@@ -15,6 +15,7 @@
 //                                       modules (see orderRefit; paid up front)
 //   { type: 'survey', systemId }        scouts: fly to an unsurveyed system
 //                                       and survey it
+//   { type: 'investigate' | 'salvage', signalId }  see systems/signalOrders.js
 //
 // Targets in another system are reached through the gates (see
 // travel.plotCourse). Each jump's fee is paid as the ship enters the
@@ -47,6 +48,9 @@ import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
 import { isResearched, orderSlots } from './research.js';
 import { plotCourse, travelTime } from './travel.js';
+import { flight, route, stationLegs } from './courses.js';
+import { buildInvestigate, buildSalvage } from './signalOrders.js';
+import { isFieldOpen } from './signals.js';
 import { isSurveyed, knownStations, surveyable, surveyorOf } from './explore.js';
 import { hazardNote } from './shielding.js';
 import { addLog } from './log.js';
@@ -74,16 +78,6 @@ function sellable(view, stationId, good) {
   return Object.keys(view.cargo).filter((g) => view.cargo[g] > 0 && (!good || g === good) && findEntry(stationId, g)?.side === 'buys');
 }
 
-/** The course to `to`, shifted to start at `start`: { ok, travel, legs, fees, jumps } or { ok: false, error }. */
-function flight(state, view, to, start, options) {
-  const course = plotCourse(state, view, view.at, to, options);
-  if (!course.ok) return course;
-  const legs = course.legs.map((leg) => ({ ...leg, start: leg.start + start, end: leg.end + start }));
-  return { ok: true, travel: course.time, legs, fees: course.fees, jumps: course.jumps };
-}
-
-const route = (course) => ({ fees: course.fees, jumps: course.jumps });
-
 // ---------- Builders ----------
 // Each builds an order for `view` (a ship, or a projection of one; see
 // projectShip) starting at `start`, or explains why it cannot.
@@ -91,7 +85,7 @@ const route = (course) => ({ fees: course.fees, jumps: course.jumps });
 function buildMine(state, view, { fieldId, amount }, start) {
   if (HULLS[view.hull].role !== 'miner') return fail(`${view.name} is not a mining ship.`);
   const field = findField(fieldId);
-  if (!field) return fail('No such asteroid field.');
+  if (!field || !isFieldOpen(state, field)) return fail('No such asteroid field.');
   const free = freeIn(view);
   const qty = Math.floor(Math.min(free, amount ?? free));
   if (free < 1) return fail(`${view.name}'s hold is full.`);
@@ -116,15 +110,6 @@ function buildMine(state, view, { fieldId, amount }, start) {
       ...route(course),
     },
   };
-}
-
-function stationLegs(state, view, stationId, start, stay = 0, options) {
-  const course = flight(state, view, stationId, start, options);
-  if (!course.ok) return course;
-  const { travel, legs } = course;
-  const end = start + travel + stay;
-  if (!legs.length || stay) legs.push({ from: stationId, to: stationId, start: start + travel, end });
-  return { ok: true, end, legs, ...route(course) };
 }
 
 function buildSell(state, view, { stationId, good }, start) {
@@ -308,7 +293,17 @@ function entryGate(state, view, systemId) {
   return best?.id ?? gates[0]?.id ?? null;
 }
 
-const BUILDERS = { mine: buildMine, sell: buildSell, buy: buildBuy, deliver: buildDeliver, fly: buildFly, refit: buildRefit, survey: buildSurvey };
+const BUILDERS = {
+  mine: buildMine,
+  sell: buildSell,
+  buy: buildBuy,
+  deliver: buildDeliver,
+  fly: buildFly,
+  refit: buildRefit,
+  survey: buildSurvey,
+  investigate: buildInvestigate,
+  salvage: buildSalvage,
+};
 
 export function buildOrder(state, view, spec, start = state.now) {
   const build = BUILDERS[spec?.type];
@@ -343,7 +338,10 @@ function applySteps(view, order, from = 0) {
     } else if (step.kind === 'refit') {
       view.modules = { ...view.modules, ...step.modules };
       view.at = step.station;
-    } else if (step.kind === 'arrive' || step.kind === 'survey') {
+    } else if (step.kind === 'salvage') {
+      view.cargo[step.good] = (view.cargo[step.good] ?? 0) + Math.min(step.qty, freeIn(view));
+      view.at = step.station;
+    } else if (step.kind === 'arrive' || step.kind === 'survey' || step.kind === 'investigate') {
       view.at = step.station;
     }
   }
@@ -818,6 +816,10 @@ export function specLabel(spec) {
       return `Refit at ${findStation(spec.stationId ?? SHIPYARD_ID)?.name ?? '?'}`;
     case 'survey':
       return `Survey ${findSystem(spec.systemId)?.name ?? '?'}`;
+    case 'investigate':
+      return `Investigate the signal in ${findSystem(systemOf(spec.signalId))?.name ?? '?'}`;
+    case 'salvage':
+      return `Salvage the derelict in ${findSystem(systemOf(spec.signalId))?.name ?? '?'}`;
     default:
       return spec.type;
   }

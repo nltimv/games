@@ -25,13 +25,14 @@ import { shipPanel } from './panels/ship.js';
 import { companyPanel, fleetPanel, groupPanel } from './panels/lists.js';
 import { researchPanel } from './panels/research.js';
 import { galaxyPanel, gatePanel, systemPanel } from './panels/system.js';
+import { signalPanel } from './panels/signal.js';
 import { currentGuide, guideCard, markGuided } from './tutorial.js';
 
 const TOAST_KINDS = new Set(['sale', 'goal', 'arrival', 'warning', 'purchase']);
 const TOAST_MS = 4200;
 const MAP_VIEWS = new Set(['system', 'galaxy']);
 const isMapView = (view) => MAP_VIEWS.has(view);
-const PLACE_KINDS = new Set(['station', 'field', 'gate']);
+const PLACE_KINDS = new Set(['station', 'field', 'gate', 'signal']);
 // One step of the zoom buttons in from the whole system.
 const SYSTEM_START_ZOOM = 1.3;
 
@@ -321,6 +322,7 @@ export function createApp(session, doc = document) {
     if (sel.kind === 'ship') return findShip(session.state, sel.id) ? shipPanel(ctx, sel.id) : overviewPanel(ctx);
     if (sel.kind === 'ships') return groupPanel(ctx, sel.ids);
     if (sel.kind === 'gate') return gatePanel(ctx, sel.id);
+    if (sel.kind === 'signal') return signalPanel(ctx, sel.id);
     if (sel.kind === 'system') return systemPanel(ctx, sel.id);
     return overviewPanel(ctx);
   }

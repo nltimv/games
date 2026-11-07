@@ -44,6 +44,9 @@ export function carryOut(state, shipId, option) {
       return giveOrder(state, ship, { type: 'fly', stationId: option.stationId });
     case 'survey':
       return giveOrder(state, ship, { type: 'survey', systemId: option.systemId });
+    case 'investigate':
+    case 'salvage':
+      return giveOrder(state, ship, { type: option.kind, signalId: option.signalId });
     default:
       return fail('Unknown order.');
   }

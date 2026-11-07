@@ -13,6 +13,7 @@ import { orderToast } from '../contextMenu.js';
 import { formatPrice } from '../format.js';
 
 export function richnessLabel(richness) {
+  if (richness >= 3) return 'Very rich';
   if (richness >= 1.15) return 'Rich';
   if (richness >= 0.95) return 'Average';
   return 'Sparse';

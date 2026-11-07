@@ -4,6 +4,8 @@ import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { assetUrl, tintedUrl } from '../render/assets.js';
 import { h, svgIcon } from './dom.js';
+import { isInvestigated } from '../systems/signals.js';
+import { ANCIENT_TINT } from '../content/scenery.js';
 
 export function swatch(good) {
   const look = GOODS[good]?.look ?? { shape: 'round', light: '#fff', mid: '#aaa', dark: '#555' };
@@ -90,8 +92,17 @@ export function fieldIcon(good, size = 40) {
   return art(`field-${good}`, size);
 }
 
-export function gateIcon() {
-  return art('gate', 30, 40);
+export function gateIcon({ ancient = false } = {}) {
+  return art('gate', 30, 40, ancient ? ANCIENT_TINT : null);
+}
+
+
+/** A signal's art: unknown until investigated, then a derelict, a rich field or an ancient gate. */
+export function signalIcon(state, signal, size = 40) {
+  if (!signal || !state || !isInvestigated(state, signal)) return art('signal', size);
+  if (signal.kind === 'derelict') return art('derelict', size);
+  if (signal.kind === 'rich') return art(`field-${signal.field.good}`, size);
+  return art('gate', Math.round(size * 0.75), size, ANCIENT_TINT);
 }
 
 export function shipGlyph(hullId, { small = false } = {}) {

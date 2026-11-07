@@ -73,6 +73,7 @@ import { bestBuyer, bestTradeQty, saleValue, tradePlan } from '../../public/game
 import { affordableQty, marketEntries, marketView, findEntry } from '../../public/games/driftworks/systems/market.js';
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { canCarry, cargoTotal } from '../../public/games/driftworks/systems/cargo.js';
+import { derelictLeft, foundSignals, isGateOpen, isInvestigated, workerAt } from '../../public/games/driftworks/systems/signals.js';
 
 const PROFILES = {
   newcomer: { firstSession: 60, checks: () => [] },
@@ -352,7 +353,18 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
 
   // ---------- Scouts ----------
 
-  /** Sends an idle scout to survey the nearest system it can. */
+  /** The nearest found signal of interest a ship can reach: { signal, time }. */
+  function nearestSignal(ship, wanted) {
+    let best = null;
+    for (const signal of foundSignals(state)) {
+      if (!wanted(signal)) continue;
+      const course = plotCourse(state, ship, ship.at, signal.id);
+      if (course.ok && (!best || course.time < best.time)) best = { signal, time: course.time };
+    }
+    return best;
+  }
+
+  /** Sends an idle scout to survey the nearest system it can, or to investigate a signal on the way. */
   function keepSurveying(scout) {
     if (scout.order || !scout.at) return;
     let best = null;
@@ -361,7 +373,23 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
       const course = plotCourse(state, scout, scout.at, system.gates[0]?.id, { surveyTarget: system.id });
       if (course.ok && (!best || course.time < best.time)) best = { id: system.id, time: course.time };
     }
+    // A player looks into a signal that is not much further than the next survey.
+    const signal = nearestSignal(scout, (s) => !isInvestigated(state, s) && !workerAt(state, s.id, 'investigate'));
+    if (signal && (!best || signal.time <= best.time + HOUR)) {
+      if (giveOrder(state, scout, { type: 'investigate', signalId: signal.signal.id }).ok) click();
+      return;
+    }
     if (best && giveOrder(state, scout, { type: 'survey', systemId: best.id }).ok) click();
+  }
+
+  /** Sends a hauler with a sealed hold to the nearest derelict nobody is salvaging. Returns whether it went. */
+  function salvage(ship) {
+    if (holdOf(ship) - cargoTotal(ship) < 1) return false;
+    const wreck = nearestSignal(ship, (s) => s.kind === 'derelict' && derelictLeft(state, s) > 0 && canCarry(ship, s.good) && !workerAt(state, s.id, 'salvage'));
+    if (!wreck || wreck.time > 3 * HOUR) return false;
+    if (!giveOrder(state, ship, { type: 'salvage', signalId: wreck.signal.id }).ok) return false;
+    click();
+    return true;
   }
 
   // ---------- Research ----------
@@ -559,6 +587,8 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
         click(given.given ?? 0);
       }
     } else {
+      // Free cargo: a derelict comes before any trade.
+      if (cargoTotal(ship) === 0 && salvage(ship)) return;
       // A player after "Sell steel or glass" sends a hauler on a tier 3 run, even if another route pays more.
       const forGoal = currentGoalId() === 'sell-processed' && canCarry(ship, 'steel') ? bestTrade(ship, now, false, 3) : null;
       const trade = forGoal ?? bestTrade(ship, now);
@@ -700,6 +730,11 @@ function print(report) {
     const ratio = median(report.tradeRates);
     const shielded = report.goals['first-shielding'];
     console.log(`  galaxy: ${state.surveyed.length} systems surveyed, ${stats.jumps} jumps, ${stats.farSales} sales in other systems, ${Math.round(stats.chartPay ?? 0)} cr for charts`);
+    const found = foundSignals(state);
+    const gates = found.filter((s) => s.kind === 'gate');
+    console.log(
+      `    signals: ${found.length} found, ${stats.signals ?? 0} investigated, ${stats.salvaged ?? 0} salvage trips, ${gates.filter((s) => isGateOpen(state, s)).length / 2} of ${allSystems().filter((s) => s.signal?.kind === 'gate').length / 2} ancient gates open`,
+    );
     const traded = stats.tradeProfit + report.contractMargin;
     console.log(`    jump fees ${Math.round(stats.jumpFees)} cr, ${((stats.jumpFees / Math.max(1, traded + stats.jumpFees)) * 100).toFixed(0)}% of trade profit before fees (contracts for bought goods count as trade)`);
     console.log(`    routes between systems pay ${ratio ? ratio.toFixed(2) : '-'}x the best home trade (median of ${report.tradeRates.length} picks)`);

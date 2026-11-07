@@ -13,6 +13,8 @@ import { isSurveyed, knownStations, surveyable } from './explore.js';
 import { knownAt } from './knowledge.js';
 import { canJump, plotCourse, travelTime } from './travel.js';
 import { isShielded } from './shielding.js';
+import { derelictLeft, isInvestigated } from './signals.js';
+import { findSignal } from '../content/galaxy.js';
 
 /** What selling `qty` of `good` at a station pays, at the prices known there. */
 export function saleValue(state, stationId, good, qty, at = state.now) {
@@ -219,6 +221,7 @@ export function orderOptions(state, ship, target, at = state.now) {
   };
 
   if (target.kind === 'gate' || target.kind === 'system') return travelOptions(state, view, target, timesOf, gated);
+  if (target.kind === 'signal') return signalOptions(state, view, target.id, timesOf, gated);
 
   if (target.kind === 'field') {
     if (role !== 'miner') return [];
@@ -283,6 +286,27 @@ export function orderOptions(state, ship, target, at = state.now) {
   }
 
   if (view.at !== stationId) options.push(gated({ kind: 'fly', stationId, ...timesOf({ type: 'fly', stationId }) }));
+  return options;
+}
+
+/**
+ * Orders at a signal: a scout investigates an unknown one, a hauler
+ * salvages a derelict, and any ship can fly there.
+ */
+function signalOptions(state, view, signalId, timesOf, gated) {
+  const signal = findSignal(signalId);
+  if (!signal) return [];
+  const role = HULLS[view.hull].role;
+  const options = [];
+  if (role === 'scout' && !isInvestigated(state, signal)) {
+    options.push(gated({ kind: 'investigate', signalId, ...timesOf({ type: 'investigate', signalId }) }));
+  }
+  if (role === 'hauler' && signal.kind === 'derelict' && isInvestigated(state, signal) && derelictLeft(state, signal) > 0) {
+    const room = Math.max(0, Math.floor(holdOf(view) - cargoTotal(view)));
+    const qty = Math.min(room, derelictLeft(state, signal));
+    options.push(gated({ kind: 'salvage', signalId, good: signal.good, qty, ...timesOf({ type: 'salvage', signalId }) }));
+  }
+  if (view.at !== signalId) options.push(gated({ kind: 'fly', stationId: signalId, ...timesOf({ type: 'fly', stationId: signalId }) }));
   return options;
 }
 

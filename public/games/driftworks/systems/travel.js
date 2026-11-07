@@ -7,12 +7,13 @@
 // course through the gates on their own (see plotCourse).
 
 import { DOCK_SECONDS } from '../content/ships.js';
-import { findPlace, findSystem, gateTo, laneBetween, lanesFrom, systemOf } from '../content/galaxy.js';
+import { findPlace, findSystem, lanesFrom, systemOf } from '../content/galaxy.js';
 import { MINUTE, SECOND } from '../core/time.js';
 import { isSurveyed } from './explore.js';
 import { speedOf } from './modules.js';
 import { isResearched } from './research.js';
 import { hazardNote, isShielded } from './shielding.js';
+import { linksFrom } from './signals.js';
 
 export function distance(aId, bId) {
   const a = findPlace(aId);
@@ -59,7 +60,8 @@ function mayEnter(state, systemId, { surveyTarget = null } = {}) {
 
 /**
  * The quickest chain of systems from `fromSys` to `toSys`, by jump time
- * plus the flight across each system between its gates.
+ * plus the flight across each system between its gates. Returns the links
+ * taken, [{ to, lane, exit, entry }], or null when there is no way.
  */
 function systemPath(state, ship, fromSys, toSys, options) {
   const best = new Map([[fromSys, 0]]);
@@ -72,24 +74,24 @@ function systemPath(state, ship, fromSys, toSys, options) {
     if (id === toSys) break;
     if (cost > best.get(id)) continue;
     const entry = entries.get(id);
-    for (const { to, lane } of lanesFrom(id)) {
+    for (const link of linksFrom(state, id, lanesFrom(id))) {
+      const { to, lane, exit } = link;
       if (!mayEnter(state, to, options)) continue;
       // A system we only pass through must be one we know.
       if (to !== toSys && !isSurveyed(state, to)) continue;
-      const exit = gateTo(id, to);
       const crossing = entry ? flightTime(ship, entry, exit.id) : 0;
       const next = cost + crossing + jumpTime(state, lane);
       if (next < (best.get(to) ?? Infinity)) {
         best.set(to, next);
-        back.set(to, id);
-        entries.set(to, gateTo(to, id).id);
+        back.set(to, { from: id, link });
+        entries.set(to, link.entry.id);
         open.push({ id: to, cost: next });
       }
     }
   }
   if (!best.has(toSys)) return null;
-  const path = [toSys];
-  while (path[0] !== fromSys) path.unshift(back.get(path[0]));
+  const path = [];
+  for (let at = toSys; at !== fromSys; at = back.get(at).from) path.unshift(back.get(at).link);
   return path;
 }
 
@@ -118,10 +120,7 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
   let t = 0;
   let at = fromId;
   let fees = 0;
-  for (let i = 0; i < path.length - 1; i += 1) {
-    const exit = gateTo(path[i], path[i + 1]);
-    const entry = gateTo(path[i + 1], path[i]);
-    const lane = laneBetween(path[i], path[i + 1]);
+  for (const { exit, entry, lane } of path) {
     if (at !== exit.id) {
       const fly = flightTime(ship, at, exit.id);
       legs.push({ from: at, to: exit.id, start: t, end: t + fly });
@@ -139,7 +138,7 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
     legs.push({ from: at, to: toId, start: t, end: t + fly });
     t += fly;
   }
-  return { ok: true, legs, time: t, jumps: path.length - 1, fees };
+  return { ok: true, legs, time: t, jumps: path.length, fees };
 }
 
 /** Travel time in ms from one place to another, or Infinity when there is no way. */
