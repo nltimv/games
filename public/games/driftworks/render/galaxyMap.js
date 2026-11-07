@@ -8,15 +8,16 @@
 // give way (see PHONE_LABEL_ROOM).
 // Returns the clickable things, like drawSystem.
 
-import { allSystems, findFaction, findSystem, lanesFrom } from '../content/galaxy.js';
+import { allSystems, currentGalaxy, findFaction, findSystem, lanesFrom } from '../content/galaxy.js';
 import { createRng, hashString } from '../core/rng.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { HULLS } from '../content/ships.js';
 import { systemMarket } from '../systems/advisor.js';
 import { contractMarks } from '../systems/contracts.js';
-import { chartedSystems, isSurveyed } from '../systems/explore.js';
+import { chartedSystems } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { shipRoute } from '../systems/orders.js';
-import { scaleOf, toScreen } from './camera.js';
+import { scaleOf, toScreen, toWorld } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
 import { drawContractMarks } from './marks.js';
@@ -24,6 +25,14 @@ import { createLabelSpace, drawCount, flock, flockName } from './flocks.js';
 import { drawRing, iconScale } from './systemMap.js';
 
 const WASH_RADIUS = 120;
+// The washes are soft, so they are drawn once into a small layer (this many
+// pixels per galaxy unit, at most WASH_MAX_PX a side) and then stretched.
+const WASH_RES = 0.35;
+const WASH_MAX_PX = 1024;
+// How much bigger than the screen, each side, the panned copy of the washes is (see drawBackdrop).
+const WASH_PAN_ROOM = 0.3;
+// Things further than this off screen (px) are not drawn at all.
+const CULL_MARGIN = 120;
 // On a phone zoomed out (below PHONE_LABEL_ZOOM, where the galaxy opens at
 // 4) so far that neighbouring systems (about 100 units apart) sit closer
 // than PHONE_LABEL_ROOM pixels, the map drops its text labels; only the
@@ -124,13 +133,26 @@ export function renderGalaxyBackground(width, height, dpr) {
 const ROUTE_COLOR = 'rgba(150, 255, 232, 0.95)';
 const MAX_ROUTES = 12;
 
+// Plotting queued orders takes a moment, so a ship's route is worked out
+// again only when its orders change (or a jump on it ends).
+const routes = new WeakMap();
+
+function routeOf(state, ship, now) {
+  const key = `${ship.order?.startedAt}|${ship.order?.endsAt}|${ship.order?.jumpsPaid}|${JSON.stringify(ship.queue)}|${state.surveyed?.length}`;
+  const cached = routes.get(ship);
+  if (cached?.key === key) return cached.hops.filter((hop) => hop.queued || hop.end > now);
+  const hops = shipRoute(state, ship, now);
+  routes.set(ship, { key, hops });
+  return hops;
+}
+
 function drawRoutes(ctx, cam, state, now, selection) {
   const ids = selection?.kind === 'ship' ? [selection.id] : selection?.kind === 'ships' ? selection.ids : [];
   for (const id of ids.slice(0, MAX_ROUTES)) {
     const index = state.ships.findIndex((ship) => ship.id === id);
     const ship = state.ships[index];
     if (!ship) continue;
-    const hops = shipRoute(state, ship, now);
+    const hops = routeOf(state, ship, now);
     if (!hops.length) continue;
     for (const hop of hops) {
       const a = findSystem(hop.from);
@@ -220,14 +242,151 @@ function drawViewfinder(ctx, p, half) {
   ctx.lineCap = 'butt';
 }
 
+let chart = null;
+
+/**
+ * What the map shows of the galaxy: the charted systems, the surveyed ones,
+ * and the lanes worth drawing (solid between surveyed systems, dashed into
+ * the unknown). Worked out again only when a survey (or a new galaxy)
+ * changes it.
+ */
+function chartOf(state) {
+  const key = `${currentGalaxy().seed}|${(state.surveyed ?? []).join(',')}`;
+  if (chart?.key === key) return chart;
+  const charted = chartedSystems(state);
+  const surveyed = new Set([HOME_SYSTEM.id, ...(state.surveyed ?? [])]);
+  const systems = allSystems().filter((system) => charted.has(system.id));
+  const lanes = [];
+  const seen = new Set();
+  for (const system of systems) {
+    for (const { to, lane } of lanesFrom(system.id)) {
+      const pair = [system.id, to].sort().join('|');
+      if (seen.has(pair) || !charted.has(to)) continue;
+      seen.add(pair);
+      if (!surveyed.has(system.id) && !surveyed.has(to)) continue;
+      lanes.push({ a: system, b: findSystem(to), lane, known: surveyed.has(system.id) && surveyed.has(to) });
+    }
+  }
+  chart = { key, systems, surveyed, lanes, washes: null, extent: null };
+  return chart;
+}
+
+/**
+ * Every charted system's faction wash, in one layer in galaxy units, made
+ * again only when the charted or surveyed systems change.
+ */
+function washLayer(chart) {
+  if (chart.washes) return chart.washes;
+  const { systems, surveyed } = chart;
+  const xs = systems.map((system) => system.gx);
+  const ys = systems.map((system) => system.gy);
+  const x0 = Math.min(...xs) - WASH_RADIUS;
+  const y0 = Math.min(...ys) - WASH_RADIUS;
+  const w = Math.max(...xs) + WASH_RADIUS - x0;
+  const h = Math.max(...ys) + WASH_RADIUS - y0;
+  const scale = Math.min(WASH_RES, WASH_MAX_PX / Math.max(w, h));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(w * scale));
+  canvas.height = Math.max(1, Math.ceil(h * scale));
+  const layer = canvas.getContext('2d');
+  const r = WASH_RADIUS * scale;
+  for (const system of systems) {
+    const color = withAlpha(findFaction(system.faction).color, surveyed.has(system.id) ? 0.2 : 0.09);
+    layer.drawImage(blob(color, r * 2), (system.gx - x0) * scale - r, (system.gy - y0) * scale - r, r * 2, r * 2);
+  }
+  chart.washes = { canvas, x0, y0, scale };
+  return chart.washes;
+}
+
+/** Draws the wash layer stretched to the camera, clipped to a screen rectangle. */
+function stretchWashes(ctx, cam, layer, x0, y0, x1, y1) {
+  const s = scaleOf(cam);
+  const p = toScreen(cam, layer.x0, layer.y0);
+  const dw = (layer.canvas.width / layer.scale) * s;
+  const dh = (layer.canvas.height / layer.scale) * s;
+  const left = Math.max(x0, p.x);
+  const top = Math.max(y0, p.y);
+  const right = Math.min(x1, p.x + dw);
+  const bottom = Math.min(y1, p.y + dh);
+  if (right <= left || bottom <= top) return;
+  const kx = layer.canvas.width / dw;
+  const ky = layer.canvas.height / dh;
+  ctx.drawImage(layer.canvas, (left - p.x) * kx, (top - p.y) * ky, (right - left) * kx, (bottom - top) * ky, left, top, right - left, bottom - top);
+}
+
+/** A system node's radius on screen. */
+const nodeRadius = (system, u) => (system.id === 'aurel' ? 8 : 6) * u;
+
+/** Draws the glow behind each surveyed system that reaches a screen rectangle. */
+function drawGlows(ctx, cam, chart, u, dpr, x0, y0, x1, y1) {
+  for (const system of chart.systems) {
+    if (!chart.surveyed.has(system.id)) continue;
+    const p = toScreen(cam, system.gx, system.gy);
+    const glow = nodeRadius(system, u) * 4;
+    if (p.x + glow < x0 || p.x - glow > x1 || p.y + glow < y0 || p.y - glow > y1) continue;
+    ctx.drawImage(blob(withAlpha(findFaction(system.faction).color, 0.75), glow * 2 * dpr), p.x - glow, p.y - glow, glow * 2, glow * 2);
+  }
+}
+
+let backdrop = null;
+let lastScale = 0;
+
+/**
+ * Draws the washes and the glows behind surveyed systems. Stretching the
+ * washes over a whole phone screen every frame is slow where canvases are
+ * drawn on the CPU, so while the zoom holds still both are drawn once into
+ * a copy the size of the screen (and WASH_PAN_ROOM more each side), which
+ * a pan then draws pixel for pixel. While the zoom changes they are drawn
+ * directly.
+ */
+function drawBackdrop(ctx, cam, chart, u, width, height, dpr) {
+  const s = scaleOf(cam);
+  const steady = s === lastScale;
+  lastScale = s;
+  const layer = washLayer(chart);
+  if (!steady) {
+    stretchWashes(ctx, cam, layer, 0, 0, width, height);
+    drawGlows(ctx, cam, chart, u, dpr, 0, 0, width, height);
+    return;
+  }
+  let copy = backdrop;
+  let q = copy && toScreen(cam, copy.x, copy.y);
+  const fits = copy?.chart === chart && copy.s === s && copy.u === u && copy.dpr === dpr && q.x <= 0 && q.y <= 0 && q.x + copy.width >= width && q.y + copy.height >= height;
+  if (!fits) {
+    const rw = Math.ceil(width * WASH_PAN_ROOM);
+    const rh = Math.ceil(height * WASH_PAN_ROOM);
+    const canvas = backdrop?.canvas ?? document.createElement('canvas');
+    const w = Math.ceil((width + rw * 2) * dpr);
+    const h = Math.ceil((height + rh * 2) * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const c = canvas.getContext('2d');
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, w, h);
+    c.setTransform(dpr, 0, 0, dpr, rw * dpr, rh * dpr);
+    stretchWashes(c, cam, layer, -rw, -rh, width + rw, height + rh);
+    drawGlows(c, cam, chart, u, dpr, -rw, -rh, width + rw, height + rh);
+    const corner = toWorld(cam, -rw, -rh);
+    copy = backdrop = { chart, s, u, dpr, canvas, x: corner.x, y: corner.y, width: width + rw * 2, height: height + rh * 2 };
+    q = { x: -rw, y: -rh };
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(copy.canvas, Math.round(q.x * dpr), Math.round(q.y * dpr));
+  ctx.restore();
+}
+
 /** How far out the charted part of the galaxy reaches from Aurel, for framing. */
 export function galaxyExtent(state) {
-  let far = 180;
-  for (const id of chartedSystems(state)) {
-    const system = findSystem(id);
-    if (system) far = Math.max(far, Math.hypot(system.gx, system.gy));
+  const chart = chartOf(state);
+  if (chart.extent == null) {
+    let far = 180;
+    for (const system of chart.systems) far = Math.max(far, Math.hypot(system.gx, system.gy));
+    chart.extent = far + 90;
   }
-  return far + 90;
+  return chart.extent;
 }
 
 /** Where a ship is on the galaxy map: in a system, or along a lane. */
@@ -264,46 +423,49 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const s = scaleOf(cam);
   const u = iconScale(cam);
   const targets = [];
-  const charted = chartedSystems(state);
-  const systems = allSystems().filter((system) => charted.has(system.id));
+  const chart = chartOf(state);
+  const { systems, surveyed } = chart;
   const open = canJump(state);
+  // Only what is on screen (or near it) is drawn.
+  const width = ctx.canvas.width / dpr;
+  const height = ctx.canvas.height / dpr;
+  const m = CULL_MARGIN;
+  const onScreen = (p) => p.x > -m && p.x < width + m && p.y > -m && p.y < height + m;
+  const crosses = (a, b) => Math.max(a.x, b.x) > -m && Math.min(a.x, b.x) < width + m && Math.max(a.y, b.y) > -m && Math.min(a.y, b.y) < height + m;
   const crowded = Boolean(view.compact) && cam.zoom < PHONE_LABEL_ZOOM && s * SYSTEM_SPACING < PHONE_LABEL_ROOM;
   const named = new Set([view.current, view.selection?.kind === 'system' ? view.selection.id : null, view.guide?.kind === 'system' ? view.guide.id : null]);
 
-  // Faction washes behind everything, so regions read as soft colour.
-  for (const system of systems) {
-    const faction = findFaction(system.faction);
-    const p = toScreen(cam, system.gx, system.gy);
-    const r = WASH_RADIUS * s;
-    const alpha = isSurveyed(state, system.id) ? 0.2 : 0.09;
-    ctx.drawImage(blob(withAlpha(faction.color, alpha), r * 2 * dpr), p.x - r, p.y - r, r * 2, r * 2);
-  }
+  // Faction washes behind everything, so regions read as soft colour, and
+  // a glow behind each surveyed system.
+  drawBackdrop(ctx, cam, chart, u, width, height, dpr);
 
-  // Lanes: solid between surveyed systems, dashed into the unknown.
-  const drawn = new Set();
-  ctx.lineWidth = 1.3;
-  for (const system of systems) {
-    for (const { to, lane } of lanesFrom(system.id)) {
-      const key = [system.id, to].sort().join('|');
-      if (drawn.has(key) || !charted.has(to)) continue;
-      drawn.add(key);
-      const known = isSurveyed(state, system.id) && isSurveyed(state, to);
-      if (!known && !isSurveyed(state, system.id) && !isSurveyed(state, to)) continue;
-      const other = findSystem(to);
-      const a = toScreen(cam, system.gx, system.gy);
-      const b = toScreen(cam, other.gx, other.gy);
-      ctx.strokeStyle = known ? 'rgba(170, 215, 255, 0.42)' : 'rgba(170, 215, 255, 0.22)';
-      ctx.setLineDash(known ? [] : [4, 5]);
-      ctx.beginPath();
+  // Lanes: solid between surveyed systems, dashed into the unknown, each
+  // kind as one path.
+  const times = open && s > 0.5 && !crowded;
+  for (const known of [true, false]) {
+    ctx.beginPath();
+    for (const lane of chart.lanes) {
+      if (lane.known !== known) continue;
+      const a = toScreen(cam, lane.a.gx, lane.a.gy);
+      const b = toScreen(cam, lane.b.gx, lane.b.gy);
+      if (!crosses(a, b)) continue;
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-      if (open && s > 0.5 && !crowded) {
-        drawLabel(ctx, `${Math.round(jumpTime(state, lane) / 60000)} min`, (a.x + b.x) / 2, (a.y + b.y) / 2, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.55)' });
-      }
     }
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = known ? 'rgba(170, 215, 255, 0.42)' : 'rgba(170, 215, 255, 0.22)';
+    ctx.setLineDash(known ? [] : [4, 5]);
+    ctx.stroke();
   }
   ctx.setLineDash([]);
+  if (times) {
+    for (const lane of chart.lanes) {
+      const a = toScreen(cam, lane.a.gx, lane.a.gy);
+      const b = toScreen(cam, lane.b.gx, lane.b.gy);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      if (onScreen(mid)) drawLabel(ctx, `${Math.round(jumpTime(state, lane.lane) / 60000)} min`, mid.x, mid.y, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.55)' });
+    }
+  }
 
   drawRoutes(ctx, cam, state, now, view.selection);
 
@@ -329,7 +491,7 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   // three of each, and for every system once zoomed in.
   const markets = new Map();
   if (view.market) {
-    for (const system of systems) if (isSurveyed(state, system.id)) markets.set(system.id, systemMarket(state, system.id, view.market, now));
+    for (const system of systems) if (surveyed.has(system.id)) markets.set(system.id, systemMarket(state, system.id, view.market, now));
   }
   const asks = [...markets.values()].map((m) => m.sells).filter((v) => v != null).sort((a, b) => a - b);
   const bids = [...markets.values()].map((m) => m.buys).filter((v) => v != null).sort((a, b) => b - a);
@@ -339,17 +501,16 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   // Systems, with a "!" above the left shoulder for contracts at their stations.
   const marks = contractMarks(state, now).systems;
   for (const system of systems) {
-    const faction = findFaction(system.faction);
-    const surveyed = isSurveyed(state, system.id);
     const p = toScreen(cam, system.gx, system.gy);
-    const r = (system.id === 'aurel' ? 8 : 6) * u;
+    if (!onScreen(p)) continue;
+    const faction = findFaction(system.faction);
+    const isKnown = surveyed.has(system.id);
+    const r = nodeRadius(system, u);
     // The open system's brackets push its labels down a little.
     const framed = system.id === view.current ? Math.max(15, r * 2.5) : 0;
     if (framed) drawViewfinder(ctx, p, framed);
     const below = framed ? framed + 11 : r + 11;
-    if (surveyed) {
-      const glow = r * 4;
-      ctx.drawImage(blob(withAlpha(faction.color, 0.75), glow * 2 * dpr), p.x - glow, p.y - glow, glow * 2, glow * 2);
+    if (isKnown) {
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.arc(p.x, p.y, r * 0.75, 0, Math.PI * 2);
@@ -372,8 +533,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
       drawLabel(ctx, '?', p.x, p.y + 0.5, dpr, { size: 11, weight: 800, color: 'rgba(220, 236, 255, 0.8)' });
     }
     const labelled = !crowded || named.has(system.id);
-    if (labelled) drawLabel(ctx, system.name, p.x, p.y + below, dpr, { size: 12, weight: 800, color: surveyed ? '#ffffff' : 'rgba(220, 236, 255, 0.7)' });
-    const sub = system.hazard ? system.hazard : !surveyed ? 'unsurveyed' : system.id === 'aurel' ? 'home' : null;
+    if (labelled) drawLabel(ctx, system.name, p.x, p.y + below, dpr, { size: 12, weight: 800, color: isKnown ? '#ffffff' : 'rgba(220, 236, 255, 0.7)' });
+    const sub = system.hazard ? system.hazard : !isKnown ? 'unsurveyed' : system.id === 'aurel' ? 'home' : null;
     if (sub && labelled) drawLabel(ctx, sub, p.x, p.y + below + 14, dpr, { size: 10, weight: 600, color: system.hazard ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
     const market = markets.get(system.id);
     if (market) {
@@ -427,7 +588,7 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const placeLabel = createLabelSpace(ctx, dpr);
   const label = (...args) => !crowded && placeLabel(...args);
   const w = 26 * u;
-  const onLanes = jumping.map((entry) => ({ ...entry, p: toScreen(cam, entry.pos.x, entry.pos.y) }));
+  const onLanes = jumping.map((entry) => ({ ...entry, p: toScreen(cam, entry.pos.x, entry.pos.y) })).filter((entry) => onScreen(entry.p));
   for (const group of flock(onLanes, w * 0.8)) {
     const [lead] = group.members;
     const p = group.members.length === 1 ? lead.p : { x: group.x, y: group.y };

@@ -28,6 +28,9 @@ const LONG_PRESS_MS = 480;
 // docked ships circle.
 const FLIGHT_SPEED = ((Math.max(...MODULES.engine.levels) * Math.max(...Object.values(HULLS).map((hull) => hull.speedScale))) / 60) * 1.5;
 const DRIFT_SPEED = 0.6;
+// How fast a ship in a jump crosses the galaxy map at most (units/s): the
+// longest lanes with the fastest jump drive, at the middle of the jump.
+const GALAXY_SPEED = 1.5;
 const IDLE_MIN_MS = 50;
 const IDLE_MAX_MS = 1000;
 // How far inside the free area a pick must sit to count as in view (px).
@@ -166,8 +169,16 @@ export function createMapView(canvas, options) {
     const state = options.getState();
     if (!state.ships.length) return;
     const now = Date.now();
-    const flying = state.ships.some((ship, i) => ship.order && shipPosition(ship, now, i).moving);
-    const pixelsPerSecond = (flying ? FLIGHT_SPEED : DRIFT_SPEED) * scaleOf(cam);
+    // The galaxy map only changes as ships cross lanes, slowly; a system map
+    // as ships fly and parked ships drift.
+    const galaxy = sceneKey === 'galaxy';
+    const moving = state.ships.some((ship, i) => {
+      if (!ship.order) return false;
+      const pos = shipPosition(ship, now, i);
+      return galaxy ? Boolean(pos.jump) : pos.moving;
+    });
+    const speed = galaxy ? (moving ? GALAXY_SPEED : 0) : moving ? FLIGHT_SPEED : DRIFT_SPEED;
+    const pixelsPerSecond = speed * scaleOf(cam);
     const delay = Math.min(IDLE_MAX_MS, Math.max(IDLE_MIN_MS, 1000 / Math.max(0.001, pixelsPerSecond)));
     idleTimer = setTimeout(() => {
       idleTimer = 0;
