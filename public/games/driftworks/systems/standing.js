@@ -13,9 +13,10 @@ export const CREDITS_PER_POINT = 1000;
 
 export const STANDING_LEVELS = [
   { id: 'neutral', name: 'Neutral', points: 0, bonus: 0 },
-  { id: 'friendly', name: 'Friendly', points: 50, bonus: 0.03 },
-  { id: 'trusted', name: 'Trusted', points: 250, bonus: 0.06 },
-  { id: 'allied', name: 'Allied', points: 1000, bonus: 0.1 },
+  // Trade margins are thin, so a few percent on both sides goes a long way.
+  { id: 'friendly', name: 'Friendly', points: 50, bonus: 0.01 },
+  { id: 'trusted', name: 'Trusted', points: 250, bonus: 0.02 },
+  { id: 'allied', name: 'Allied', points: 1000, bonus: 0.03 },
 ];
 
 export function standingPoints(state, factionId) {

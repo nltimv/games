@@ -57,25 +57,25 @@ export const GOODS = {
   'titanium-ore': {
     name: 'Titanium ore',
     tier: 1,
-    value: 14,
+    value: 12,
     look: { shape: 'round', light: '#e4dcff', mid: '#9b8fd0', dark: '#4a3f7a' },
   },
   'crystal-ore': {
     name: 'Crystal ore',
     tier: 1,
-    value: 18,
+    value: 15,
     look: { shape: 'round', light: '#ffe1f4', mid: '#e48fcf', dark: '#86307a' },
   },
   titanium: {
     name: 'Titanium',
     tier: 2,
-    value: 28,
+    value: 22,
     look: { shape: 'square', light: '#efeaff', mid: '#c2b8ec', dark: '#8578c2' },
   },
   crystal: {
     name: 'Crystal',
     tier: 2,
-    value: 36,
+    value: 26,
     look: { shape: 'square', light: '#fff0fa', mid: '#f4b6e2', dark: '#d46fbd' },
   },
   steel: {

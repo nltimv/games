@@ -37,7 +37,7 @@ test('the warp drive opens standing, with Halcyon seeded from act 1 earnings', (
   assert.ok(state.log.some((e) => e.text.startsWith('Friendly with the')));
   const faction = findFaction(other.faction);
   const good = 'iron';
-  const expected = (faction.pays.includes(good) ? SPECIALITY.pays : 1) * 1.03;
+  const expected = (faction.pays.includes(good) ? SPECIALITY.pays : 1) * (1 + standingLevel(state, other.faction).bonus);
   assert.ok(Math.abs(priceFactor(state, station.id, good, 'buys') - expected) < 1e-9);
 });
 

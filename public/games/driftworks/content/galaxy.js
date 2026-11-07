@@ -57,7 +57,7 @@ const HALCYON = { id: HOME_FACTION, name: 'Halcyon Compact', short: 'Halcyon', c
 const OTHER_FACTIONS = 4;
 
 /** How much more a faction pays for goods it wants, and less for goods it has plenty of. */
-export const SPECIALITY = { pays: 1.15, cheap: 0.88 };
+export const SPECIALITY = { pays: 1.1, cheap: 0.92 };
 
 // Goods a faction may pay more for (ones stations buy) or sell cheaper (ones
 // stations sell that someone else buys).

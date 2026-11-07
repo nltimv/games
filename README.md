@@ -12,7 +12,7 @@ entry to [`src/games.json`](src/games.json).
 | **Snake** | Arcade | Arrow keys / WASD / swipe |
 | **Minesweeper** | Puzzle | Click to reveal, right-click or long-press to flag |
 | **Pipelines** | Puzzle | Connect matching dots with pipes |
-| **Driftworks** (Early Access) | Idle trading | A space trading company for short breaks: mine, trade and grow a fleet between work sessions. Built from ES modules with tests; see [`public/games/driftworks/`](public/games/driftworks/) |
+| **Driftworks** (Early Access) | Idle trading | A space trading company for short breaks: mine, trade across a galaxy of systems and grow a fleet between work sessions. Built from ES modules with tests; see [`public/games/driftworks/`](public/games/driftworks/) |
 
 ## Project layout
 

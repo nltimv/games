@@ -98,10 +98,9 @@ export function maxPurchase(state, ship, good, at = state.now) {
  * time. Jump fees come off the profit; `reachable` is false when no known
  * route leads there.
  */
-export function tradePlan(state, ship, good, qty, destId, at = state.now, fromId = ship.at) {
+export function tradePlan(state, ship, good, qty, destId, at = state.now, fromId = ship.at, course = plotCourse(state, ship, fromId, destId)) {
   const buy = quote(state, fromId, good, qty, knownAt(state, fromId, at));
   const sell = saleValue(state, destId, good, buy.qty, at);
-  const course = plotCourse(state, ship, fromId, destId);
   const fees = course.ok ? course.fees : 0;
   return {
     qty: buy.qty,
@@ -122,10 +121,12 @@ export function tradePlan(state, ship, good, qty, destId, at = state.now, fromId
  */
 export function bestTradeQty(state, ship, good, destId, maxQty, at = state.now, fromId = ship.at) {
   let best = { qty: 0, profit: 0 };
+  const course = plotCourse(state, ship, fromId, destId);
+  if (!course.ok) return best;
   const step = Math.max(1, Math.round(maxQty / 40));
   for (let qty = step; qty <= maxQty + step - 1; qty += step) {
     const q = Math.min(qty, maxQty);
-    const plan = tradePlan(state, ship, good, q, destId, at, fromId);
+    const plan = tradePlan(state, ship, good, q, destId, at, fromId, course);
     if (plan.profit > best.profit) best = { qty: plan.qty, profit: plan.profit };
   }
   return best;

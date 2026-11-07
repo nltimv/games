@@ -12,6 +12,11 @@
 //             with a look at the start of each break and again 8 min later
 //   casual    a 15 min first session, then three looks a day
 //
+// After the warp drive the bot plays act 2 too: it keeps a scout surveying
+// the nearest systems, trades and mines wherever routes pay best (jump fees
+// included), and buys Heron freighters once a shipyard's faction trusts it.
+// Run it for two weeks or so to see act 2: npm run balance -- worker 16
+//
 // The bot counts one click per thing it does: a menu pick, a button.
 // "Run all again" is one click for every idle ship that repeats its route.
 
@@ -22,8 +27,11 @@ import { GOALS } from '../../public/games/driftworks/content/goals.js';
 import { RESEARCH } from '../../public/games/driftworks/content/research.js';
 import { HULLS } from '../../public/games/driftworks/content/ships.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
+import { allSystems, systemOf } from '../../public/games/driftworks/content/galaxy.js';
 import { checkGoals } from '../../public/games/driftworks/systems/goals.js';
-import { buyShip, missingLicence, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
+import { buyShip, hullLock, missingLicence, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
+import { isSurveyed, knownStations, surveyable, surveyorOf } from '../../public/games/driftworks/systems/explore.js';
+import { canJump, plotCourse } from '../../public/games/driftworks/systems/travel.js';
 import { acceptContract, boardOpen, CONTRACT_RULES } from '../../public/games/driftworks/systems/contracts.js';
 import {
   buildOrder,
@@ -38,9 +46,9 @@ import {
   roomForRounds,
   runAgain,
 } from '../../public/games/driftworks/systems/orders.js';
-import { researchStatus, startResearch } from '../../public/games/driftworks/systems/research.js';
+import { freeLab, researchStatus, startResearch } from '../../public/games/driftworks/systems/research.js';
 import { bestBuyer, bestTradeQty, saleValue, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
-import { affordableQty, marketEntries, findEntry } from '../../public/games/driftworks/systems/market.js';
+import { affordableQty, marketEntries, marketView, findEntry } from '../../public/games/driftworks/systems/market.js';
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { cargoTotal } from '../../public/games/driftworks/systems/cargo.js';
 
@@ -63,7 +71,7 @@ function play(profileName, days) {
   const profile = PROFILES[profileName];
   const T0 = Date.UTC(2026, 10, 2, 9, 0, 0);
   const state = createGame({ now: T0, seed: 20261106 });
-  const report = { profileName, days, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [] };
+  const report = { profileName, days, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [] };
   let clicks = 0;
 
   const click = (n = 1) => {
@@ -73,21 +81,28 @@ function play(profileName, days) {
 
   // ---------- Choosing routes ----------
 
-  /** The best mine-and-sell round for a miner, by credits per minute. */
+  // Fields and stations in surveyed systems: Aurel's in act 1.
+  const knownFields = () => allSystems().filter((system) => isSurveyed(state, system.id)).flatMap((system) => system.fields);
+
+  /** The best mine-and-sell round for a miner, by credits per minute, jump fees taken off. */
   function bestMiningRound(ship, now) {
     const view = projectShip(state, ship);
     let best = null;
-    for (const field of HOME_SYSTEM.fields) {
+    for (const field of knownFields()) {
       const mine = buildOrder(state, view, { type: 'mine', fieldId: field.id, amount: null }, view.time);
       if (!mine.ok) continue;
       const amount = mine.order.steps[0].amount;
-      const buyer = bestBuyer(state, field.good, amount, now);
-      if (!buyer) continue;
-      const after = { ...view, at: field.id, cargo: { ...view.cargo, [field.good]: amount } };
-      const sell = buildOrder(state, after, { type: 'sell', stationId: buyer.stationId }, mine.order.endsAt);
-      const minutes = (sell.order.endsAt - view.time) / MINUTE;
-      const rate = buyer.sale.total / minutes;
-      if (!best || rate > best.rate) best = { fieldId: field.id, stationId: buyer.stationId, rate };
+      // The best buyer in the field's system, and the best anywhere.
+      const buyers = [bestBuyer(state, field.good, amount, now, systemOf(field.id)), bestBuyer(state, field.good, amount, now)].filter(Boolean);
+      for (const buyer of buyers) {
+        const after = { ...view, at: field.id, cargo: { ...view.cargo, [field.good]: amount } };
+        const sell = buildOrder(state, after, { type: 'sell', stationId: buyer.stationId }, mine.order.endsAt);
+        if (!sell.ok) continue;
+        const minutes = (sell.order.endsAt - view.time) / MINUTE;
+        const fees = (mine.order.fees ?? 0) + (sell.order.fees ?? 0);
+        const rate = (buyer.sale.total - fees) / minutes;
+        if (!best || rate > best.rate) best = { fieldId: field.id, stationId: buyer.stationId, rate };
+      }
     }
     return best;
   }
@@ -100,24 +115,41 @@ function play(profileName, days) {
     const after = { ...view, at: round.fieldId, cargo: { ...view.cargo, [good]: amount } };
     const sell = buildOrder(state, after, { type: 'sell', stationId: round.stationId }, mine.order.endsAt);
     if (!sell.ok) return 0;
-    return saleValue(state, round.stationId, good, amount, now).total / ((sell.order.endsAt - view.time) / MINUTE);
+    const fees = (mine.order.fees ?? 0) + (sell.order.fees ?? 0);
+    return (saleValue(state, round.stationId, good, amount, now).total - fees) / ((sell.order.endsAt - view.time) / MINUTE);
   }
 
-  /** The best buy-here, sell-there trade for a hauler, or null. */
-  function bestTrade(ship, now) {
+  // A route is judged as a few rounds of buy, sell and fly back, after the
+  // flight to its start: what Repeat to fill would make of it.
+  const ROUNDS = 3;
+
+  /**
+   * The best buy-there, sell-there trade for a hauler, or null, by profit
+   * per minute over a few rounds, jump fees both ways and the flight to its
+   * start included. `homeOnly` keeps it in Aurel (to compare routes between
+   * systems with home trade).
+   */
+  function bestTrade(ship, now, homeOnly = false) {
     let best = null;
-    for (const from of HOME_SYSTEM.stations) {
+    const stations = homeOnly ? HOME_SYSTEM.stations : knownStations(state);
+    const room = holdOf(ship) - cargoTotal(ship);
+    for (const from of stations) {
+      const start = ship.at === from.id ? { ok: true, time: 0, fees: 0 } : plotCourse(state, ship, ship.at, from.id);
+      if (!start.ok) continue;
       for (const entry of marketEntries(from.id)) {
         if (entry.side !== 'sells') continue;
-        const max = affordableQty(state, from.id, entry.good, state.credits * 0.8, holdOf(ship) - cargoTotal(ship), now);
+        const max = affordableQty(state, from.id, entry.good, state.credits * 0.8, room, now);
         if (max <= 0) continue;
-        for (const to of HOME_SYSTEM.stations) {
-          if (findEntry(to.id, entry.good)?.side !== 'buys') continue;
+        const cost = marketView(state, from.id, entry.good, now).price;
+        for (const to of stations) {
+          if (to.id === from.id || findEntry(to.id, entry.good)?.side !== 'buys') continue;
+          if (marketView(state, to.id, entry.good, now).price <= cost) continue;
           const qty = bestTradeQty(state, ship, entry.good, to.id, max, now, from.id);
           if (qty.profit < MIN_TRADE) continue;
           const plan = tradePlan(state, ship, entry.good, qty.qty, to.id, now, from.id);
-          const minutes = (plan.travel + (ship.at === from.id ? 0 : 5 * MINUTE)) / MINUTE + 1;
-          const rate = plan.profit / minutes;
+          const back = plotCourse(state, ship, to.id, from.id);
+          const minutes = (start.time + ROUNDS * (plan.travel + back.time)) / MINUTE + ROUNDS;
+          const rate = (ROUNDS * (plan.profit - back.fees) - start.fees) / minutes;
           if (!best || rate > best.rate) best = { from: from.id, to: to.id, good: entry.good, qty: plan.qty, rate };
         }
       }
@@ -125,15 +157,36 @@ function play(profileName, days) {
     return best;
   }
 
+  // ---------- Scouts ----------
+
+  /** Sends an idle scout to survey the nearest system it can (act 2 plays out to depth 4). */
+  function keepSurveying(scout) {
+    if (scout.order || !scout.at) return;
+    let best = null;
+    for (const system of allSystems()) {
+      if (system.depth > 4 || !surveyable(state, system.id) || surveyorOf(state, system.id)) continue;
+      const course = plotCourse(state, scout, scout.at, system.gates[0]?.id, { surveyTarget: system.id });
+      if (course.ok && (!best || course.time < best.time)) best = { id: system.id, time: course.time };
+    }
+    if (best && giveOrder(state, scout, { type: 'survey', systemId: best.id }).ok) click();
+  }
+
   // ---------- Research ----------
 
-  const goingForWarp = () => currentGoalId() === 'warp-drive' && researchStatus(state, RESEARCH.find((r) => r.id === 'warp-drive')) === 'open';
+  // The research that ends each act: the bot saves for it once it is the goal.
+  const ACT_ENDS = ['warp-drive', 'station-blueprints'];
   const currentGoalId = () => GOALS.find((g) => !state.goals.includes(g.id))?.id;
+  const actEnd = () => {
+    const id = currentGoalId();
+    return ACT_ENDS.includes(id) && researchStatus(state, RESEARCH.find((r) => r.id === id)) === 'open' ? RESEARCH.find((r) => r.id === id) : null;
+  };
+  const goingForWarp = () => Boolean(actEnd());
 
-  /** Research in the list's order, but the warp drive first once it is the goal. */
+  /** Research in the list's order, but the act's last one first once it is the goal, and scouts right after the warp drive. */
   function nextResearch() {
-    if (goingForWarp()) return RESEARCH.find((r) => r.id === 'warp-drive');
-    return RESEARCH.find((r) => researchStatus(state, r) === 'open');
+    const scouts = RESEARCH.find((r) => r.id === 'scout-licence');
+    if (researchStatus(state, scouts) === 'open') return scouts;
+    return actEnd() ?? RESEARCH.find((r) => researchStatus(state, r) === 'open');
   }
 
   // ---------- One look at the game ----------
@@ -144,12 +197,11 @@ function play(profileName, days) {
 
     // Research: the lab never waits if the next project is affordable.
     // Once the warp drive is the current goal, the bot saves for it.
-    if (!state.research.active) {
+    while (freeLab(state)) {
       const next = nextResearch();
-      if (next && state.credits >= next.cost && startResearch(state, next.id, now).ok) {
-        click();
-        report.research.push({ id: next.id, at: now });
-      }
+      if (!next || state.credits < next.cost || !startResearch(state, next.id, now).ok) break;
+      click();
+      report.research.push({ id: next.id, at: now });
     }
 
     // Contracts: keep both slots busy.
@@ -164,11 +216,13 @@ function play(profileName, days) {
     // Ships: buy while it leaves money for the next research.
     for (let i = 0; i < 3; i += 1) {
       const mules = state.ships.filter((s) => s.hull === 'mule').length;
-      const kites = state.ships.length - mules;
-      const wantKites = (mules >= 2 ? 1 : 0) + (mules >= 5 ? 1 : 0) + (mules >= 9 ? 1 : 0);
-      const hull = !missingLicence(state, 'kite') && kites < wantKites ? 'kite' : 'mule';
+      const haulers = state.ships.filter((s) => role(s) === 'hauler').length;
+      const wantHaulers = (mules >= 2 ? 1 : 0) + (mules >= 5 ? 1 : 0) + (mules >= 9 ? 1 : 0) + (canJump(state) ? Math.floor(mules / 2) : 0);
+      const scouts = state.ships.filter((s) => role(s) === 'scout').length;
+      const hauler = !hullLock(state, 'heron', 'halcyon-shipyard') ? 'heron' : 'kite';
+      const hull = !missingLicence(state, 'lark') && scouts < 1 ? 'lark' : !missingLicence(state, 'kite') && haulers < wantHaulers ? hauler : 'mule';
       const next = nextResearch();
-      const reserve = state.research.active || !next || state.ships.length < 3 ? 0 : goingForWarp() ? next.cost : Math.min(next.cost, shipPrice(state));
+      const reserve = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? next.cost : Math.min(next.cost, shipPrice(state));
       const price = shipPrice(state);
       if (state.credits < price + reserve) break;
       const bought = buyShip(state, hull, 'halcyon-shipyard');
@@ -188,6 +242,10 @@ function play(profileName, days) {
     // Idle ships: run the last route again (one click for all), or plan anew.
     const rerun = [];
     for (const ship of state.ships) {
+      if (role(ship) === 'scout') {
+        keepSurveying(ship);
+        continue;
+      }
       if (ship.order) continue;
       if (ship.plan.length && keepPlan(ship, now)) {
         rerun.push(ship);
@@ -202,7 +260,7 @@ function play(profileName, days) {
     // Between work blocks, fill every queue that has room for more rounds.
     if (!active) {
       for (const ship of state.ships) {
-        if (ship.plan.length && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
+        if (role(ship) !== 'scout' && ship.plan.length && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
       }
     }
 
@@ -217,7 +275,8 @@ function play(profileName, days) {
       const sell = ship.plan.find((s) => s.type === 'sell');
       if (!buy || !sell) return false;
       const qty = Math.min(buy.qty, affordableQty(state, buy.stationId, buy.good, state.credits * 0.8, holdOf(ship), now));
-      return tradePlan(state, ship, buy.good, qty, sell.stationId, now, buy.stationId).profit > MIN_TRADE * 3;
+      const back = plotCourse(state, ship, sell.stationId, buy.stationId);
+      return back.ok && tradePlan(state, ship, buy.good, qty, sell.stationId, now, buy.stationId).profit - back.fees > MIN_TRADE * 3;
     }
     if (cargoTotal(ship) > 0) return false;
     const mine = ship.plan.find((s) => s.type === 'mine');
@@ -244,6 +303,12 @@ function play(profileName, days) {
     } else {
       const trade = bestTrade(ship, now);
       if (!trade) return;
+      // How a route between systems compares with the best one at home.
+      const away = systemOf(trade.from) !== HOME_SYSTEM.id || systemOf(trade.to) !== HOME_SYSTEM.id;
+      if (canJump(state) && away) {
+        const home = bestTrade(ship, now, true);
+        if (home) report.tradeRates.push(trade.rate / home.rate);
+      }
       const given = giveOrders(state, ship, [
         { type: 'buy', stationId: trade.from, good: trade.good, qty: trade.qty },
         { type: 'sell', stationId: trade.to, good: trade.good },
@@ -336,6 +401,17 @@ function print(report) {
     console.log(`    ${goal.title.padEnd(42)} ${at == null ? 'not reached' : clock(report, at)}`);
   }
   console.log(`  total clicks ${report.clicks}, credits ${Math.round(state.credits)}, research ${state.research.done.length}/${RESEARCH.length}`);
+  const warp = report.research.find((r) => r.id === 'warp-drive');
+  if (warp) {
+    const stats = state.stats;
+    const ratio = median(report.tradeRates);
+    const blueprints = report.goals['station-blueprints'];
+    console.log(`  act 2: ${state.surveyed.length} systems surveyed, ${stats.jumps} jumps, ${stats.farSales} sales in other systems`);
+    console.log(`    jump fees ${Math.round(stats.jumpFees)} cr, ${((stats.jumpFees / Math.max(1, stats.tradeProfit + stats.jumpFees)) * 100).toFixed(0)}% of trade profit before fees`);
+    console.log(`    routes between systems pay ${ratio ? ratio.toFixed(2) : '-'}x the best home trade (median of ${report.tradeRates.length} picks)`);
+    console.log(`    standing: ${Object.entries(state.standing).map(([id, p]) => `${id} ${Math.floor(p)}`).join(', ')}`);
+    console.log(`    station blueprints ${blueprints ? `${((blueprints - warp.at) / (24 * HOUR)).toFixed(1)} days after starting the warp drive` : 'not reached'}`);
+  }
 }
 
 const [first = 'worker', second] = process.argv.slice(2);
