@@ -1,7 +1,7 @@
 // The home system, Aurel. Coordinates are map units with the star at the
-// origin; +y points down, as on screen. Later systems will be generated from
-// the save's seed; the home system is hand-made so every save starts the same
-// way.
+// origin; +y points down, as on screen. Other systems are generated from the
+// save's seed (see galaxy.js); the home system is hand-made so every save
+// starts the same way.
 
 function polar(radius, degrees) {
   const rad = (degrees * Math.PI) / 180;
@@ -31,35 +31,17 @@ export const HOME_SYSTEM = {
     { id: 'aurel-post', name: 'Aurel Trading Post', short: 'Trading Post', type: 'tradingPost', faction: 'halcyon', ...polar(200, 160) },
     { id: 'halcyon-shipyard', name: 'Halcyon Shipyard', short: 'Shipyard', type: 'shipyard', faction: 'halcyon', ...polar(200, -130) },
   ],
-  // Warp gates arrive with warp drives (act 2); for now they show as locked.
-  // `short` names label the map when it is zoomed far out.
+  // Warp gates open with the warp drive research. Each points the way its
+  // lane goes on the galaxy map; `short` names label the map when it is
+  // zoomed far out.
   gates: [
-    { id: 'gate-brennan', name: 'Gate to Brennan', short: 'Brennan', ...polar(470, -60) },
-    { id: 'gate-dace', name: 'Gate to Dace', short: 'Dace', ...polar(470, -150) },
-    { id: 'gate-elm', name: 'Gate to Elm', short: 'Elm', ...polar(470, 160) },
-    { id: 'gate-fenn', name: 'Gate to Fenn', short: 'Fenn', ...polar(470, 100) },
+    { id: 'gate-brennan', name: 'Gate to Brennan', short: 'Brennan', to: 'brennan', angle: -60, ...polar(470, -60) },
+    { id: 'gate-dace', name: 'Gate to Dace', short: 'Dace', to: 'dace', angle: -150, ...polar(470, -150) },
+    { id: 'gate-elm', name: 'Gate to Elm', short: 'Elm', to: 'elm', angle: 160, ...polar(470, 160) },
+    { id: 'gate-fenn', name: 'Gate to Fenn', short: 'Fenn', to: 'fenn', angle: 100, ...polar(470, 100) },
   ],
   // The map is framed to show everything inside this radius.
   extent: 480,
 };
 
 export const START_STATION = 'halcyon-refinery';
-
-export function findStation(id) {
-  return HOME_SYSTEM.stations.find((s) => s.id === id) ?? null;
-}
-
-export function findField(id) {
-  return HOME_SYSTEM.fields.find((f) => f.id === id) ?? null;
-}
-
-/** Any placed thing (station, field, planet or gate) by id. */
-export function findPlace(id) {
-  return (
-    findStation(id) ??
-    findField(id) ??
-    HOME_SYSTEM.planets.find((p) => p.id === id) ??
-    HOME_SYSTEM.gates.find((g) => g.id === id) ??
-    null
-  );
-}

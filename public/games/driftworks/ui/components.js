@@ -2,8 +2,7 @@
 
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
-import { assetUrl } from '../render/assets.js';
-import { premiumText } from '../systems/contracts.js';
+import { assetUrl, tintedUrl } from '../render/assets.js';
 import { h, svgIcon } from './dom.js';
 
 export function swatch(good) {
@@ -72,13 +71,13 @@ export function panelHead({ icon, title, subtitle, onClose, onBack }) {
 let iconId = 0;
 
 /** Map art as a small picture, so the panels match the map. */
-function art(name, width, height = width) {
-  return h('img', { class: 'dw-art', src: assetUrl(name), width, height, alt: '', draggable: 'false' });
+function art(name, width, height = width, tint = null) {
+  return h('img', { class: 'dw-art', src: tint ? tintedUrl(name, tint) : assetUrl(name), width, height, alt: '', draggable: 'false' });
 }
 
-/** A station's map art, or the gold hex of a station the player owns. */
-export function stationIcon(type, { owned = false, size = 40 } = {}) {
-  if (type && !owned) return art(`station-${type}`, size);
+/** A station's map art (in `tint`, its faction's colour), or the gold hex of a station the player owns. */
+export function stationIcon(type, { owned = false, size = 40, tint = null } = {}) {
+  if (type && !owned) return art(`station-${type}`, size, size, tint);
   iconId += 1;
   const id = `hexfill-${iconId}`;
   const stops = owned ? ['#ffffff', '#ffe7a8', '#e0a12e'] : ['#e9fffb', '#7fe9de', '#1b9aa8'];
@@ -95,9 +94,10 @@ export function gateIcon() {
   return art('gate', 30, 40);
 }
 
-export function shipGlyph(hullId) {
-  const role = HULLS[hullId]?.role === 'hauler' ? 'hauler' : 'miner';
-  return h('span', { class: `dw-ship-icon${role === 'hauler' ? ' is-hauler' : ''}`, 'aria-hidden': 'true' }, art(`ship-${role}`, 30, 18));
+export function shipGlyph(hullId, { small = false } = {}) {
+  const role = HULLS[hullId]?.role ?? 'miner';
+  const classes = ['dw-ship-icon', role !== 'miner' ? `is-${role}` : '', small ? 'is-small' : ''].filter(Boolean).join(' ');
+  return h('span', { class: classes, 'aria-hidden': 'true' }, small ? art(`ship-${role}`, 20, 12) : art(`ship-${role}`, 30, 18));
 }
 
 /** A "label ··· value" line for summaries. */
@@ -105,7 +105,7 @@ export function line(left, right, className) {
   return h('div', { class: `dw-line${className ? ` ${className}` : ''}` }, h('span', null, left), h('span', null, right));
 }
 
-/** The tag on a sale that counts towards a contract: "contract +50%". */
-export function contractTag(contract) {
-  return contract ? h('span', { class: 'dw-tag' }, `contract ${premiumText(contract)}`) : null;
+/** The "!" that marks contracts, as on the map: gold for an offer, aqua for one running. */
+export function contractMark(running = false) {
+  return h('span', { class: `dw-contract-mark${running ? ' is-running' : ''}`, 'aria-hidden': 'true' }, '!');
 }

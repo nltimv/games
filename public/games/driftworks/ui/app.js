@@ -3,11 +3,18 @@
 // lives here; game state lives in the session and only changes through
 // session.act().
 
+import { MAX_ZOOM } from '../render/camera.js';
 import { createMapView } from '../render/mapView.js';
-import { HOME_SYSTEM, findPlace } from '../content/homeSystem.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { HULLS } from '../content/ships.js';
+import { findFaction, findGate, findPlace, findSystem, systemOf } from '../content/galaxy.js';
+import { galaxyPosition } from '../render/galaxyMap.js';
+import { isSurveyed } from '../systems/explore.js';
+import { skipGuide } from '../systems/goals.js';
+import { isResearched } from '../systems/research.js';
 import { findShip } from '../systems/fleet.js';
 import { minedSoFar, orderPhase } from '../systems/orders.js';
-import { shipPosition } from '../systems/travel.js';
+import { canJump, shipPosition, shipSystem } from '../systems/travel.js';
 import { renderInto, updateLive, h } from './dom.js';
 import { renderTopBar, underwayCard } from './hud.js';
 import { showAway, showSettings } from './modals.js';
@@ -15,15 +22,18 @@ import { menuKeydown, orderMenu, placeMenu } from './contextMenu.js';
 import { stationPanel } from './panels/station.js';
 import { fieldPanel } from './panels/field.js';
 import { shipPanel } from './panels/ship.js';
-import { companyPanel, fleetPanel, gatePanel, groupPanel, overviewPanel } from './panels/lists.js';
+import { companyPanel, fleetPanel, groupPanel } from './panels/lists.js';
 import { researchPanel } from './panels/research.js';
+import { galaxyPanel, gatePanel, systemPanel } from './panels/system.js';
 import { currentGuide, guideCard, markGuided } from './tutorial.js';
 
 const TOAST_KINDS = new Set(['sale', 'goal', 'arrival', 'warning', 'purchase']);
 const TOAST_MS = 4200;
-const LOCKED_VIEWS = {
-  galaxy: 'The galaxy map arrives with the warp drive in the next update.',
-};
+const MAP_VIEWS = new Set(['system', 'galaxy']);
+const isMapView = (view) => MAP_VIEWS.has(view);
+const PLACE_KINDS = new Set(['station', 'field', 'gate']);
+// One step of the zoom buttons in from the whole system.
+const SYSTEM_START_ZOOM = 1.3;
 
 export function createApp(session, doc = document) {
   const $ = (id) => doc.getElementById(id);
@@ -44,10 +54,14 @@ export function createApp(session, doc = document) {
     modal: $('modal'),
     menu: $('menu'),
     systemName: $('system-name'),
+    systemSub: $('system-sub'),
   };
 
   const phoneQuery = matchMedia('(max-width: 760px)');
-  const ui = { view: 'system', selection: null, miner: null, trade: null, overview: false, menu: null, guide: null };
+  // `map` is the map shown behind the panels ('system' or 'galaxy'),
+  // `systemId` the system the System view shows and `marketGood` the good
+  // whose prices the galaxy map shows (with Market charts).
+  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null };
   let shownCredits = null;
   let panelKey = null;
   // While a slider is being dragged, panels and the menu wait to re-render,
@@ -60,26 +74,68 @@ export function createApp(session, doc = document) {
   const isPhone = () => phoneQuery.matches;
 
   function panelVisible() {
-    if (ui.view !== 'system') return true;
+    if (!isMapView(ui.view)) return true;
     if (ui.selection) return true;
     return !isPhone() || ui.overview;
   }
 
   // ---------- Navigation ----------
 
+  /** Which map shows a selection: places show their system, a ship the map it is on. */
+  function showFor(kind, id) {
+    if (kind === 'system') return { view: 'galaxy', map: 'galaxy' };
+    if (PLACE_KINDS.has(kind)) return { view: 'system', map: 'system', systemId: systemOf(id) ?? ui.systemId };
+    if (kind === 'ship') {
+      const ship = findShip(session.state, id);
+      const where = ship ? shipSystem(ship, Date.now()) : null;
+      // On the galaxy map (or coming back to it from a list), ships stay there.
+      if (ui.view === 'galaxy' || (ui.map === 'galaxy' && !isMapView(ui.view))) return { view: 'galaxy', map: 'galaxy' };
+      // Between systems, or in one nobody has surveyed yet: the galaxy map.
+      if (!where || !isSurveyed(session.state, where)) return canJump(session.state) ? { view: 'galaxy', map: 'galaxy' } : { view: 'system', map: 'system' };
+      return { view: 'system', map: 'system', systemId: where };
+    }
+    return { view: isMapView(ui.view) ? ui.view : ui.map, map: ui.map };
+  }
+
   function select(kind, id, extra = {}) {
+    // A place in an unsurveyed system shows as that system on the galaxy map.
+    const home = PLACE_KINDS.has(kind) ? systemOf(id) : null;
+    if (home && !isSurveyed(session.state, home)) return select('system', home, extra);
     // Picking a field right after a ship sends that ship (when it can mine).
     const miner = kind === 'field' && ui.selection?.kind === 'ship' ? { miner: ui.selection.id } : {};
-    Object.assign(ui, { view: 'system', selection: { kind, id }, overview: false, menu: null, ...miner, ...extra });
+    Object.assign(ui, { ...showFor(kind, id), selection: { kind, id }, overview: false, menu: null, ...miner, ...extra });
     if (kind !== 'station' || ui.trade?.stationId !== id) ui.trade = null;
     render();
     focusPanelIfNeeded();
     // On phones the sheet covers the lower half: slide the pick into view.
-    if (isPhone()) {
-      const ship = kind === 'ship' ? findShip(session.state, id) : null;
-      const point = ship ? shipPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : findPlace(id);
-      if (point) map.focusOn(point.x, point.y);
+    // Elsewhere, only a pick out of view (from a list) slides in.
+    const point = mapPoint(kind, id);
+    if (point && isPhone()) map.focusOn(point.x, point.y);
+    else if (point) map.reveal(point.x, point.y);
+  }
+
+  /** Where a selection sits on the map shown now. */
+  function mapPoint(kind, id) {
+    const state = session.state;
+    if (kind === 'system') {
+      const system = findSystem(id);
+      return system ? { x: system.gx, y: system.gy } : null;
     }
+    if (kind === 'ship') {
+      const ship = findShip(state, id);
+      if (!ship) return null;
+      const index = state.ships.indexOf(ship);
+      return ui.map === 'galaxy' ? galaxyPosition(ship, Date.now(), index) : shipPosition(ship, Date.now(), index);
+    }
+    return findPlace(id);
+  }
+
+  /** Opens a system's map, keeping a ship selection so orders can follow. */
+  function openSystem(id) {
+    if (!isSurveyed(session.state, id)) return;
+    const keep = ui.selection?.kind === 'ship' || ui.selection?.kind === 'ships' ? ui.selection : null;
+    Object.assign(ui, { view: 'system', map: 'system', systemId: id, selection: keep, overview: false, menu: null, trade: null });
+    render();
   }
 
   /**
@@ -92,9 +148,28 @@ export function createApp(session, doc = document) {
     const all = [...new Set([...current, ...ids])].filter((id) => findShip(session.state, id));
     if (!all.length) return additive ? undefined : close();
     if (all.length === 1) return select('ship', all[0]);
-    Object.assign(ui, { view: 'system', selection: { kind: 'ships', ids: all }, overview: false, menu: null, trade: null });
+    const view = isMapView(ui.view) ? ui.view : ui.map;
+    Object.assign(ui, { view, map: view, selection: { kind: 'ships', ids: all }, overview: false, menu: null, trade: null });
     render();
     focusPanelIfNeeded();
+  }
+
+  /** Your ships of one role in a system, from a galaxy badge's id ("system|role"). */
+  function shipsAtBadge(badgeId) {
+    const [systemId, role] = badgeId.split('|');
+    const now = Date.now();
+    return session.state.ships
+      .filter((ship, index) => HULLS[ship.hull].role === role && galaxyPosition(ship, now, index)?.system === systemId)
+      .map((ship) => ship.id);
+  }
+
+  /** Clicking a galaxy badge selects its ships; clicking it again opens their system. */
+  function pickBadge(badgeId, mods) {
+    const ids = shipsAtBadge(badgeId);
+    const selected = ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
+    const systemId = badgeId.split('|')[0];
+    if (!mods.additive && ids.length && ids.length === selected.length && ids.every((id) => selected.includes(id)) && isSurveyed(session.state, systemId)) return openSystem(systemId);
+    return selectShips(ids, mods);
   }
 
   /** Shift-click: adds a ship to the selection, or takes it out. */
@@ -107,7 +182,7 @@ export function createApp(session, doc = document) {
 
   /** The ships selected now: one, several, or none. */
   function selectedShips() {
-    if (ui.view !== 'system') return [];
+    if (!isMapView(ui.view)) return [];
     const ids = ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
     return ids.map((id) => findShip(session.state, id)).filter(Boolean);
   }
@@ -117,23 +192,25 @@ export function createApp(session, doc = document) {
     ui.trade = null;
     ui.overview = false;
     ui.menu = null;
-    if (ui.view !== 'system') ui.view = 'system';
+    if (!isMapView(ui.view)) ui.view = ui.map;
     render();
     if (isPhone()) map.focusOn(0, 0);
   }
 
   function setView(view) {
-    if (LOCKED_VIEWS[view]) {
-      toast(LOCKED_VIEWS[view]);
+    if (view === 'galaxy' && !canJump(session.state)) {
+      toast('The galaxy map opens with the warp drive research.');
       return;
     }
-    if (view === 'system' && ui.view === 'system' && isPhone()) {
-      ui.overview = !ui.overview || Boolean(ui.selection);
+    if (view === ui.view && isMapView(view)) {
+      if (isPhone()) ui.overview = !ui.overview || Boolean(ui.selection);
       ui.selection = null;
-    } else if (view === 'system' && ui.view === 'system') {
+    } else if (isMapView(view) && ui.selection && !['ship', 'ships'].includes(ui.selection.kind)) {
+      // Ships stay selected across the two maps; places belong to one.
       ui.selection = null;
     }
     ui.view = view;
+    if (isMapView(view)) ui.map = view;
     ui.trade = null;
     ui.menu = null;
     render();
@@ -146,8 +223,14 @@ export function createApp(session, doc = document) {
   function openMenu(target, point) {
     if (ui.menu) closeMenu({ refocus: false });
     if (!target) return;
+    // A galaxy ship badge stands for its system.
+    if (target.kind === 'ships-at') target = { kind: 'system', id: target.id.split('|')[0] };
     if (target.kind === 'ship') {
       select('ship', target.id);
+      return;
+    }
+    if (target.kind === 'flock') {
+      selectShips(target.ids);
       return;
     }
     const ships = selectedShips();
@@ -209,6 +292,7 @@ export function createApp(session, doc = document) {
       close,
       setView,
       isPhone,
+      openSystem,
       openSettings,
       toast,
       closeMenu,
@@ -230,12 +314,14 @@ export function createApp(session, doc = document) {
     if (ui.view === 'company') return companyPanel(ctx);
     if (ui.view === 'research') return researchPanel(ctx);
     const sel = ui.selection;
+    const overviewPanel = () => (ui.map === 'galaxy' ? galaxyPanel(ctx) : systemPanel(ctx, ui.systemId, { overview: true }));
     if (!sel) return overviewPanel(ctx);
     if (sel.kind === 'station') return stationPanel(ctx, sel.id);
     if (sel.kind === 'field') return fieldPanel(ctx, sel.id);
     if (sel.kind === 'ship') return findShip(session.state, sel.id) ? shipPanel(ctx, sel.id) : overviewPanel(ctx);
     if (sel.kind === 'ships') return groupPanel(ctx, sel.ids);
     if (sel.kind === 'gate') return gatePanel(ctx, sel.id);
+    if (sel.kind === 'system') return systemPanel(ctx, sel.id);
     return overviewPanel(ctx);
   }
 
@@ -244,6 +330,8 @@ export function createApp(session, doc = document) {
       renderHeld = true;
       return;
     }
+    // Only surveyed systems have a map.
+    if (ui.map === 'system' && !isSurveyed(session.state, ui.systemId)) Object.assign(ui, { map: 'galaxy', view: ui.view === 'system' ? 'galaxy' : ui.view });
     const ctx = context();
     shownPhases = phaseKey(ctx.now);
     shownCredits = renderTopBar(els, session.state, shownCredits);
@@ -259,7 +347,12 @@ export function createApp(session, doc = document) {
       if (key !== panelKey) els.panel.scrollTop = 0;
       panelKey = key;
     }
+    // The ship list scrolls on its own; a refresh keeps its place.
+    const runsScroll = els.underway.querySelector('.dw-runs')?.scrollTop ?? 0;
     renderInto(els.underway, underwayCard(ctx));
+    const runs = els.underway.querySelector('.dw-runs');
+    if (runs) runs.scrollTop = runsScroll;
+    renderPlace();
     renderMenu(ctx);
     renderGuide();
     map.redraw();
@@ -267,6 +360,30 @@ export function createApp(session, doc = document) {
     for (const btn of els.nav.querySelectorAll('button[data-view]')) {
       if (btn.dataset.view === ui.view) btn.setAttribute('aria-current', 'page');
       else btn.removeAttribute('aria-current');
+    }
+  }
+
+  // The top bar names the map shown, and the Galaxy tab unlocks with the
+  // warp drive.
+  function renderPlace() {
+    const state = session.state;
+    if (ui.map === 'galaxy') {
+      els.systemName.textContent = 'Galaxy';
+      const known = 1 + (state.surveyed ?? []).length;
+      els.systemSub.textContent = `${known} ${known === 1 ? 'system' : 'systems'} surveyed`;
+    } else {
+      const system = findSystem(ui.systemId) ?? HOME_SYSTEM;
+      els.systemName.textContent = `${system.name} system`;
+      const where = system.id === HOME_SYSTEM.id ? 'home' : `${system.depth} ${system.depth === 1 ? 'lane' : 'lanes'} from home`;
+      els.systemSub.textContent = `${findFaction(system.faction)?.name ?? ''} · ${isSurveyed(state, system.id) ? where : 'unsurveyed'}`;
+    }
+    const galaxyBtn = els.nav.querySelector('button[data-view="galaxy"]');
+    const open = canJump(state);
+    if (galaxyBtn && galaxyBtn.dataset.open !== String(open)) {
+      galaxyBtn.dataset.open = String(open);
+      galaxyBtn.toggleAttribute('aria-disabled', !open);
+      galaxyBtn.title = open ? 'Galaxy map' : 'Opens with the warp drive research';
+      galaxyBtn.querySelector('svg')?.toggleAttribute('hidden', open);
     }
   }
 
@@ -284,10 +401,9 @@ export function createApp(session, doc = document) {
   function renderGuide() {
     const card = guideCard(ui.guide, {
       onSkip: () => {
-        session.act((state) => {
-          state.tutorial.skipped = true;
-        });
-        toast('Tutorial skipped. Goals stay in the Company view.');
+        const act = ui.guide?.goal.act ?? 1;
+        session.act((state) => skipGuide(state, act));
+        toast(`${act > 1 ? 'Guide' : 'Tutorial'} skipped. Goals stay in the Company view.`);
       },
     });
     els.guide.hidden = !card;
@@ -316,7 +432,7 @@ export function createApp(session, doc = document) {
     if (change.result && change.result.ok === false && change.result.error) toast(change.result.error, 'warning');
     for (const entry of change.log.filter((e) => TOAST_KINDS.has(e.kind)).slice(-3)) toast(entry.text, entry.kind);
     if (change.source === 'load') {
-      Object.assign(ui, { view: 'system', selection: null, trade: null, miner: null, overview: false, menu: null });
+      Object.assign(ui, { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, trade: null, miner: null, overview: false, menu: null });
       shownCredits = null;
     }
     render();
@@ -336,16 +452,44 @@ export function createApp(session, doc = document) {
 
   // ---------- Map ----------
 
+  // The galaxy opens fully zoomed in on the selected ship, or on the system
+  // last shown; a system map opens one zoom step in. The fit button (and the
+  // 0 key) still shows the whole map.
+  function startViewFor(scene) {
+    if (scene.kind !== 'galaxy') return { zoom: SYSTEM_START_ZOOM };
+    const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
+    const point = ship ? galaxyPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : null;
+    const system = findSystem(ui.systemId);
+    return { zoom: MAX_ZOOM, x: point?.x ?? system?.gx ?? 0, y: point?.y ?? system?.gy ?? 0 };
+  }
+
   const map = createMapView(els.map, {
     getState: () => session.state,
-    getSelection: () => (ui.view === 'system' ? ui.selection : null),
+    getScene: () => (ui.map === 'galaxy' ? { kind: 'galaxy' } : { kind: 'system', id: ui.systemId }),
+    getSelection: () => (isMapView(ui.view) ? ui.selection : null),
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
-    getGuideTarget: () => (ui.view === 'system' || !isPhone() ? (ui.guide?.map ?? null) : null),
+    getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
+    getMarketGood: () => (isResearched(session.state, 'market-charts') ? ui.marketGood : null),
+    getStartView: startViewFor,
+    getOpenSystem: () => ui.systemId,
+    isCompact: isPhone,
     onSelect(target, mods = {}) {
+      const again = target && ui.selection?.kind === target.kind && ui.selection.id === target.id;
       if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);
+      else if (target?.kind === 'ships-at') pickBadge(target.id, mods);
+      else if (target?.kind === 'flock') selectShips(target.ids, mods);
+      // A second click on a surveyed system opens its map.
+      else if (again && target.kind === 'system' && isSurveyed(session.state, target.id)) openSystem(target.id);
       else if (target) select(target.kind, target.id);
       else if (ui.menu) closeMenu();
       else if (ui.selection) close();
+    },
+    // A double click on a warp gate opens the system it leads to.
+    onDoubleClick(target) {
+      const gate = target.kind === 'gate' ? findGate(target.id) : null;
+      if (!gate || !canJump(session.state)) return;
+      if (isSurveyed(session.state, gate.to)) openSystem(gate.to);
+      else select('system', gate.to);
     },
     onBoxSelect: (ids, mods) => selectShips(ids, mods),
     onContextMenu: openMenu,
@@ -416,7 +560,7 @@ export function createApp(session, doc = document) {
       return;
     }
     if (e.target.closest?.('textarea, input')) return;
-    if (ui.selection || ui.view !== 'system' || ui.overview) close();
+    if (ui.selection || !isMapView(ui.view) || ui.overview) close();
   });
   phoneQuery.addEventListener('change', render);
   doc.addEventListener('pointerdown', (e) => {
@@ -432,7 +576,6 @@ export function createApp(session, doc = document) {
   };
   doc.addEventListener('pointerup', endDrag);
   doc.addEventListener('pointercancel', endDrag);
-  els.systemName.textContent = `${HOME_SYSTEM.name} system`;
 
   render();
 

@@ -28,6 +28,32 @@ export const HULLS = {
     // The research the shipyard needs before it sells this hull.
     licence: 'kite-licence',
   },
+  lark: {
+    name: 'Lark-class scout',
+    role: 'scout',
+    size: 'small',
+    // Scouts carry no cargo; they survey systems beyond the fog.
+    holdScale: 0,
+    speedScale: 1.6,
+    holdClass: 1,
+    namePrefix: 'Lark',
+    blurb: 'Surveys unknown systems, so other ships can go there.',
+    licence: 'scout-licence',
+  },
+  heron: {
+    name: 'Heron-class freighter',
+    role: 'hauler',
+    size: 'medium',
+    // Twice a Kite's hold, a little slower.
+    holdScale: 8,
+    speedScale: 0.9,
+    holdClass: 1,
+    namePrefix: 'Heron',
+    blurb: 'A big freighter for long trade routes.',
+    licence: 'warp-drive',
+    // Sold only at shipyards of factions that trust the company.
+    standing: 'trusted',
+  },
 };
 
 /**
@@ -38,7 +64,7 @@ export const HULLS = {
  *   engine  map units per minute
  */
 export const MODULES = {
-  hold: { name: 'Cargo racks', levels: [10, 25, 60, 150, 350, 800] },
+  hold: { name: 'Cargo racks', levels: [10, 25, 60, 150, 350, 800, 1800] },
   laser: { name: 'Mining laser', levels: [10, 12, 15, 18, 22] },
   engine: { name: 'Engines', levels: [400, 480, 580] },
 };

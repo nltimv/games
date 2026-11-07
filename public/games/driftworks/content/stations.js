@@ -47,10 +47,6 @@ export const STATION_TYPES = {
     description: 'Sells ships and fits new modules.',
     buys: [],
     sells: [],
-    hulls: ['mule', 'kite'],
+    hulls: ['mule', 'kite', 'lark', 'heron'],
   },
-};
-
-export const FACTIONS = {
-  halcyon: { name: 'Halcyon Compact', color: '#2ec5c0' },
 };

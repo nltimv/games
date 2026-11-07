@@ -1,4 +1,4 @@
-// The research tree for act 1. The lab works on one research at a time and
+// The research tree for acts 1 and 2. The lab works on one research at a time and
 // keeps going while the game is closed.
 //
 // Module lines (hold, laser, engine) raise the level of a module; ships get
@@ -8,7 +8,7 @@
 
 export const RESEARCH = [
   { id: 'hold-1', name: 'Cargo racks I', line: 'hold', level: 1, cost: 100, minutes: 1 },
-  { id: 'brokerage', name: 'Brokerage', cost: 50, minutes: 1, effect: 'Opens the contract board: buyers pay 50% over market for set amounts.' },
+  { id: 'brokerage', name: 'Brokerage', cost: 50, minutes: 1, effect: 'Stations offer contracts: a fixed price for a set amount of one good.' },
   { id: 'queue-1', name: 'Order queue I', line: 'queue', level: 1, cost: 300, minutes: 3 },
   { id: 'laser-1', name: 'Mining laser I', line: 'laser', level: 1, cost: 500, minutes: 4 },
   { id: 'kite-licence', name: 'Hauler licence', cost: 700, minutes: 5, effect: 'Halcyon Shipyard sells Kite-class haulers.' },
@@ -32,6 +32,23 @@ export const RESEARCH = [
     cost: 250000,
     minutes: 480,
     effect: 'Ships can jump through the gates. This ends act 1.',
+  },
+  // Act 2: the galaxy.
+  { id: 'scout-licence', name: 'Scout licence', needs: ['warp-drive'], cost: 50000, minutes: 30, effect: 'Shipyards sell Lark-class scouts, which survey unknown systems.' },
+  { id: 'market-charts', name: 'Market charts', needs: ['warp-drive'], cost: 80000, minutes: 45, effect: 'The galaxy map shows where each good sells cheapest and pays best.' },
+  { id: 'lane-charts', name: 'Lane charts', needs: ['warp-drive'], cost: 300000, minutes: 120, effect: 'Jump fees are halved.' },
+  { id: 'jump-1', name: 'Jump drive I', needs: ['warp-drive'], cost: 400000, minutes: 180, effect: 'Jumps take 25% less time.' },
+  { id: 'scanners', name: 'Long-range scanners', needs: ['scout-licence'], cost: 600000, minutes: 240, effect: 'Surveys take half as long, and systems next to your ships show live prices.' },
+  { id: 'hold-6', name: 'Cargo racks VI', line: 'hold', level: 6, needs: ['hold-5', 'warp-drive'], cost: 900000, minutes: 360 },
+  { id: 'second-lab', name: 'Second lab', needs: ['warp-drive'], cost: 1000000, minutes: 360, effect: 'Two researches can run at once.' },
+  { id: 'jump-2', name: 'Jump drive II', needs: ['jump-1'], cost: 1500000, minutes: 480, effect: 'Jumps take 40% less time than without a jump drive.' },
+  {
+    id: 'station-blueprints',
+    name: 'Station blueprints',
+    needs: ['lane-charts', 'jump-1'],
+    cost: 3000000,
+    minutes: 720,
+    effect: 'Plans for your own stations. This ends act 2.',
   },
 ];
 

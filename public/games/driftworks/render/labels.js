@@ -56,6 +56,11 @@ export function drawLabel(ctx, text, x, y, dpr, { size = 12, weight = 700, color
   ctx.drawImage(label.canvas, snap(left), snap(y - label.height / 2), label.width, label.height);
 }
 
+/** How wide a label's text is, in CSS pixels. */
+export function labelWidth(text, { size = 12, weight = 700 } = {}) {
+  return measure(`${weight} ${size}px ${FONT}`, text);
+}
+
 /** Forgets every label, so they are redrawn (once the web font loads). */
 export function clearLabels() {
   cache.clear();

@@ -43,3 +43,14 @@ test('junk, wrong shapes and future versions are refused', () => {
   assert.equal(isOutdated(JSON.stringify(old)), true);
   assert.equal(isOutdated(JSON.stringify(newGame())), false);
 });
+
+test('a save from before fixed-price contracts drops its old contracts and keeps the rest', () => {
+  const state = newGame({ credits: 999 });
+  const old = JSON.parse(serialize(state));
+  old.version = 3;
+  old.contracts = { offers: [{ id: 4, stationId: 'halcyon-refinery', good: 'ice', qty: 30, premium: 0.5, expiresAt: 1 }], active: [], nextId: 7 };
+  const loaded = deserialize(JSON.stringify(old));
+  assert.equal(loaded.version, SAVE_VERSION);
+  assert.deepEqual(loaded.contracts, { offers: [], active: [], nextId: 7, checks: {} });
+  assert.equal(loaded.credits, 999);
+});

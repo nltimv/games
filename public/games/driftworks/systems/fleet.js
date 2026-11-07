@@ -6,10 +6,11 @@
 import { HULLS, SHIP_PRICES, SHIP_PRICE_GROWTH } from '../content/ships.js';
 import { findResearch } from '../content/research.js';
 import { STATION_TYPES } from '../content/stations.js';
-import { findStation } from '../content/homeSystem.js';
+import { findFaction, findStation } from '../content/galaxy.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { addLog } from './log.js';
 import { bestModules, isResearched } from './research.js';
+import { hasStanding, STANDING_LEVELS } from './standing.js';
 
 export function createShip(state, hullId, stationId) {
   const hull = HULLS[hullId];
@@ -45,11 +46,14 @@ export function shipPrice(state) {
   return Math.round(raw / 10000) * 10000;
 }
 
-/** Hulls a shipyard stocks, licensed or not. */
-export function hullsForSale(stationId) {
+/**
+ * Hulls a shipyard stocks, licensed or not. Hulls that need standing show
+ * from the warp drive on, when standing starts to count.
+ */
+export function hullsForSale(state, stationId) {
   const station = findStation(stationId);
   if (!station) return [];
-  return STATION_TYPES[station.type].hulls ?? [];
+  return (STATION_TYPES[station.type].hulls ?? []).filter((id) => !HULLS[id].standing || isResearched(state, 'warp-drive'));
 }
 
 /** The research a hull still needs before the company may buy it, or null. */
@@ -58,13 +62,26 @@ export function missingLicence(state, hullId) {
   return licence && !isResearched(state, licence) ? findResearch(licence) : null;
 }
 
+/** Why the company may not buy a hull at a shipyard yet, or null. */
+export function hullLock(state, hullId, stationId) {
+  const hull = HULLS[hullId];
+  const licence = missingLicence(state, hullId);
+  if (licence) return `Needs the ${licence.name} research.`;
+  const faction = findStation(stationId)?.faction;
+  if (hull?.standing && !hasStanding(state, faction, hull.standing)) {
+    const level = STANDING_LEVELS.find((l) => l.id === hull.standing);
+    return `Needs ${level.name} standing with the ${findFaction(faction)?.name ?? 'faction'}.`;
+  }
+  return null;
+}
+
 export function buyShip(state, hullId, stationId) {
   const hull = HULLS[hullId];
-  if (!hull || !hullsForSale(stationId).includes(hullId)) {
+  if (!hull || !hullsForSale(state, stationId).includes(hullId)) {
     return { ok: false, error: 'That ship is not sold here.' };
   }
-  const licence = missingLicence(state, hullId);
-  if (licence) return { ok: false, error: `${hull.name}s need the ${licence.name} research.` };
+  const lock = hullLock(state, hullId, stationId);
+  if (lock) return { ok: false, error: lock };
   const price = shipPrice(state);
   if (state.credits < price) {
     return { ok: false, error: `You need ${formatCredits(price - state.credits)} more.` };

@@ -1,10 +1,12 @@
 // Carries out an option from the order menu (see advisor.orderOptions).
 // Each option maps onto the same calls the panels use, so the menu and the
-// panels can never disagree about what an order does.
+// panels can never disagree about what an order does. Every option is one
+// order: buying and selling are two picks, each at its own station.
 
 import { sellCargo } from './cargo.js';
+import { deliverCargo } from './contracts.js';
 import { findShip } from './fleet.js';
-import { giveOrder, giveOrders, orderRefit } from './orders.js';
+import { giveOrder, orderRefit } from './orders.js';
 
 const fail = (error) => ({ ok: false, error });
 
@@ -30,17 +32,18 @@ export function carryOut(state, shipId, option) {
     case 'sell':
       if (option.now) return sellAllHere(state, ship, option.goods);
       return giveOrder(state, ship, { type: 'sell', stationId: option.stationId });
+    case 'deliver':
+      if (option.now) return deliverCargo(state, ship, option.good);
+      return giveOrder(state, ship, { type: 'deliver', stationId: option.stationId, good: option.good });
     case 'buy':
       return giveOrder(state, ship, { type: 'buy', stationId: option.stationId, good: option.good, qty: option.qty });
-    case 'trade':
-      return giveOrders(state, ship, [
-        { type: 'buy', stationId: option.fromId, good: option.good, qty: option.qty },
-        { type: 'sell', stationId: option.stationId, good: option.good },
-      ]);
     case 'refit':
-      return orderRefit(state, ship);
+      return orderRefit(state, ship, option.stationId);
     case 'fly':
+    case 'jump':
       return giveOrder(state, ship, { type: 'fly', stationId: option.stationId });
+    case 'survey':
+      return giveOrder(state, ship, { type: 'survey', systemId: option.systemId });
     default:
       return fail('Unknown order.');
   }

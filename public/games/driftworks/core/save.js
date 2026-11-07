@@ -5,6 +5,8 @@
 
 import { createStore } from '../../../shared/js/storage.js';
 import { OLDEST_SAVE_VERSION, SAVE_VERSION } from './state.js';
+import { HOME_FACTION } from '../content/galaxy.js';
+import { CREDITS_PER_POINT } from '../systems/standing.js';
 
 const SAVE_KEY = 'save';
 
@@ -12,7 +14,28 @@ const SAVE_KEY = 'save';
  * Upgrade functions keyed by the version they upgrade FROM:
  * MIGRATIONS[1] turns a version 1 save into version 2, and so on.
  */
-export const MIGRATIONS = {};
+export const MIGRATIONS = {
+  // Act 2: the galaxy. Nothing is lost; the company has surveyed only Aurel.
+  2(save) {
+    return {
+      ...save,
+      stats: { jumps: 0, jumpFees: 0, surveys: 0, farSales: 0, ...save.stats },
+      surveyed: save.surveyed ?? [],
+      seen: save.seen ?? {},
+      // A company that already has the warp drive starts its Halcyon
+      // standing from what it earned (see standing.openStanding).
+      standing: save.standing ?? (save.research?.done?.includes('warp-drive') ? { [HOME_FACTION]: (save.stats?.earned ?? 0) / CREDITS_PER_POINT } : {}),
+    };
+  },
+  // Contracts became a fixed price for a set amount. Old offers and
+  // contracts (a premium on sales) are dropped; new offers turn up soon.
+  3(save) {
+    return {
+      ...save,
+      contracts: { offers: [], active: [], nextId: save.contracts?.nextId ?? 1, checks: {} },
+    };
+  },
+};
 
 export function migrate(data) {
   let save = data;

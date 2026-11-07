@@ -19,9 +19,10 @@ export function speedOf(ship) {
   return MODULES.engine.levels[ship.modules.engine] * HULLS[ship.hull].speedScale;
 }
 
-/** The module lines a hull uses: haulers have no mining laser. */
+/** The module lines a hull uses: only miners have a mining laser, and scouts have no hold. */
 export function linesFor(hullId) {
-  return Object.keys(MODULES).filter((line) => line !== 'laser' || HULLS[hullId].role === 'miner');
+  const hull = HULLS[hullId];
+  return Object.keys(MODULES).filter((line) => (line !== 'laser' || hull.role === 'miner') && (line !== 'hold' || hull.holdScale > 0));
 }
 
 /**

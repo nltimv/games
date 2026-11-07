@@ -1,7 +1,9 @@
 // The interactive map: owns the canvas, the camera, when to draw, and
 // pointer input. With a mouse: click to select (Shift adds or removes a
-// ship), drag a box to select ships, right-click for the order menu, and
-// right-drag (or middle-drag) to pan. On touch: tap to select, drag to pan,
+// ship; where things overlap, clicking again picks the one behind),
+// double-click (a gate opens the system beyond), drag a box to select
+// ships, right-click for the order menu, and right-drag (or middle-drag)
+// to pan. On touch: tap to select, drag to pan,
 // pinch to zoom, press and hold for the order menu. The wheel zooms.
 //
 // The map only draws when something changed: input, a camera glide, a game
@@ -9,13 +11,15 @@
 // pixel or two a second, so when nothing else happens the map redraws a few
 // times a second at most, instead of every frame.
 
-import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { findSystem } from '../content/galaxy.js';
+import { sceneryOf } from '../content/scenery.js';
 import { HULLS, MODULES } from '../content/ships.js';
 import { shipPosition } from '../systems/travel.js';
-import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, zoomAt } from './camera.js';
+import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, startView, toScreen, zoomAt } from './camera.js';
 import { loadAssets } from './assets.js';
 import { clearLabels } from './labels.js';
-import { drawSystem, hitTest, renderBackground, shipsInBox } from './systemMap.js';
+import { drawSystem, hitsAt, hitTest, isPicked, pickNext, renderBackground, shipsInBox } from './systemMap.js';
+import { drawGalaxy, galaxyExtent, renderGalaxyBackground } from './galaxyMap.js';
 
 const DRAG_THRESHOLD = 6;
 const LONG_PRESS_MS = 480;
@@ -24,18 +28,29 @@ const LONG_PRESS_MS = 480;
 // docked ships circle.
 const FLIGHT_SPEED = ((Math.max(...MODULES.engine.levels) * Math.max(...Object.values(HULLS).map((hull) => hull.speedScale))) / 60) * 1.5;
 const DRIFT_SPEED = 0.6;
+// How fast a ship in a jump crosses the galaxy map at most (units/s): the
+// longest lanes with the fastest jump drive, at the middle of the jump.
+const GALAXY_SPEED = 1.5;
 const IDLE_MIN_MS = 50;
 const IDLE_MAX_MS = 1000;
+// How far inside the free area a pick must sit to count as in view (px).
+const REVEAL_MARGIN = 40;
 
 /**
  * options:
  *   getState()               the game state to draw
+ *   getScene()               { kind: 'system', id } or { kind: 'galaxy' }
  *   getSelection()           { kind, id } or null
  *   getMenuTarget()          { kind, id } the order menu is open for, or null
  *   getGuideTarget()         { kind, id } the tutorial points at, or null
+ *   getMarketGood()          the good whose prices the galaxy map shows, or null
+ *   getOpenSystem()          the system whose map the System view shows
+ *   isCompact()              true on a phone-sized screen
  *   getSafeArea(w, h)        the free screen rect { x, y, width, height }
+ *   getStartView(scene)      { zoom, x, y } a map opens at (default: all of it)
  *   onSelect(target, mods)   called with { kind, id } or null on a click;
  *                            mods.additive when Shift was held
+ *   onDoubleClick(target)    a double click on { kind, id }
  *   onBoxSelect(ids, mods)   the ship ids inside a dragged box (mouse)
  *   onContextMenu(target, p) right-click or long-press on { kind, id } (or
  *                            null); p is the viewport point { x, y }, with
@@ -44,11 +59,14 @@ const IDLE_MAX_MS = 1000;
 export function createMapView(canvas, options) {
   const ctx = canvas.getContext('2d', { alpha: false });
   const cam = createCamera();
-  const extent = HOME_SYSTEM.extent;
+  let extent = 480;
+  let sceneKey = null;
   let width = 0;
   let height = 0;
   let dpr = 1;
   let sky = null;
+  let skyFor = null;
+  let reveal = null;
   let targets = [];
   let hover = null;
   let box = null;
@@ -63,7 +81,7 @@ export function createMapView(canvas, options) {
     dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
-    sky = renderBackground(width, height, dpr);
+    sky = null;
     // Resizing clears the canvas: draw now so it never flashes empty.
     draw(true);
     invalidate();
@@ -71,19 +89,50 @@ export function createMapView(canvas, options) {
 
   /** Draws one frame. Returns true while the camera is still gliding. */
   function draw(snap = false) {
-    if (!sky) return false;
-    const fitting = fitCamera(cam, options.getSafeArea(width, height), extent, snap ? 1 : 0.2);
+    if (!width) return false;
+    const state = options.getState();
+    const scene = options.getScene?.() ?? { kind: 'system', id: 'aurel' };
+    const galaxy = scene.kind === 'galaxy';
+    // Each system has its own sky, and the galaxy map one of its own.
+    const skyKey = galaxy ? 'galaxy' : scene.id;
+    if (!sky || skyFor !== skyKey) {
+      sky = galaxy ? renderGalaxyBackground(width, height, dpr) : renderBackground(width, height, dpr, sceneryOf(findSystem(scene.id)).sky);
+      skyFor = skyKey;
+    }
+    extent = galaxy ? galaxyExtent(state) : (findSystem(scene.id)?.extent ?? 480);
+    // A different map starts from its own view (getStartView), or the whole map.
+    const key = galaxy ? 'galaxy' : `system:${scene.id}`;
+    if (key !== sceneKey) {
+      startView(cam, options.getStartView?.(scene), extent);
+      sceneKey = key;
+      hover = null;
+      snap = true;
+    }
+    const safe = options.getSafeArea(width, height);
+    const fitting = fitCamera(cam, safe, extent, snap ? 1 : 0.2);
+    if (reveal) {
+      // Slide a pick made off screen (from a list) into view.
+      const p = toScreen(cam, reveal.x, reveal.y);
+      const m = REVEAL_MARGIN;
+      if (p.x < safe.x + m || p.x > safe.x + safe.width - m || p.y < safe.y + m || p.y > safe.y + safe.height - m) cam.panTarget = { x: reveal.x, y: reveal.y };
+      reveal = null;
+    }
     const panning = easePan(cam, extent);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.drawImage(sky, 0, 0, width, height);
-    targets = drawSystem(ctx, cam, options.getState(), Date.now(), {
+    const view = {
+      systemId: scene.id,
       selection: options.getSelection(),
       target: options.getMenuTarget?.() ?? null,
       guide: options.getGuideTarget?.() ?? null,
       hover,
       boxed: box ? shipsInBox(targets, box.a, box.b) : null,
+      market: galaxy ? (options.getMarketGood?.() ?? null) : null,
+      current: galaxy ? (options.getOpenSystem?.() ?? null) : null,
+      compact: options.isCompact?.() ?? false,
       dpr,
-    });
+    };
+    targets = galaxy ? drawGalaxy(ctx, cam, state, Date.now(), view) : drawSystem(ctx, cam, state, Date.now(), view);
     if (box) drawBox(box);
     return fitting || panning;
   }
@@ -120,8 +169,16 @@ export function createMapView(canvas, options) {
     const state = options.getState();
     if (!state.ships.length) return;
     const now = Date.now();
-    const flying = state.ships.some((ship, i) => ship.order && shipPosition(ship, now, i).moving);
-    const pixelsPerSecond = (flying ? FLIGHT_SPEED : DRIFT_SPEED) * scaleOf(cam);
+    // The galaxy map only changes as ships cross lanes, slowly; a system map
+    // as ships fly and parked ships drift.
+    const galaxy = sceneKey === 'galaxy';
+    const moving = state.ships.some((ship, i) => {
+      if (!ship.order) return false;
+      const pos = shipPosition(ship, now, i);
+      return galaxy ? Boolean(pos.jump) : pos.moving;
+    });
+    const speed = galaxy ? (moving ? GALAXY_SPEED : 0) : moving ? FLIGHT_SPEED : DRIFT_SPEED;
+    const pixelsPerSecond = speed * scaleOf(cam);
     const delay = Math.min(IDLE_MAX_MS, Math.max(IDLE_MIN_MS, 1000 / Math.max(0.001, pixelsPerSecond)));
     idleTimer = setTimeout(() => {
       idleTimer = 0;
@@ -261,9 +318,21 @@ export function createMapView(canvas, options) {
     } else if (wasDrag.which === 'right' && !wasDrag.moved) {
       options.onContextMenu?.(hitTest(targets, wasDrag.start.x, wasDrag.start.y), { x: e.clientX, y: e.clientY });
     } else if ((wasDrag.which === 'left' || wasDrag.which === 'touch') && !wasDrag.moved) {
-      options.onSelect(hitTest(targets, p.x, p.y), mods);
+      options.onSelect(mods.additive ? hitTest(targets, p.x, p.y) : pickAt(p.x, p.y), mods);
     }
   }
+
+  const pickAt = (x, y) => pickNext(hitsAt(targets, x, y), options.getSelection());
+
+  // A double click acts on what its second click picked (see pickAt).
+  canvas.addEventListener('dblclick', (e) => {
+    if (e.shiftKey) return;
+    const p = localPoint(e);
+    const hits = hitsAt(targets, p.x, p.y);
+    const selection = options.getSelection();
+    const target = (selection && hits.find((hit) => isPicked(hit, selection))) || hits[0];
+    if (target) options.onDoubleClick?.(target);
+  });
 
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', endPointer);
@@ -347,6 +416,11 @@ export function createMapView(canvas, options) {
     zoomOut: () => zoomBy(1 / 1.3),
     fit: () => {
       resetView(cam);
+      invalidate();
+    },
+    /** Slides world point (x, y) into the middle if it is out of view (once the map shown is drawn). */
+    reveal(x, y) {
+      reveal = { x, y };
       invalidate();
     },
     /** Slides the view so world point (x, y) sits in the middle. */

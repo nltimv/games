@@ -1,11 +1,16 @@
 // Company goals, done in order. The first ones are the tutorial (the guide
 // card in ui/tutorial.js explains each); the rest lead to the warp drive,
-// which ends act 1. Each goal checks the state and pays its reward once.
-// `progress` (optional) feeds the progress bar on the goal card.
+// which ends act 1. Act 2's goals follow, its first three guided too, and
+// end with Station blueprints. Each goal checks the state and pays its
+// reward once. `progress` (optional) feeds the progress bar on the goal card.
 
 const mules = (s) => s.ships.filter((ship) => ship.hull === 'mule');
 const researched = (s, id) => s.research.done.includes(id);
 const hasOrders = (ship) => Boolean(ship.order) || ship.plan.length > 0;
+// Points for Friendly standing (see systems/standing.js), and the best
+// standing with any faction but Halcyon.
+const FRIENDLY = 50;
+const otherStanding = (s) => Math.max(0, ...Object.entries(s.standing ?? {}).filter(([id]) => id !== 'halcyon').map(([, points]) => points));
 
 export const GOALS = [
   {
@@ -31,10 +36,10 @@ export const GOALS = [
   },
   {
     id: 'first-contract',
-    title: 'Accept a contract',
+    title: 'Complete a contract',
     reward: 150,
     tutorial: true,
-    done: (s) => s.stats.contractsAccepted > 0,
+    done: (s) => s.stats.contracts > 0,
   },
   {
     id: 'third-mule',
@@ -83,7 +88,72 @@ export const GOALS = [
     reward: 0,
     done: (s) => researched(s, 'warp-drive'),
   },
+
+  // Act 2: Trader.
+  {
+    id: 'first-scout',
+    title: 'Buy a scout',
+    reward: 5000,
+    act: 2,
+    tutorial: true,
+    done: (s) => s.ships.some((ship) => ship.hull === 'lark'),
+  },
+  {
+    id: 'first-survey',
+    title: 'Survey a system',
+    reward: 10000,
+    act: 2,
+    tutorial: true,
+    done: (s) => (s.stats.surveys ?? 0) >= 1,
+  },
+  {
+    id: 'far-sale',
+    title: 'Sell goods in another system',
+    reward: 15000,
+    act: 2,
+    tutorial: true,
+    done: (s) => (s.stats.farSales ?? 0) >= 1,
+  },
+  {
+    id: 'survey-5',
+    title: 'Survey five systems',
+    reward: 25000,
+    act: 2,
+    done: (s) => (s.surveyed ?? []).length >= 5,
+    progress: (s) => ({ value: (s.surveyed ?? []).length, target: 5, unit: 'systems' }),
+  },
+  {
+    id: 'friendly-2',
+    title: 'Become Friendly with a second faction',
+    reward: 50000,
+    act: 2,
+    done: (s) => otherStanding(s) >= FRIENDLY,
+    progress: (s) => ({ value: Math.floor(otherStanding(s)), target: FRIENDLY, unit: 'points' }),
+  },
+  {
+    id: 'earn-2500000',
+    title: 'Earn 2,500,000 credits in total',
+    reward: 100000,
+    act: 2,
+    done: (s) => s.stats.earned >= 2500000,
+    progress: (s) => ({ value: s.stats.earned, target: 2500000, unit: 'credits' }),
+  },
+  {
+    id: 'fleet-12',
+    title: 'Run a fleet of twelve ships',
+    reward: 100000,
+    act: 2,
+    done: (s) => s.ships.length >= 12,
+    progress: (s) => ({ value: s.ships.length, target: 12, unit: 'ships' }),
+  },
+  {
+    id: 'station-blueprints',
+    title: 'Research Station blueprints',
+    reward: 0,
+    act: 2,
+    done: (s) => researched(s, 'station-blueprints'),
+  },
 ];
 
-/** Shown once the warp drive is done: what the next update brings. */
-export const NEXT_CHAPTER = 'The gates open with the next update: scouts, new systems and the galaxy map.';
+/** Shown once Station blueprints are done: what the next update brings. */
+export const NEXT_CHAPTER = 'Building your own stations comes with the next update.';

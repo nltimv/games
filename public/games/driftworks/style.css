@@ -378,6 +378,69 @@ button.dw-chip:hover {
   white-space: nowrap;
 }
 
+/* Market charts in a system's panel: good, cheapest to buy, best to sell. */
+.dw-price-table {
+  gap: 0;
+}
+
+.dw-price-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 76px 76px;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  text-align: left;
+  color: var(--glass-ink);
+}
+
+.dw-price-row .dw-name {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dw-price-row .dw-price {
+  font-size: 13px;
+  text-align: right;
+}
+
+.dw-price-row .dw-price.is-none {
+  color: var(--glass-muted);
+  font-weight: 400;
+}
+
+.dw-price-row.is-head {
+  min-height: 22px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--glass-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dw-price-row.is-head > span:nth-child(n + 3) {
+  text-align: right;
+}
+
+.dw-price-row.is-head .dw-name {
+  font-size: 11px;
+}
+
+button.dw-price-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+button.dw-price-row[aria-pressed='true'] {
+  background: var(--aqua-soft);
+  box-shadow: inset 0 0 0 1px var(--aqua-edge);
+}
+
 .dw-stock {
   width: 58px;
   text-align: right;
@@ -625,6 +688,31 @@ button.dw-chip:hover {
   font-weight: 700;
 }
 
+/* Pills that size to their text and wrap (the goods in Market charts). */
+.dw-choices.is-pills {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.dw-choices.is-pills .dw-choice {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dw-row-price {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 .dw-choice-row {
   display: flex;
   width: 100%;
@@ -748,6 +836,40 @@ button.dw-chip:hover {
 .dw-ship-icon.is-hauler {
   background: rgba(255, 211, 110, 0.12);
   border-color: rgba(255, 211, 110, 0.35);
+}
+
+.dw-ship-icon.is-scout {
+  background: rgba(150, 200, 255, 0.12);
+  border-color: rgba(150, 200, 255, 0.35);
+}
+
+/* A faction's colour as a small glowing dot, as on the galaxy map. */
+.dw-faction-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 10px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.35), inset 0 1px 2px rgba(255, 255, 255, 0.5);
+}
+
+.dw-faction-dot.is-large {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+
+.dw-faction-row {
+  align-items: flex-start;
+}
+
+.dw-faction-row:hover {
+  background: var(--dw-row);
+}
+
+.dw-faction-row .dw-faction-dot {
+  margin: 3px 0 0;
 }
 
 .dw-time {
@@ -941,7 +1063,7 @@ button.dw-chip:hover {
 }
 
 .dw-underway {
-  width: 340px;
+  width: 356px;
   max-width: 100%;
   border-radius: var(--radius-panel);
   padding: 14px 16px;
@@ -967,29 +1089,113 @@ button.dw-chip:hover {
   color: var(--glass-muted);
 }
 
-.dw-run {
+.dw-runs {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  width: 100%;
-  padding: 0;
+  gap: 2px;
+  max-height: calc(8.5 * 30px);
+  margin: 0 -8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* One ship per row: art, name, what it does and where, time left. */
+.dw-run {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: 24px 64px 16px minmax(0, 1fr) 76px;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 8px;
   border: 0;
+  border-radius: 9px;
   background: none;
   text-align: left;
+  font-size: 12.5px;
+  color: var(--glass-ink);
 }
 
-.dw-run-line {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
+.dw-run:hover,
+.dw-run:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
 }
 
-.dw-run-line span:first-child {
+.dw-ship-icon.is-small {
+  width: 24px;
+  height: 20px;
+  border-radius: 6px;
+}
+
+.dw-run-name {
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dw-run-where {
+  color: var(--glass-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dw-run-more {
+  color: var(--aqua);
+  font-weight: 700;
+}
+
+.dw-run-time {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.dw-run > .dw-bar {
+  position: absolute;
+  left: 39px;
+  right: 8px;
+  bottom: 1px;
+  height: 2px;
+}
+
+.dw-run.is-idle {
+  background: var(--gold-soft);
+}
+
+.dw-run.is-idle .dw-run-time {
+  color: #ffe6b0;
+}
+
+.dw-act {
+  display: flex;
+  color: #bfe9ff;
+}
+
+.dw-act.is-mine,
+.dw-act.is-deliver {
+  color: var(--aqua);
+}
+
+.dw-act.is-sell,
+.dw-act.is-wait {
+  color: var(--gold);
+}
+
+.dw-act.is-buy {
+  color: #9ec8ff;
+}
+
+.dw-act.is-jump {
+  color: #d3b8ff;
+}
+
+.dw-act.is-refit {
+  color: #dfe7f2;
 }
 
 .dw-underway-foot {
@@ -1373,17 +1579,46 @@ button.dw-chip:hover {
   color: var(--gold);
 }
 
-.dw-tag {
-  display: inline-block;
-  white-space: nowrap;
-  margin-left: 6px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
+.dw-contract-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
   color: #3a2a00;
-  background: var(--gold);
-  vertical-align: 1px;
+  background: radial-gradient(circle at 35% 30%, #fff6d8 0%, var(--gold) 45%, #e0a52c 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 1px 4px rgba(0, 0, 0, 0.35);
+  vertical-align: -3px;
+}
+
+.dw-marks {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.dw-marks .dw-contract-mark {
+  margin-right: 0;
+}
+
+.dw-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dw-card-title .dw-contract-mark,
+.dw-ship-row > .dw-contract-mark {
+  margin-right: 0;
+}
+
+.dw-contract-mark.is-running {
+  color: var(--aqua-ink);
+  background: radial-gradient(circle at 35% 30%, #e6fff9 0%, var(--aqua) 45%, #22b8a0 100%);
 }
 
 .dw-hull.is-locked {
@@ -1712,9 +1947,8 @@ button.dw-chip:hover {
     gap: 8px;
   }
 
-  .dw-underway .dw-run:nth-of-type(n + 3),
-  .dw-underway .dw-underway-sub {
-    display: none;
+  .dw-underway .dw-runs {
+    max-height: calc(3.5 * 30px);
   }
 
   .dw-nav {

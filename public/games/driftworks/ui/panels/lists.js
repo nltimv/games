@@ -1,68 +1,21 @@
-// List panels: the system overview, the fleet, the company (goals, stats and
-// log), and the locked warp gates.
+// List panels: the fleet, several selected ships, and the company (goals,
+// stats and log). Systems and gates are in system.js.
 
 import { GOALS, NEXT_CHAPTER } from '../../content/goals.js';
-import { GOODS, goodName } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
-import { STATION_TYPES, FACTIONS } from '../../content/stations.js';
-import { HOME_SYSTEM, findStation } from '../../content/homeSystem.js';
+import { HOME_SYSTEM } from '../../content/homeSystem.js';
+import { allFactions, allSystems } from '../../content/galaxy.js';
 import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/format.js';
-import { CONTRACT_RULES, acceptContract, boardOpen, premiumText } from '../../systems/contracts.js';
+import { CONTRACT_RULES, boardOpen, contractPlace } from '../../systems/contracts.js';
 import { currentGoal } from '../../systems/goals.js';
+import { isSurveyed } from '../../systems/explore.js';
+import { canJump } from '../../systems/travel.js';
 import { findShip } from '../../systems/fleet.js';
-import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, rerunnable, runAgain, runAllAgain, shipStatus } from '../../systems/orders.js';
+import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, runAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, fieldIcon, gateIcon, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
+import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { plural, tonnes } from '../format.js';
-import { richnessLabel } from './field.js';
-
-// ---------- System overview ----------
-
-export function overviewPanel(ctx) {
-  const system = HOME_SYSTEM;
-  const stationRows = system.stations.map((station) =>
-    h(
-      'button',
-      { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('station', station.id), dataset: { key: `ov-${station.id}` } },
-      h('span', { class: 'dw-ship-icon is-art', 'aria-hidden': 'true' }, stationIcon(station.type, { size: 34 })),
-      h('span', { class: 'dw-grow' }, h('strong', null, station.name), h('small', null, STATION_TYPES[station.type].description)),
-    ),
-  );
-  const fieldRows = system.fields.map((field) =>
-    h(
-      'button',
-      { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('field', field.id), dataset: { key: `ov-${field.id}` } },
-      h('span', { class: 'dw-ship-icon is-art', 'aria-hidden': 'true' }, fieldIcon(field.good, 34)),
-      h('span', { class: 'dw-grow' }, h('strong', null, field.name), h('small', null, `${GOODS[field.good].name} · ${richnessLabel(field.richness).toLowerCase()}`)),
-    ),
-  );
-  return [
-    panelHead({
-      title: `${system.name} system`,
-      subtitle: `${FACTIONS[system.faction].name} space · your home`,
-      onClose: ctx.isPhone() ? ctx.close : null,
-    }),
-    h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)),
-    h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)),
-    h(
-      'div',
-      { class: 'dw-section' },
-      sectionTitle('Warp gates'),
-      h('p', { class: 'dw-note' }, `${plural(system.gates.length, 'gate')} lead out of ${system.name}. ${NEXT_CHAPTER}`),
-    ),
-  ];
-}
-
-// ---------- Gate ----------
-
-export function gatePanel(ctx, gateId) {
-  const gate = HOME_SYSTEM.gates.find((g) => g.id === gateId);
-  return [
-    panelHead({ icon: gateIcon(), title: gate.name, subtitle: 'Warp gate · locked', onClose: ctx.close }),
-    h('p', { class: 'dw-note' }, `Gates link ${HOME_SYSTEM.name} to the systems next door. Each jump will cost credits and time.`),
-    h('div', { class: 'dw-card is-gold' }, h('strong', null, 'Coming next'), h('p', { class: 'dw-note' }, NEXT_CHAPTER)),
-  ];
-}
+import { factionRow } from './factions.js';
 
 // ---------- Fleet ----------
 
@@ -71,10 +24,8 @@ export function fleetPanel(ctx) {
   const ships = [...state.ships].sort((a, b) => (a.order?.endsAt ?? 0) - (b.order?.endsAt ?? 0));
   const idle = ships.filter((s) => !s.order).length;
   const rows = ships.map((ship) => shipRow(ctx, ship));
-  const again = rerunnable(state);
   return [
     panelHead({ title: 'Fleet', subtitle: `${plural(ships.length, 'ship')} · ${idle} waiting for orders`, onClose: ctx.close }),
-    again.length ? runAllButton(ctx, again.length) : null,
     h('ul', { class: 'dw-list' }, rows),
     button('Buy ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
   ];
@@ -144,7 +95,7 @@ export function shipRow(ctx, ship) {
       h(
         'span',
         { class: 'dw-grow' },
-        h('strong', null, `${ship.name} · ${HULLS[ship.hull].role === 'hauler' ? 'hauler' : 'miner'}`),
+        h('strong', null, `${ship.name} · ${HULLS[ship.hull].role}`),
         h('small', null, shipStatus(ship, ctx.now)),
         phase ? bar({ start: phase.start, end: phase.end }) : null,
       ),
@@ -154,6 +105,20 @@ export function shipRow(ctx, ship) {
 }
 
 // ---------- Company ----------
+
+/** Standing with each faction met so far (from the warp drive on). */
+function standingSection(ctx) {
+  const { state } = ctx;
+  if (!canJump(state)) return null;
+  const met = new Set(allSystems().filter((system) => isSurveyed(state, system.id)).map((system) => system.faction));
+  const factions = allFactions().filter((faction) => met.has(faction.id));
+  return h(
+    'div',
+    { class: 'dw-section' },
+    sectionTitle('Standing', `${plural((state.surveyed?.length ?? 0) + 1, 'system')} surveyed`),
+    h('ul', { class: 'dw-list' }, factions.map((faction) => factionRow(state, faction))),
+  );
+}
 
 export function companyPanel(ctx) {
   const { state } = ctx;
@@ -168,7 +133,7 @@ export function companyPanel(ctx) {
         h('div', { class: 'dw-card-head' }, h('strong', null, goal.title), rewardText(goal)),
         goal.progress ? goalProgress(goal.progress(state)) : null,
       )
-    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, 'Act 1 complete'), h('strong', null, 'The warp drive is ready'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));
+    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, 'Act 2 complete'), h('strong', null, 'Station blueprints are ready'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));
 
   const goals = GOALS.map((g) => {
     const done = state.goals.includes(g.id);
@@ -193,6 +158,7 @@ export function companyPanel(ctx) {
     panelHead({ title: 'Your company', subtitle: `Founded ${new Date(state.createdAt).toLocaleDateString()} · ${HOME_SYSTEM.name}`, onClose: ctx.close }),
     goalCard,
     contractsSection(ctx),
+    standingSection(ctx),
     h('div', { class: 'dw-section' }, sectionTitle('Goals', `${state.goals.length} / ${GOALS.length}`, { numeric: true }), h('ul', { class: 'dw-list' }, goals)),
     h(
       'div',
@@ -223,60 +189,37 @@ function rewardText(goal) {
   return h('span', { class: 'dw-goal-reward' }, goal.reward ? `+${formatCredits(goal.reward)}` : 'Ends act 1');
 }
 
-/** One button that repeats every idle ship's last orders. */
-export function runAllButton(ctx, count) {
-  return button(`Run all again`, {
-    variant: 'primary',
-    block: true,
-    sub: plural(count, 'ship'),
-    key: 'run-all-again',
-    onClick: () => {
-      const result = ctx.act((s) => runAllAgain(s));
-      if (result?.ok) ctx.toast(`${plural(result.count, 'ship')} running their last orders again`, 'order');
-    },
-  });
-}
-
 // ---------- Contracts ----------
 
+/** The contracts running now; each opens its station. */
 function contractsSection(ctx) {
   const { state, now } = ctx;
   if (!boardOpen(state)) return null;
-  const { active, offers } = state.contracts;
-  const full = active.length >= CONTRACT_RULES.maxActive;
-  const what = (c) => `${tonnes(c.qty)} ${goodName(c.good).toLowerCase()} for ${findStation(c.stationId).name}`;
-  const activeCards = active
-    .filter((c) => c.deadline > now)
-    .map((c) =>
-      h(
-        'div',
-        { class: 'dw-card is-gold' },
-        h('div', { class: 'dw-card-head' }, h('strong', null, [swatch(c.good), ` ${what(c)}`]), countdown(c.deadline)),
-        bar({ fraction: c.delivered / c.qty, variant: 'gold' }),
-        h('span', { class: 'dw-note' }, `${tonnes(c.delivered)} delivered · pays ${premiumText(c)} over market`),
-      ),
-    );
-  const offerRows = offers.map((offer) =>
+  const running = state.contracts.active.filter((c) => c.deadline > now);
+  const rows = running.map((c) =>
     h(
       'li',
-      { class: 'dw-ship-row' },
-      swatch(offer.good),
-      h('span', { class: 'dw-grow' }, h('strong', null, what(offer)), h('small', null, `${premiumText(offer)} over market · ${CONTRACT_RULES.hours} h to deliver`)),
-      button('Accept', {
-        small: true,
-        variant: full ? null : 'primary',
-        disabled: full,
-        key: `accept-${offer.id}`,
-        onClick: () => ctx.act((s, t) => acceptContract(s, offer.id, t)),
-      }),
+      null,
+      h(
+        'button',
+        { type: 'button', class: 'dw-ship-row', dataset: { key: `contract-${c.id}` }, onClick: () => ctx.select('station', c.stationId) },
+        contractMark(true),
+        h(
+          'span',
+          { class: 'dw-grow' },
+          h('strong', { class: 'dw-card-title' }, swatch(c.good), `${tonnes(c.qty, c.good)} for ${contractPlace(c)}`),
+          h('small', null, `${tonnes(c.delivered)} delivered · pays ${formatCredits(c.reward)}`),
+          bar({ fraction: c.delivered / c.qty }),
+        ),
+        countdown(c.deadline),
+      ),
     ),
   );
   return h(
     'div',
     { class: 'dw-section' },
-    sectionTitle('Contracts', `${active.length} / ${CONTRACT_RULES.maxActive}`, { numeric: true }),
-    activeCards,
-    offerRows.length ? h('ul', { class: 'dw-list' }, offerRows) : h('p', { class: 'dw-note' }, 'No offers right now.'),
+    sectionTitle('Contracts', `${running.length} / ${CONTRACT_RULES.maxActive}`, { numeric: true }),
+    rows.length ? h('ul', { class: 'dw-list' }, rows) : h('p', { class: 'dw-note' }, 'No contracts running.'),
   );
 }
 

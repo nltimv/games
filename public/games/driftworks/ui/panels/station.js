@@ -1,24 +1,28 @@
 // A station: its market (or ships for sale), the ships docked there, and
 // ships elsewhere that could come over.
 
-import { FACTIONS, STATION_TYPES } from '../../content/stations.js';
+import { stationTint } from '../../content/scenery.js';
+import { STATION_TYPES } from '../../content/stations.js';
 import { HULLS, HOLD_CLASS_MAX_TIER, MODULES } from '../../content/ships.js';
 import { GOODS, goodName } from '../../content/goods.js';
-import { HOME_SYSTEM, findPlace, findStation } from '../../content/homeSystem.js';
+import { findFaction, findPlace, findStation, systemOf } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
+import { HOUR } from '../../core/time.js';
 import { buyCargo, cargoTotal, sellCargo } from '../../systems/cargo.js';
-import { contractFor, premiumText } from '../../systems/contracts.js';
-import { buyShip, findShip, hullsForSale, missingLicence, shipPrice } from '../../systems/fleet.js';
+import { CONTRACT_RULES, acceptContract, activeAt, boardOpen, contractFor, deliverCargo, offersAt, stillNeeded } from '../../systems/contracts.js';
+import { buyShip, findShip, hullLock, hullsForSale, shipPrice } from '../../systems/fleet.js';
 import { marketEntries, marketView } from '../../systems/market.js';
+import { knownAt, seenAt } from '../../systems/knowledge.js';
 import { holdOf } from '../../systems/modules.js';
 import { giveOrder, orderRefit, refitAll, refitOffer } from '../../systems/orders.js';
 import { bestModules } from '../../systems/research.js';
-import { travelTime } from '../../systems/travel.js';
+import { canJump, plotCourse } from '../../systems/travel.js';
+import { standingLevel } from '../../systems/standing.js';
 import { bestTradeQty, buyersOf, maxPurchase, saleHere, tradePlan } from '../../systems/advisor.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, contractTag, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
+import { button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { formatPrice, minusCredits, plural, plusCredits, tonnes, trip } from '../format.js';
+import { ago, formatPrice, minusCredits, plural, plusCredits, routeText, signedCredits, tonnes, trip } from '../format.js';
 
 const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
 const isMiner = (ship) => HULLS[ship.hull].role === 'miner';
@@ -31,32 +35,48 @@ export function stationPanel(ctx, stationId) {
   const incoming = state.ships.filter((s) => s.order?.target === stationId);
 
   return [
-    panelHead({ icon: stationIcon(station.type), title: station.name, subtitle: type.description, onClose: ctx.close }),
+    panelHead({ icon: stationIcon(station.type, { tint: stationTint(station) }), title: station.name, subtitle: type.description, onClose: ctx.close }),
     h(
       'div',
       { class: 'dw-chips' },
-      chip(FACTIONS[station.faction].name),
+      factionChip(state, station),
       chip(type.label),
+      seenChip(ctx, station),
       docked.length ? chip(`${plural(docked.length, 'ship')} docked`, 'aqua') : null,
       incoming.length ? chip(`${incoming.length} on the way`) : null,
     ),
     // Ships come first: selling what just arrived is the usual reason to
     // open a station.
     dockedSection(ctx, station, docked),
-    contractsHere(ctx, station),
-    station.type === 'shipyard' ? [refitSection(ctx), shipyardSection(ctx, station)] : marketSection(ctx, station, docked),
+    contractsSection(ctx, station),
+    station.type === 'shipyard' ? [refitSection(ctx, station), shipyardSection(ctx, station)] : marketSection(ctx, station, docked),
     elsewhereSection(ctx, station),
   ];
 }
 
+/** The station's faction, with your standing once standing counts (act 2). */
+function factionChip(state, station) {
+  const name = findFaction(station.faction)?.name ?? 'Unclaimed';
+  if (!canJump(state)) return chip(name);
+  return chip(`${name} · ${standingLevel(state, station.faction).name}`);
+}
+
 // ---------- Market ----------
+
+/** Where no ship is, the prices are the ones last seen: how old they are. */
+function seenChip(ctx, station) {
+  if (station.type === 'shipyard') return null;
+  const seen = seenAt(ctx.state, systemOf(station.id), ctx.now);
+  return seen == null ? null : chip(`Prices seen ${ago(ctx.now - seen)}`);
+}
 
 function marketSection(ctx, station, docked) {
   const { state, now, ui } = ctx;
   const haulers = docked.filter(isHauler);
   const trade = ui.trade?.stationId === station.id ? ui.trade : null;
   const hauler = haulers.find((s) => s.id === trade?.shipId) ?? haulers[0] ?? null;
-  const views = marketEntries(station.id).map((e) => marketView(state, station.id, e.good, now));
+  const known = knownAt(state, station.id, now);
+  const views = marketEntries(station.id).map((e) => marketView(state, station.id, e.good, known));
   const buys = views.filter((v) => v.side === 'buys');
   const sells = views.filter((v) => v.side === 'sells');
 
@@ -65,7 +85,7 @@ function marketSection(ctx, station, docked) {
       'div',
       { class: 'dw-market-row' },
       swatch(v.good),
-      h('span', { class: 'dw-name' }, goodName(v.good), contractTag(contractFor(state, station.id, v.good, now))),
+      h('span', { class: 'dw-name' }, goodName(v.good)),
       h('span', { class: 'dw-price' }, formatPrice(v.price)),
       bar({ fraction: 1 - v.fill, small: true }),
       trendMark(v.pressure),
@@ -148,9 +168,9 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note is-warn' }, reason));
   }
 
-  const buyers = buyersOf(state, good, now).filter(({ station: s }) => s.id !== station.id);
+  const buyers = buyersOf(state, good, now).filter(({ station: s }) => s.id !== station.id && tradePlan(state, hauler, good, 1, s.id, now).reachable);
   if (!buyers.length) {
-    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note' }, `Nobody else in ${HOME_SYSTEM.name} buys ${goodName(good).toLowerCase()} yet.`));
+    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note' }, `Nobody else you know of buys ${goodName(good).toLowerCase()} yet.`));
   }
 
   // Default destination: the best profit at the best quantity.
@@ -184,25 +204,14 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
           dataset: { key: `trade-dest-${dest.id}` },
           onClick: () => ctx.update({ trade: { ...trade, dest: dest.id } }),
         },
-        h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name, contractTag(contractFor(state, dest.id, good, now))), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, profitText(p.profit))),
-        h('span', null, `${trip(p.travel)} away · sells for about ${formatCredits(p.sell.total)}`),
+        h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, signedCredits(p.profit))),
+        h('span', null, `${p.jumps ? routeText({ jumps: p.jumps, time: p.travel, fees: p.fees }) : `${trip(p.travel)} away`} · sells for about ${formatCredits(p.sell.total)}`),
       );
     }),
   );
 
-  const send = () => {
-    const result = ctx.act((s) => {
-      const ship = findShip(s, hauler.id);
-      const bought = buyCargo(s, ship, good, qty);
-      if (!bought.ok) return bought;
-      return giveOrder(s, ship, { type: 'sell', stationId: chosen.dest.id, good });
-    });
-    if (result?.ok) {
-      ctx.update({ trade: null });
-      orderToast(ctx, hauler, result);
-    }
-  };
-  const buyOnly = () => {
+  // One order at a time: selling is the next one, given at the buyer.
+  const buy = () => {
     const result = ctx.act((s) => buyCargo(s, findShip(s, hauler.id), good, qty));
     if (result?.ok) ctx.update({ trade: null });
   };
@@ -221,21 +230,16 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     ),
     destChoices,
     line(`Buy ${tonnes(plan.qty, good)} here`, minusCredits(plan.buy.total)),
-    line([`Sell at ${chosen.dest.name}`, contractTag(contractFor(state, chosen.dest.id, good, now))], `about ${plusCredits(plan.sell.total)}`),
-    line('Expected profit', profitText(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`),
+    line(`Sell at ${chosen.dest.name}`, `about ${plusCredits(plan.sell.total)}`),
+    plan.fees ? line(`Jump fees · ${plural(plan.jumps, 'jump')}`, minusCredits(plan.fees)) : null,
+    line('Expected profit', signedCredits(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`),
     plan.profit <= 0 ? h('p', { class: 'dw-note is-warn' }, 'Prices here and there are too close right now. They drift back over a few hours.') : null,
     h(
       'div',
       { class: 'dw-row-actions' },
-      button(`Buy and send ${hauler.name}`, { variant: 'primary', onClick: send, key: 'trade-send' }),
-      button('Buy only', { onClick: buyOnly, key: 'trade-buy-only' }),
+      button(`Buy ${tonnes(plan.qty, good)}`, { variant: 'primary', onClick: buy, key: 'trade-buy', sub: minusCredits(plan.buy.total) }),
     ),
   );
-}
-
-function profitText(value) {
-  const rounded = Math.round(value);
-  return rounded >= 0 ? plusCredits(rounded) : minusCredits(-rounded);
 }
 
 // ---------- Shipyard ----------
@@ -245,25 +249,26 @@ function shipyardSection(ctx, station) {
   const price = shipPrice(state);
   const short = price - state.credits;
   const best = bestModules(state);
-  const cards = hullsForSale(station.id).map((hullId) => {
+  const cards = hullsForSale(state, station.id).map((hullId) => {
     const hull = HULLS[hullId];
-    const licence = missingLicence(state, hullId);
+    const lock = hullLock(state, hullId, station.id);
     const probe = { hull: hullId, modules: best };
+    const holds = hull.holdScale > 0;
     return h(
       'div',
-      { class: `dw-card dw-hull${licence ? ' is-locked' : ''}` },
-      h('div', { class: 'dw-card-head' }, h('strong', null, hull.name), h('span', null, licence ? 'Locked' : formatCredits(price))),
+      { class: `dw-card dw-hull${lock ? ' is-locked' : ''}` },
+      h('div', { class: 'dw-card-head' }, h('strong', null, hull.name), h('span', null, lock ? 'Locked' : formatCredits(price))),
       h('p', { class: 'dw-note' }, hull.blurb),
       h(
         'dl',
         { class: 'dw-specs' },
-        spec('Hold', tonnes(holdOf(probe))),
+        holds ? spec('Hold', tonnes(holdOf(probe))) : null,
         spec('Speed', `${Math.round(MODULES.engine.levels[best.engine] * hull.speedScale)} u/min`),
         hull.role === 'miner' ? spec('Mining', `${MODULES.laser.levels[best.laser]} t/min`) : null,
-        spec('Carries', `tiers 1–${HOLD_CLASS_MAX_TIER[hull.holdClass]}`),
+        holds ? spec('Carries', `tiers 1–${HOLD_CLASS_MAX_TIER[hull.holdClass]}`) : null,
       ),
-      licence
-        ? h('p', { class: 'dw-note' }, `Needs the ${licence.name} research.`)
+      lock
+        ? h('p', { class: 'dw-note' }, lock)
         : button(short > 0 ? `Need ${formatCredits(short)} more` : `Buy for ${formatCredits(price)}`, {
             variant: 'primary',
             disabled: short > 0,
@@ -280,7 +285,7 @@ function shipyardSection(ctx, station) {
   );
 }
 
-function refitSection(ctx) {
+function refitSection(ctx, station) {
   const { state } = ctx;
   const behind = state.ships.map((ship) => ({ ship, offer: refitOffer(state, ship) })).filter((r) => r.offer);
   if (!behind.length) return null;
@@ -297,7 +302,7 @@ function refitSection(ctx) {
         disabled: state.credits < offer.cost,
         label: `Refit ${ship.name} for ${formatCredits(offer.cost)}`,
         onClick: () => {
-          const result = ctx.act((s) => orderRefit(s, findShip(s, ship.id)));
+          const result = ctx.act((s) => orderRefit(s, findShip(s, ship.id), station.id));
           if (result?.ok) orderToast(ctx, ship, result);
         },
       }),
@@ -315,7 +320,7 @@ function refitSection(ctx) {
           key: 'refit-all',
           disabled: state.credits < behind[0].offer.cost,
           onClick: () => {
-            const result = ctx.act((s) => refitAll(s));
+            const result = ctx.act((s) => refitAll(s, station.id));
             if (result?.ok) ctx.toast(`${plural(result.count, 'ship')} booked for a refit: −${formatCredits(result.cost)}`, 'purchase');
           },
         })
@@ -340,24 +345,41 @@ function refitChanges(ship, modules) {
 
 // ---------- Contracts ----------
 
-function contractsHere(ctx, station) {
+/** Contracts running here, and offers waiting to be accepted. */
+function contractsSection(ctx, station) {
   const { state, now } = ctx;
-  const here = state.contracts.active.filter((c) => c.stationId === station.id && c.deadline > now);
-  if (!here.length) return null;
-  return h(
-    'div',
-    { class: 'dw-section' },
-    sectionTitle('Contracts here'),
-    here.map((c) =>
-      h(
-        'div',
-        { class: 'dw-card is-gold' },
-        h('div', { class: 'dw-card-head' }, h('strong', null, [swatch(c.good), ` ${goodName(c.good)} ${premiumText(c)}`]), countdown(c.deadline)),
-        bar({ fraction: c.delivered / c.qty, variant: 'gold' }),
-        h('span', { class: 'dw-note' }, `${tonnes(c.delivered)} of ${tonnes(c.qty)} delivered`),
-      ),
+  if (!boardOpen(state)) return null;
+  const running = activeAt(state, station.id, now);
+  const offers = offersAt(state, station.id, now);
+  if (!running.length && !offers.length) return null;
+  const held = state.contracts.active.length;
+  const full = held >= CONTRACT_RULES.maxActive;
+  const head = (contract, isRunning, right) =>
+    h('div', { class: 'dw-card-head' }, h('strong', { class: 'dw-card-title' }, contractMark(isRunning), swatch(contract.good), tonnes(contract.qty, contract.good)), right);
+  const runningCards = running.map((c) =>
+    h(
+      'div',
+      { class: 'dw-card is-aqua', dataset: { key: `contract-${c.id}` } },
+      head(c, true, countdown(c.deadline)),
+      bar({ fraction: c.delivered / c.qty }),
+      h('span', { class: 'dw-note' }, `${tonnes(c.delivered)} of ${tonnes(c.qty)} delivered · pays ${formatCredits(c.reward)}`),
     ),
   );
+  const offerCards = offers.map((offer) =>
+    h(
+      'div',
+      { class: 'dw-card is-gold' },
+      head(offer, false, h('strong', { class: 'is-good' }, formatCredits(offer.reward))),
+      h('span', { class: 'dw-note' }, `${trip(offer.hours * HOUR)} to deliver · `, countdown(offer.expiresAt, { prefix: 'offer ends in ' })),
+      button(full ? `You hold ${CONTRACT_RULES.maxActive} contracts` : 'Accept', {
+        variant: full ? null : 'primary',
+        disabled: full,
+        key: `accept-${offer.id}`,
+        onClick: () => ctx.act((s, t) => acceptContract(s, offer.id, t)),
+      }),
+    ),
+  );
+  return h('div', { class: 'dw-section' }, sectionTitle('Contracts', `${held} / ${CONTRACT_RULES.maxActive} held`, { numeric: true }), runningCards, offerCards);
 }
 
 function spec(term, value) {
@@ -378,20 +400,32 @@ function dockedCard(ctx, station, ship) {
   const actions = [];
 
   for (const good of goods) {
+    const contract = contractFor(state, station.id, good, now);
+    if (contract) {
+      const qty = Math.min(Math.floor(ship.cargo[good]), stillNeeded(contract));
+      actions.push(
+        button([contractMark(true), `Deliver ${tonnes(qty, good)}`], {
+          variant: 'primary',
+          sub: qty >= stillNeeded(contract) ? plusCredits(contract.reward) : `${tonnes(contract.delivered + qty)} of ${tonnes(contract.qty)}`,
+          key: `deliver-${ship.id}-${good}`,
+          onClick: () => ctx.act((s) => deliverCargo(s, findShip(s, ship.id), good)),
+        }),
+      );
+    }
     const sale = saleHere(state, ship, good, now);
     if (sale && sale.qty > 0) {
       actions.push(
-        button([`Sell ${tonnes(sale.qty, good)}`, contractTag(contractFor(state, station.id, good, now))], {
-          variant: 'primary',
+        button(`Sell ${tonnes(sale.qty, good)}`, {
+          variant: contract ? null : 'primary',
           sub: plusCredits(sale.total),
           key: `sell-${ship.id}-${good}`,
           onClick: () => ctx.act((s) => sellCargo(s, findShip(s, ship.id), good)),
         }),
       );
-    } else {
+    } else if (!contract) {
       actions.push(
-        button(`Deliver ${goodName(good).toLowerCase()} elsewhere`, {
-          key: `deliver-${ship.id}-${good}`,
+        button(`Sell ${goodName(good).toLowerCase()} elsewhere`, {
+          key: `elsewhere-${ship.id}-${good}`,
           onClick: () => ctx.select('ship', ship.id),
         }),
       );
@@ -428,20 +462,31 @@ function elsewhereSection(ctx, station) {
       const result = ctx.act((s) => giveOrder(s, findShip(s, ship.id), spec));
       if (result?.ok) orderToast(ctx, ship, result);
     };
-    const time = travelTime(ship, ship.at, station.id);
+    // Only ships with a known route here.
+    const course = plotCourse(state, ship, ship.at, station.id);
+    if (!course.ok) return null;
+    const wanted = Object.keys(ship.cargo).find((g) => ship.cargo[g] >= 1 && contractFor(state, station.id, g, now));
     const sellable = Object.keys(ship.cargo).find((g) => ship.cargo[g] > 0 && marketView(state, station.id, g, now)?.side === 'buys');
-    const action = sellable
-      ? button([`Deliver ${tonnes(ship.cargo[sellable], sellable)}`, contractTag(contractFor(state, station.id, sellable, now))], {
+    const action = wanted
+      ? button([contractMark(true), `Deliver ${tonnes(Math.min(ship.cargo[wanted], stillNeeded(contractFor(state, station.id, wanted, now))), wanted)}`], {
           small: true,
           variant: 'primary',
           key: `bring-${ship.id}`,
-          sub: trip(time),
+          sub: routeText(course),
+          onClick: () => send({ type: 'deliver', stationId: station.id, good: wanted }),
+        })
+      : sellable
+      ? button(`Sell ${tonnes(ship.cargo[sellable], sellable)}`, {
+          small: true,
+          variant: 'primary',
+          key: `bring-${ship.id}`,
+          sub: routeText(course),
           onClick: () => send({ type: 'sell', stationId: station.id, good: sellable }),
         })
       : button(`Fly here`, {
           small: true,
           key: `bring-${ship.id}`,
-          sub: trip(time),
+          sub: routeText(course),
           onClick: () => send({ type: 'fly', stationId: station.id }),
         });
     return h(
@@ -452,5 +497,6 @@ function elsewhereSection(ctx, station) {
       action,
     );
   });
+  if (!rows.some(Boolean)) return null;
   return h('div', { class: 'dw-section' }, sectionTitle('Send a ship here'), h('ul', { class: 'dw-list' }, rows));
 }
