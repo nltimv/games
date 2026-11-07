@@ -85,9 +85,9 @@ function describe(option) {
       return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: timing(option), good: option.good };
     case 'trade':
       return {
-        label: `Bring ${tonnes(option.qty, option.good)}`,
+        label: `${option.outbound ? 'Take' : 'Bring'} ${tonnes(option.qty, option.good)}`,
         value: blocked ?? `about ${plusCredits(option.profit)}`,
-        note: `Bought at ${findStation(option.fromId).name} for ${formatCredits(option.cost)} · ${option.jumps ? `${plural(option.jumps, 'jump')}, ${formatCredits(option.fees)}` : '2 orders'}`,
+        note: `${option.outbound ? `Sold at ${placeName(option.stationId, option.fromId)}` : `Bought at ${findStation(option.fromId).name}`} for ${formatCredits(option.outbound ? option.cost + option.profit + option.fees : option.cost)} · ${option.jumps ? `${plural(option.jumps, 'jump')}, ${formatCredits(option.fees)}` : '2 orders'}`,
         good: option.good,
         contract: option.contract,
       };
@@ -121,7 +121,14 @@ export function modulesText(modules) {
 }
 
 function optionKey(option) {
-  return `menu-${option.kind}-${option.good ?? ''}`;
+  return `menu-${option.outbound ? 'take' : option.kind}-${option.good ?? ''}`;
+}
+
+/** Where a trade sells: the station, and its system when that is another one and the name does not say. */
+function placeName(stationId, fromId) {
+  const station = findStation(stationId);
+  const system = findSystem(systemOf(stationId));
+  return systemOf(stationId) === systemOf(fromId) || station.name.startsWith(system.name) ? station.name : `${station.name} in ${system.name}`;
 }
 
 /** Why the ship has no orders for the target. */
@@ -248,9 +255,9 @@ function describeGroup(option) {
       return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), good: option.good };
     case 'trade':
       return {
-        label: `Bring ${tonnes(option.qty, option.good)}`,
+        label: `${option.outbound ? 'Take' : 'Bring'} ${tonnes(option.qty, option.good)}`,
         value: blocked ?? `about ${plusCredits(option.profit)}`,
-        note: `from ${findStation(option.fromId).name} for ${formatCredits(option.cost)}`,
+        note: option.outbound ? `to ${placeName(option.stationId, option.fromId)}` : `from ${findStation(option.fromId).name} for ${formatCredits(option.cost)}`,
         good: option.good,
         contract: option.contract,
       };
@@ -266,6 +273,7 @@ function describeGroup(option) {
 }
 
 function groupKey(option) {
+  if (option.outbound) return `menu-take-${option.good}-${option.stationId}`;
   return `menu-${option.kind}-${option.good ?? ''}${option.kind === 'trade' ? `-${option.fromId}` : ''}`;
 }
 

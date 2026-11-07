@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { advance } from '../../public/games/driftworks/core/sim.js';
-import { groupOrderOptions, orderOptions } from '../../public/games/driftworks/systems/advisor.js';
+import { groupOrderOptions, orderOptions, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
+import { holdOf } from '../../public/games/driftworks/systems/modules.js';
+import { affordableQty } from '../../public/games/driftworks/systems/market.js';
 import { carryOut, carryOutGroup } from '../../public/games/driftworks/systems/commands.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
@@ -75,6 +77,37 @@ test('a hauler is offered trades from where it is, best first, as two orders', (
   assert.equal(kite.at, 'halcyon-foundry');
   assert.deepEqual(kite.cargo, {});
   assert.ok(state.stats.tradeProfit > 0);
+});
+
+test('at a station that sells, a hauler is offered to take a paying amount to the best buyer', () => {
+  const state = newGame({ credits: 1_000_000 });
+  const kite = createShip(state, 'heron', 'halcyon-foundry');
+  // A big hold: all the silicon the refinery has would sink the foundry's price below what it cost.
+  kite.modules.hold = 4;
+  const all = affordableQty(state, 'halcyon-refinery', 'silicon', state.credits, holdOf(kite));
+  assert.ok(tradePlan(state, kite, 'silicon', all, 'halcyon-foundry', state.now, 'halcyon-refinery').profit < 0);
+
+  const options = orderOptions(state, kite, station('halcyon-refinery'));
+  const takes = options.filter((o) => o.kind === 'trade' && o.outbound);
+  assert.ok(takes.length >= 1 && takes.length <= 3);
+  for (const take of takes) {
+    assert.equal(take.fromId, 'halcyon-refinery');
+    assert.equal(take.stationId, 'halcyon-foundry');
+    assert.ok(take.qty > 0 && take.profit > 0);
+  }
+  assert.ok(takes.find((take) => take.good === 'silicon').qty < all);
+  for (let i = 1; i < takes.length; i += 1) assert.ok(takes[i - 1].profit >= takes[i].profit);
+  // Goods with a paying trade are not also offered as a plain full-hold buy.
+  const buys = options.filter((o) => o.kind === 'buy');
+  for (const buy of buys) assert.ok(!takes.some((take) => take.good === buy.good));
+
+  const [take] = takes;
+  assert.equal(carryOut(state, kite.id, take).given, 2);
+  assert.equal(kite.order.type, 'buy');
+  assert.equal(kite.queue[0].type, 'sell');
+  advance(state, state.now + 60 * 60_000);
+  assert.deepEqual(kite.cargo, {});
+  assert.ok(Math.abs(state.stats.tradeProfit - take.profit) < 1, 'the trade pays what the menu said');
 });
 
 test('a hauler can buy at a station to sell later', () => {
@@ -185,5 +218,25 @@ test('haulers docked together can bring a good to another station', () => {
     const kite = state.ships.find((s) => s.id === shipId);
     assert.equal(kite.order.type, 'buy');
     assert.equal(kite.queue[0].type, 'sell');
+  }
+});
+
+test('haulers elsewhere can take a good from a station to its best buyer together', () => {
+  const state = newGame({ credits: 100_000 });
+  const kites = [1, 2].map(() => createShip(state, 'kite', 'halcyon-foundry'));
+  const takes = groupOrderOptions(state, kites, station('halcyon-refinery')).filter((o) => o.kind === 'trade');
+  assert.ok(takes.length >= 1);
+  const [take] = takes;
+  assert.ok(take.outbound);
+  assert.equal(take.fromId, 'halcyon-refinery');
+  assert.equal(take.stationId, 'halcyon-foundry');
+  assert.ok(take.profit > 0);
+  assert.equal(take.members.reduce((sum, m) => sum + m.option.qty, 0), take.qty);
+  assert.equal(carryOutGroup(state, take).count, take.members.length);
+  for (const { shipId } of take.members) {
+    const kite = state.ships.find((s) => s.id === shipId);
+    assert.equal(kite.order.type, 'buy');
+    assert.equal(kite.queue[0].type, 'sell');
+    assert.equal(kite.queue[0].stationId, 'halcyon-foundry');
   }
 });

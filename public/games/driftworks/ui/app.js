@@ -83,13 +83,17 @@ export function createApp(session, doc = document) {
       const ship = findShip(session.state, id);
       const where = ship ? shipSystem(ship, Date.now()) : null;
       if (ui.view === 'galaxy') return { view: 'galaxy', map: 'galaxy' };
-      if (!where) return canJump(session.state) ? { view: 'galaxy', map: 'galaxy' } : { view: 'system', map: 'system' };
+      // Between systems, or in one nobody has surveyed yet: the galaxy map.
+      if (!where || !isSurveyed(session.state, where)) return canJump(session.state) ? { view: 'galaxy', map: 'galaxy' } : { view: 'system', map: 'system' };
       return { view: 'system', map: 'system', systemId: where };
     }
     return { view: isMapView(ui.view) ? ui.view : ui.map, map: ui.map };
   }
 
   function select(kind, id, extra = {}) {
+    // A place in an unsurveyed system shows as that system on the galaxy map.
+    const home = PLACE_KINDS.has(kind) ? systemOf(id) : null;
+    if (home && !isSurveyed(session.state, home)) return select('system', home, extra);
     // Picking a field right after a ship sends that ship (when it can mine).
     const miner = kind === 'field' && ui.selection?.kind === 'ship' ? { miner: ui.selection.id } : {};
     Object.assign(ui, { ...showFor(kind, id), selection: { kind, id }, overview: false, menu: null, ...miner, ...extra });
@@ -121,6 +125,7 @@ export function createApp(session, doc = document) {
 
   /** Opens a system's map, keeping a ship selection so orders can follow. */
   function openSystem(id) {
+    if (!isSurveyed(session.state, id)) return;
     const keep = ui.selection?.kind === 'ship' || ui.selection?.kind === 'ships' ? ui.selection : null;
     Object.assign(ui, { view: 'system', map: 'system', systemId: id, selection: keep, overview: false, menu: null, trade: null });
     render();
@@ -294,6 +299,8 @@ export function createApp(session, doc = document) {
       renderHeld = true;
       return;
     }
+    // Only surveyed systems have a map.
+    if (ui.map === 'system' && !isSurveyed(session.state, ui.systemId)) Object.assign(ui, { map: 'galaxy', view: ui.view === 'system' ? 'galaxy' : ui.view });
     const ctx = context();
     shownPhases = phaseKey(ctx.now);
     shownCredits = renderTopBar(els, session.state, shownCredits);
