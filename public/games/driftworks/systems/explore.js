@@ -12,8 +12,18 @@ import { addLog } from './log.js';
 import { earnFactionStanding } from './standing.js';
 import { isShielded } from './shielding.js';
 
+// The surveyed list as a set, remade when it grows (it only ever grows).
+const surveyedSets = new WeakMap();
+
 export function isSurveyed(state, systemId) {
-  return systemId === HOME_SYSTEM.id || (state.surveyed ?? []).includes(systemId);
+  if (systemId === HOME_SYSTEM.id) return true;
+  const list = state.surveyed ?? [];
+  let hit = surveyedSets.get(state);
+  if (hit?.list !== list || hit.size !== list.length) {
+    hit = { list, size: list.length, set: new Set(list) };
+    surveyedSets.set(state, hit);
+  }
+  return hit.set.has(systemId);
 }
 
 /** Surveyed systems plus their unsurveyed neighbours (shown as fog). */

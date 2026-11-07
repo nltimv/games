@@ -24,20 +24,29 @@ function curveFor(name, good) {
   return scaled.get(key);
 }
 
+// Each station's entries, made once per station (a galaxy's stations never change).
+const entriesOf = new WeakMap();
+
 /** The goods a station trades, as { good, side, curve } entries. */
 export function marketEntries(stationId) {
   const station = findStation(stationId);
   if (!station) return [];
-  const type = STATION_TYPES[station.type];
-  const entries = [];
-  // Generated stations list their own goods; Aurel's use their type's.
-  for (const good of station.buys ?? type.buys) entries.push({ good, side: 'buys', curve: curveFor(type.buyCurve, good) });
-  for (const good of station.sells ?? type.sells) entries.push({ good, side: 'sells', curve: curveFor(type.sellCurve, good) });
-  return entries;
+  let cached = entriesOf.get(station);
+  if (!cached) {
+    const type = STATION_TYPES[station.type];
+    const entries = [];
+    // Generated stations list their own goods; Aurel's use their type's.
+    for (const good of station.buys ?? type.buys) entries.push({ good, side: 'buys', curve: curveFor(type.buyCurve, good) });
+    for (const good of station.sells ?? type.sells) entries.push({ good, side: 'sells', curve: curveFor(type.sellCurve, good) });
+    cached = { entries, byGood: new Map(entries.map((e) => [e.good, e])) };
+    entriesOf.set(station, cached);
+  }
+  return cached.entries;
 }
 
 export function findEntry(stationId, good) {
-  return marketEntries(stationId).find((e) => e.good === good) ?? null;
+  marketEntries(stationId);
+  return entriesOf.get(findStation(stationId))?.byGood.get(good) ?? null;
 }
 
 /** Each save's targets differ by up to ±10% so markets are not identical. */

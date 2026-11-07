@@ -95,6 +95,23 @@ function systemPath(state, ship, fromSys, toSys, options) {
   return path;
 }
 
+// Paths found so far, per save. They hold until the company surveys a
+// system, researches something or investigates a signal (an ancient gate
+// may open), which is when the known routes can change.
+const paths = new WeakMap();
+
+function cachedPath(state, ship, fromSys, toSys, options) {
+  const generation = `${state.surveyed?.length ?? 0}|${state.research.done.length}|${Object.keys(state.signals ?? {}).length}`;
+  let cache = paths.get(state);
+  if (cache?.generation !== generation || cache.surveyed !== state.surveyed || cache.done !== state.research.done) {
+    cache = { generation, surveyed: state.surveyed, done: state.research.done, map: new Map() };
+    paths.set(state, cache);
+  }
+  const key = `${fromSys}|${toSys}|${speedOf(ship)}|${options.surveyTarget ?? ''}`;
+  if (!cache.map.has(key)) cache.map.set(key, systemPath(state, ship, fromSys, toSys, options));
+  return cache.map.get(key);
+}
+
 /**
  * The course from one place to another, with times from 0:
  * { ok, legs, time, jumps, fees } or { ok: false, error }. Legs that jump
@@ -113,7 +130,7 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
   const blocked = hazardNote(state, target);
   if (blocked) return { ok: false, error: blocked };
   if (!mayEnter(state, toSys, options)) return { ok: false, error: `${target?.name ?? 'That system'} has not been surveyed yet.` };
-  const path = systemPath(state, ship, fromSys, toSys, options);
+  const path = cachedPath(state, ship, fromSys, toSys, options);
   if (!path) return { ok: false, error: `No known route leads to ${target.name}.` };
 
   const legs = [];
