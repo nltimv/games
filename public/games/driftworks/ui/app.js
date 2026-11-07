@@ -5,10 +5,12 @@
 
 import { createMapView } from '../render/mapView.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { HULLS } from '../content/ships.js';
 import { findFaction, findPlace, findSystem, systemOf } from '../content/galaxy.js';
 import { galaxyPosition } from '../render/galaxyMap.js';
 import { isSurveyed } from '../systems/explore.js';
 import { skipGuide } from '../systems/goals.js';
+import { isResearched } from '../systems/research.js';
 import { findShip } from '../systems/fleet.js';
 import { minedSoFar, orderPhase } from '../systems/orders.js';
 import { canJump, shipPosition, shipSystem } from '../systems/travel.js';
@@ -53,9 +55,10 @@ export function createApp(session, doc = document) {
   };
 
   const phoneQuery = matchMedia('(max-width: 760px)');
-  // `map` is the map shown behind the panels ('system' or 'galaxy') and
-  // `systemId` the system the System view shows.
-  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null };
+  // `map` is the map shown behind the panels ('system' or 'galaxy'),
+  // `systemId` the system the System view shows and `marketGood` the good
+  // whose prices the galaxy map shows (with Market charts).
+  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null };
   let shownCredits = null;
   let panelKey = null;
   // While a slider is being dragged, panels and the menu wait to re-render,
@@ -82,7 +85,8 @@ export function createApp(session, doc = document) {
     if (kind === 'ship') {
       const ship = findShip(session.state, id);
       const where = ship ? shipSystem(ship, Date.now()) : null;
-      if (ui.view === 'galaxy') return { view: 'galaxy', map: 'galaxy' };
+      // On the galaxy map (or coming back to it from a list), ships stay there.
+      if (ui.view === 'galaxy' || (ui.map === 'galaxy' && !isMapView(ui.view))) return { view: 'galaxy', map: 'galaxy' };
       // Between systems, or in one nobody has surveyed yet: the galaxy map.
       if (!where || !isSurveyed(session.state, where)) return canJump(session.state) ? { view: 'galaxy', map: 'galaxy' } : { view: 'system', map: 'system' };
       return { view: 'system', map: 'system', systemId: where };
@@ -147,6 +151,24 @@ export function createApp(session, doc = document) {
     focusPanelIfNeeded();
   }
 
+  /** Your ships of one role in a system, from a galaxy badge's id ("system|role"). */
+  function shipsAtBadge(badgeId) {
+    const [systemId, role] = badgeId.split('|');
+    const now = Date.now();
+    return session.state.ships
+      .filter((ship, index) => HULLS[ship.hull].role === role && galaxyPosition(ship, now, index)?.system === systemId)
+      .map((ship) => ship.id);
+  }
+
+  /** Clicking a galaxy badge selects its ships; clicking it again opens their system. */
+  function pickBadge(badgeId, mods) {
+    const ids = shipsAtBadge(badgeId);
+    const selected = ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
+    const systemId = badgeId.split('|')[0];
+    if (!mods.additive && ids.length && ids.length === selected.length && ids.every((id) => selected.includes(id)) && isSurveyed(session.state, systemId)) return openSystem(systemId);
+    return selectShips(ids, mods);
+  }
+
   /** Shift-click: adds a ship to the selection, or takes it out. */
   function toggleShip(id) {
     const ids = ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
@@ -198,6 +220,8 @@ export function createApp(session, doc = document) {
   function openMenu(target, point) {
     if (ui.menu) closeMenu({ refocus: false });
     if (!target) return;
+    // A galaxy ship badge stands for its system.
+    if (target.kind === 'ships-at') target = { kind: 'system', id: target.id.split('|')[0] };
     if (target.kind === 'ship') {
       select('ship', target.id);
       return;
@@ -423,9 +447,11 @@ export function createApp(session, doc = document) {
     getSelection: () => (isMapView(ui.view) ? ui.selection : null),
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
     getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
+    getMarketGood: () => (isResearched(session.state, 'market-charts') ? ui.marketGood : null),
     onSelect(target, mods = {}) {
       const again = target && ui.selection?.kind === target.kind && ui.selection.id === target.id;
       if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);
+      else if (target?.kind === 'ships-at') pickBadge(target.id, mods);
       // A second click on a surveyed system opens its map.
       else if (again && target.kind === 'system' && isSurveyed(session.state, target.id)) openSystem(target.id);
       else if (target) select(target.kind, target.id);

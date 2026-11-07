@@ -2,20 +2,24 @@
 // view shows, when nothing is selected), a warp gate, and the galaxy
 // overview.
 
-import { GOODS } from '../../content/goods.js';
+import { GOODS, goodName } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
 import { STATION_TYPES } from '../../content/stations.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
+import { sceneryOf, stationTint } from '../../content/scenery.js';
 import { allFactions, allSystems, findFaction, findGate, findSystem, laneBetween, systemOf } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
+import { systemMarket } from '../../systems/advisor.js';
 import { chartedSystems, isSurveyed, surveyable, surveyorOf } from '../../systems/explore.js';
+import { marketEntries } from '../../systems/market.js';
+import { isResearched } from '../../systems/research.js';
 import { findShip } from '../../systems/fleet.js';
 import { giveOrder } from '../../systems/orders.js';
 import { canJump, jumpFee, jumpTime, shipSystem } from '../../systems/travel.js';
 import { h } from '../dom.js';
-import { button, fieldIcon, gateIcon, panelHead, sectionTitle, stationIcon } from '../components.js';
+import { button, fieldIcon, gateIcon, panelHead, sectionTitle, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { plural, span } from '../format.js';
+import { formatPrice, plural, span } from '../format.js';
 
 const lowerFirst = (text) => text.charAt(0).toLowerCase() + text.slice(1);
 import { richnessLabel } from './field.js';
@@ -99,7 +103,7 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
     ];
   }
 
-  const stationRows = system.stations.map((station) => placeRow(ctx, 'station', station, stationIcon(station.type, { size: 34 }), STATION_TYPES[station.type].description));
+  const stationRows = system.stations.map((station) => placeRow(ctx, 'station', station, stationIcon(station.type, { size: 34, tint: stationTint(station) }), STATION_TYPES[station.type].description));
   const fieldRows = system.fields.map((field) =>
     placeRow(ctx, 'field', field, fieldIcon(field.good, 34), `${GOODS[field.good].name} · ${richnessLabel(field.richness).toLowerCase()}`),
   );
@@ -120,6 +124,7 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
   const special = faction && canJump(state) ? specialities(faction) : null;
   return [
     head,
+    h('p', { class: 'dw-note' }, `${sceneryOf(system).star.name} · ${plural(system.planets.length, 'planet')}`),
     special ? h('p', { class: 'dw-note' }, `${faction.short}: ${lowerFirst(special)}.`) : null,
     open,
     ships.length ? h('div', { class: 'dw-section' }, sectionTitle('Your ships here', String(ships.length), { numeric: true }), h('ul', { class: 'dw-list' }, ships.map((ship) => shipRow(ctx, ship)))) : null,
@@ -155,6 +160,52 @@ export function gatePanel(ctx, gateId) {
   ];
 }
 
+/**
+ * Market charts: pick a good and the galaxy map shows its prices in every
+ * surveyed system; the panel lists the cheapest and best-paying ones.
+ */
+function marketSection(ctx, surveyed, row) {
+  const { state, now, ui } = ctx;
+  const traded = new Set(surveyed.flatMap((system) => system.stations.flatMap((station) => marketEntries(station.id).map((entry) => entry.good))));
+  const goods = Object.keys(GOODS).filter((good) => traded.has(good));
+  const picked = traded.has(ui.marketGood) ? ui.marketGood : null;
+  const parts = [
+    sectionTitle('Market charts'),
+    h(
+      'div',
+      { class: 'dw-choices is-pills' },
+      goods.map((good) =>
+        h(
+          'button',
+          { type: 'button', class: 'dw-choice', 'aria-pressed': String(good === picked), dataset: { key: `market-${good}` }, onClick: () => ctx.update({ marketGood: good === picked ? null : good }) },
+          swatch(good),
+          goodName(good),
+        ),
+      ),
+    ),
+  ];
+  if (picked) {
+    const markets = surveyed.map((system) => ({ system, ...systemMarket(state, system.id, picked, now) }));
+    const top = (side, order) =>
+      markets
+        .filter((m) => m[side] != null)
+        .sort((a, b) => order * (a[side] - b[side]))
+        .slice(0, 3);
+    const list = (title, entries, side) =>
+      entries.length
+        ? h('div', { class: 'dw-section' }, sectionTitle(title, 'per tonne'), h('div', { class: 'dw-list' }, entries.map((m) => withPrice(row(m.system), formatPrice(m[side])))))
+        : null;
+    parts.push(list('Sells cheapest', top('sells', 1), 'sells'), list('Pays best', top('buys', -1), 'buys'));
+  }
+  return h('div', { class: 'dw-section' }, parts);
+}
+
+/** A system row with a price on its right. */
+function withPrice(rowEl, text) {
+  rowEl.append(h('strong', { class: 'dw-row-price' }, text));
+  return rowEl;
+}
+
 /** The galaxy map with nothing selected: the factions and the systems you know. */
 export function galaxyPanel(ctx) {
   const { state } = ctx;
@@ -171,6 +222,7 @@ export function galaxyPanel(ctx) {
   const factions = allFactions().filter((faction) => surveyed.some((system) => system.faction === faction.id));
   return [
     panelHead({ title: 'Galaxy', subtitle: `${plural(surveyed.length, 'system')} surveyed · ${plural(unsurveyed.length, 'system')} to survey`, onClose: ctx.isPhone() ? ctx.close : null }),
+    isResearched(state, 'market-charts') ? marketSection(ctx, surveyed, row) : null,
     h(
       'div',
       { class: 'dw-section' },

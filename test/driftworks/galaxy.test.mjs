@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   GALAXY_SIZE,
   HAZARD_DEPTH,
+  allSystems,
   findStation,
   findSystem,
   gateTo,
@@ -11,6 +12,8 @@ import {
   systemOf,
   useGalaxy,
 } from '../../public/games/driftworks/content/galaxy.js';
+import { HOME_SKY, sceneryOf, stationTint } from '../../public/games/driftworks/content/scenery.js';
+import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { deserialize, serialize } from '../../public/games/driftworks/core/save.js';
 import { chartedSystems, isSurveyed, markSurveyed } from '../../public/games/driftworks/systems/explore.js';
@@ -235,4 +238,19 @@ test('an act 1 save upgrades with its company intact', () => {
   assert.deepEqual(loaded.surveyed, []);
   assert.equal(loaded.stats.jumps, 0);
   assert.ok(findStation('halcyon-refinery'));
+});
+
+test('each system has its own star and sky, and foreign stations wear their faction colour', () => {
+  useGalaxy(1234);
+  const home = sceneryOf(HOME_SYSTEM);
+  assert.equal(home.starClass, 'G');
+  assert.equal(home.sky, HOME_SKY);
+  const systems = allSystems().filter((system) => system.id !== HOME_SYSTEM.id);
+  const looks = systems.map((system) => sceneryOf(system));
+  assert.ok(new Set(looks.map((look) => look.starClass)).size >= 3, 'stars vary');
+  assert.ok(new Set(looks.map((look) => look.sky.base.join())).size >= 2, 'skies vary');
+  assert.equal(sceneryOf(findSystem('dace')), sceneryOf(findSystem('dace')), 'the same system looks the same');
+  assert.equal(stationTint(findStation('halcyon-refinery')), null);
+  const foreign = systems.flatMap((system) => system.stations).find((station) => station.faction !== 'halcyon');
+  assert.match(stationTint(foreign), /^#[0-9a-f]{6}$/);
 });

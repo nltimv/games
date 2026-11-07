@@ -42,6 +42,24 @@ export function bestBuyer(state, good, qty, at = state.now, systemId = null) {
   return best;
 }
 
+/**
+ * A system's market for `good` at the prices last seen there: the cheapest
+ * a station sells it for and the most one pays, { sells, buys } (null
+ * where no station does).
+ */
+export function systemMarket(state, systemId, good, at = state.now) {
+  let sells = null;
+  let buys = null;
+  for (const station of findSystem(systemId)?.stations ?? []) {
+    const entry = findEntry(station.id, good);
+    if (!entry) continue;
+    const price = marketView(state, station.id, good, knownAt(state, station.id, at)).price;
+    if (entry.side === 'sells') sells = Math.min(sells ?? Infinity, price);
+    else buys = Math.max(buys ?? 0, price);
+  }
+  return { sells, buys };
+}
+
 /** Where a docked ship could take `qty` of `good`, with the expected sale. */
 export function deliveryOptions(state, ship, good, qty = ship.cargo[good] ?? 0, at = state.now) {
   if (!ship.at || qty <= 0) return [];

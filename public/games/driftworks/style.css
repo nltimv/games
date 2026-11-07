@@ -625,6 +625,31 @@ button.dw-chip:hover {
   font-weight: 700;
 }
 
+/* Pills that size to their text and wrap (the goods in Market charts). */
+.dw-choices.is-pills {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.dw-choices.is-pills .dw-choice {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dw-row-price {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 .dw-choice-row {
   display: flex;
   width: 100%;

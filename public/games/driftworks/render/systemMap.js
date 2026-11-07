@@ -1,5 +1,6 @@
 // Draws a star system on a 2D canvas: the star, orbits, the asteroid belt,
-// planets, fields, stations, gates and ships. Returns the clickable things
+// planets, fields, stations, gates and ships. Each system has its own star
+// and sky (see scenery.js), and stations wear their faction's colour. Returns the clickable things
 // with their screen positions, so hit testing always matches the drawing.
 //
 // Everything with a look is an asset (see assets.js) and every label is a
@@ -7,7 +8,8 @@
 // gradients, no blur.
 
 import { HOME_SYSTEM } from '../content/homeSystem.js';
-import { findPlace, findStation, findSystem, laneBetween, systemOf } from '../content/galaxy.js';
+import { findFaction, findPlace, findStation, findSystem, laneBetween, systemOf } from '../content/galaxy.js';
+import { HOME_SKY, sceneryOf, stationTint } from '../content/scenery.js';
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { createRng, hashString } from '../core/rng.js';
@@ -42,8 +44,8 @@ function beltFor(system) {
   return groups;
 }
 
-/** Pre-renders the sky (gradient wash and stars) for a canvas size. */
-export function renderBackground(width, height, dpr) {
+/** Pre-renders a sky (see scenery.js: gradient wash, nebulae and stars) for a canvas size. */
+export function renderBackground(width, height, dpr, sky = HOME_SKY) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(width * dpr));
   canvas.height = Math.max(1, Math.round(height * dpr));
@@ -51,8 +53,8 @@ export function renderBackground(width, height, dpr) {
   ctx.scale(dpr, dpr);
 
   const base = ctx.createLinearGradient(0, 0, width * 0.6, height);
-  base.addColorStop(0, '#081634');
-  base.addColorStop(1, '#040a1d');
+  base.addColorStop(0, sky.base[0]);
+  base.addColorStop(1, sky.base[1]);
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, width, height);
 
@@ -63,11 +65,10 @@ export function renderBackground(width, height, dpr) {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, width, height);
   };
-  glow(width * 0.28, height * 0.3, Math.max(width, height) * 0.55, 'rgba(21, 64, 122, 0.85)');
-  glow(width * 0.72, height * 0.95, Math.max(width, height) * 0.45, 'rgba(15, 85, 96, 0.8)');
+  for (const g of sky.glows) glow(width * g.x, height * g.y, Math.max(width, height) * g.r, g.color);
 
-  const rng = createRng(hashString('sky'));
-  const count = Math.round((width * height) / 5200);
+  const rng = createRng(sky.seed);
+  const count = Math.round(((width * height) / 5200) * sky.stars);
   ctx.fillStyle = '#ffffff';
   for (let i = 0; i < count; i += 1) {
     ctx.globalAlpha = 0.2 + rng() * 0.6;
@@ -154,8 +155,9 @@ export function drawSystem(ctx, cam, state, now, view) {
   const compact = s < 0.5;
   const targets = [];
   const sun = toScreen(cam, 0, 0);
+  const look = sceneryOf(system);
 
-  drawAsset(ctx, 'sun-glow', sun.x, sun.y, 400 * s, dpr);
+  drawAsset(ctx, `sun-glow-${look.starClass}`, sun.x, sun.y, 400 * s * look.star.glowSize, dpr);
 
   // Orbits
   ctx.lineWidth = 1;
@@ -192,14 +194,14 @@ export function drawSystem(ctx, cam, state, now, view) {
   ctx.globalAlpha = 1;
 
   // Star: the art's disc is 26/32 of its width.
-  const sunR = Math.max(9, system.star.radius * s);
-  if (!drawAsset(ctx, 'sun', sun.x, sun.y, (sunR * 64) / 26, dpr)) dot(ctx, sun.x, sun.y, sunR, '#ffd58a');
+  const sunR = Math.max(7, system.star.radius * look.star.size * s);
+  if (!drawAsset(ctx, `sun-${look.starClass}`, sun.x, sun.y, (sunR * 64) / 26, dpr)) dot(ctx, sun.x, sun.y, sunR, look.star.body[2]);
 
   // Planets: the disc is 29/32 of the art.
   for (const planet of system.planets) {
     const p = toScreen(cam, planet.x, planet.y);
     const r = Math.max(4, planet.radius * s);
-    if (!drawAsset(ctx, `planet-${planet.kind}`, p.x, p.y, (r * 64) / 29, dpr)) dot(ctx, p.x, p.y, r, '#c99a86');
+    if (!drawAsset(ctx, `planet-${planet.kind}`, p.x, p.y, (r * 64) / 29, dpr, { tint: look.planetTints[planet.id] ?? null })) dot(ctx, p.x, p.y, r, '#c99a86');
     if (!compact) drawLabel(ctx, planet.name, p.x, p.y + r + 11, dpr, { weight: 600, color: 'rgba(220, 236, 255, 0.7)' });
   }
 
@@ -235,7 +237,7 @@ export function drawSystem(ctx, cam, state, now, view) {
     const p = toScreen(cam, station.x, station.y);
     const w = SIZE.station * u;
     const hex = (w * 36) / 64 / 2;
-    if (!drawAsset(ctx, `station-${station.type}`, p.x, p.y, w, dpr)) dot(ctx, p.x, p.y, hex, '#7fe9de');
+    if (!drawAsset(ctx, `station-${station.type}`, p.x, p.y, w, dpr, { tint: stationTint(station) })) dot(ctx, p.x, p.y, hex, findFaction(station.faction)?.color ?? '#7fe9de');
     drawLabel(ctx, compact ? station.short : station.name, p.x, p.y + hex + 13, dpr, { size: compact ? 11 : 12, weight: 800, color: '#ffffff' });
     const docked = shipsAt(state, station.id);
     if (docked.length && !compact) {
@@ -349,11 +351,13 @@ export function drawRing(ctx, targets, ref, style) {
   const target = targets.find((t) => t.kind === ref.kind && t.id === ref.id);
   if (!target) return;
   const ring = RINGS[style];
+  // Targets can draw their ring at another size than they click (ships in a galaxy badge).
+  const r = target.ring ?? target.r;
   ctx.strokeStyle = ring.color;
   ctx.lineWidth = ring.width;
   if (ring.dash) ctx.setLineDash(ring.dash);
   ctx.beginPath();
-  ctx.arc(target.x, target.y, target.r + ring.gap, 0, Math.PI * 2);
+  ctx.arc(target.x, target.y, r + ring.gap, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
   if (style !== 'hover') {
@@ -361,7 +365,7 @@ export function drawRing(ctx, targets, ref, style) {
     ctx.globalAlpha = 0.3;
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(target.x, target.y, target.r + ring.gap + 3, 0, Math.PI * 2);
+    ctx.arc(target.x, target.y, r + ring.gap + 3, 0, Math.PI * 2);
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
@@ -373,11 +377,11 @@ export function drawRing(ctx, targets, ref, style) {
  * size, wins; ships win a tie.
  */
 export function hitTest(targets, x, y) {
-  const order = { ship: 0, station: 1, system: 1, field: 2, gate: 3 };
+  const order = { ship: 0, 'ships-at': 0, station: 1, system: 1, field: 2, gate: 3 };
   let best = null;
   for (const t of targets) {
     const d = Math.hypot(t.x - x, t.y - y);
-    if (d > t.r) continue;
+    if (!t.r || d > t.r) continue;
     const score = d / t.r;
     const rank = order[t.kind] ?? 9;
     if (!best || score < best.score - 0.05 || (Math.abs(score - best.score) <= 0.05 && rank < best.rank)) best = { ...t, score, rank };

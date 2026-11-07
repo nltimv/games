@@ -2,7 +2,7 @@
 
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
-import { assetUrl } from '../render/assets.js';
+import { assetUrl, tintedUrl } from '../render/assets.js';
 import { premiumText } from '../systems/contracts.js';
 import { h, svgIcon } from './dom.js';
 
@@ -72,13 +72,13 @@ export function panelHead({ icon, title, subtitle, onClose, onBack }) {
 let iconId = 0;
 
 /** Map art as a small picture, so the panels match the map. */
-function art(name, width, height = width) {
-  return h('img', { class: 'dw-art', src: assetUrl(name), width, height, alt: '', draggable: 'false' });
+function art(name, width, height = width, tint = null) {
+  return h('img', { class: 'dw-art', src: tint ? tintedUrl(name, tint) : assetUrl(name), width, height, alt: '', draggable: 'false' });
 }
 
-/** A station's map art, or the gold hex of a station the player owns. */
-export function stationIcon(type, { owned = false, size = 40 } = {}) {
-  if (type && !owned) return art(`station-${type}`, size);
+/** A station's map art (in `tint`, its faction's colour), or the gold hex of a station the player owns. */
+export function stationIcon(type, { owned = false, size = 40, tint = null } = {}) {
+  if (type && !owned) return art(`station-${type}`, size, size, tint);
   iconId += 1;
   const id = `hexfill-${iconId}`;
   const stops = owned ? ['#ffffff', '#ffe7a8', '#e0a12e'] : ['#e9fffb', '#7fe9de', '#1b9aa8'];

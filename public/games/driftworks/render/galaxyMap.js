@@ -1,11 +1,13 @@
 // Draws the galaxy map: the systems the company has charted as glowing
 // nodes in their faction's colour over soft faction washes, the lanes
-// between them, and ships crossing lanes in a jump. Systems nobody has
+// between them, a badge for your ships in each system, ships crossing
+// lanes in a jump and, with Market charts, the prices of one good. Systems nobody has
 // charted stay hidden; charted but unsurveyed ones are dim, with a "?".
 // Returns the clickable things, like drawSystem.
 
 import { allSystems, findFaction, findSystem, lanesFrom } from '../content/galaxy.js';
 import { HULLS } from '../content/ships.js';
+import { systemMarket } from '../systems/advisor.js';
 import { chartedSystems, isSurveyed } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { scaleOf, toScreen } from './camera.js';
@@ -65,10 +67,20 @@ export function galaxyPosition(ship, now, index = 0) {
 }
 
 const roleArt = (ship) => `ship-${HULLS[ship.hull].role}`;
+function dot(ctx, x, y, r, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** A price per tonne for a map label: one decimal under 100 cr. */
+const price = (value) => (value < 100 ? value.toFixed(1) : String(Math.round(value)));
+const ROLES = ['miner', 'hauler', 'scout'];
 
 /**
  * Draws the galaxy. `view` is as for drawSystem. Returns hit targets for
- * systems and for ships in a jump.
+ * systems, ship badges (`ships-at`, id "system|role") and ships.
  */
 export function drawGalaxy(ctx, cam, state, now, view) {
   const dpr = view.dpr ?? 1;
@@ -121,8 +133,27 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     const pos = galaxyPosition(ship, now, index);
     if (!pos) return;
     if (pos.jumping) jumping.push({ ship, pos });
-    else counts.set(pos.system, { n: (counts.get(pos.system)?.n ?? 0) + 1, art: counts.get(pos.system)?.art ?? roleArt(ship) });
+    else {
+      // Grouped by role, in a fixed order, so each kind of ship shows.
+      const here = counts.get(pos.system) ?? new Map(ROLES.map((role) => [role, []]));
+      here.get(HULLS[ship.hull].role).push(ship.id);
+      counts.set(pos.system, here);
+    }
   });
+  const badges = [];
+
+  // With Market charts and a good picked: a blue dot left of each system
+  // that sells it (bigger where it is cheaper) and a green one right of
+  // each that buys it (bigger where it pays more). Prices show for the best
+  // three of each, and for every system once zoomed in.
+  const markets = new Map();
+  if (view.market) {
+    for (const system of systems) if (isSurveyed(state, system.id)) markets.set(system.id, systemMarket(state, system.id, view.market, now));
+  }
+  const asks = [...markets.values()].map((m) => m.sells).filter((v) => v != null).sort((a, b) => a - b);
+  const bids = [...markets.values()].map((m) => m.buys).filter((v) => v != null).sort((a, b) => b - a);
+  const share = (value, list) => (list.length < 2 || list[0] === list.at(-1) ? 1 : (value - list.at(-1)) / (list[0] - list.at(-1)));
+  const everyPrice = s >= 0.9;
 
   // Systems
   for (const system of systems) {
@@ -157,13 +188,51 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     drawLabel(ctx, system.name, p.x, p.y + r + 11, dpr, { size: 12, weight: 800, color: surveyed ? '#ffffff' : 'rgba(220, 236, 255, 0.7)' });
     const sub = system.hazard ? system.hazard : !surveyed ? 'unsurveyed' : system.id === 'aurel' ? 'home' : null;
     if (sub) drawLabel(ctx, sub, p.x, p.y + r + 25, dpr, { size: 10, weight: 600, color: system.hazard ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
-    const here = counts.get(system.id);
-    if (here) {
-      drawAsset(ctx, here.art, p.x + r + 12, p.y - r - 4, 18 * u, dpr);
-      drawLabel(ctx, String(here.n), p.x + r + 24, p.y - r - 4, dpr, { size: 11, weight: 800, align: 'left' });
+    const market = markets.get(system.id);
+    if (market) {
+      const y = p.y + r + (sub ? 39 : 25);
+      const sells = market.sells != null && (everyPrice || market.sells <= asks[Math.min(2, asks.length - 1)]);
+      const buys = market.buys != null && (everyPrice || market.buys >= bids[Math.min(2, bids.length - 1)]);
+      if (market.sells != null) {
+        const q = 1 - share(market.sells, asks);
+        dot(ctx, p.x - r - 7 * u, p.y, (2 + 3.5 * q) * u, `rgba(143, 211, 255, ${0.5 + 0.5 * q})`);
+      }
+      if (market.buys != null) {
+        const q = share(market.buys, bids);
+        dot(ctx, p.x + r + 7 * u, p.y, (2 + 3.5 * q) * u, `rgba(159, 245, 160, ${0.5 + 0.5 * q})`);
+      }
+      if (sells) {
+        const best = market.sells === asks[0];
+        drawLabel(ctx, `${best ? '★ ' : ''}sells ${price(market.sells)}`, buys ? p.x - 4 : p.x, y, dpr, { size: 11, weight: best ? 800 : 700, color: best ? '#bfe6ff' : 'rgba(143, 211, 255, 0.85)', align: buys ? 'right' : 'center' });
+      }
+      if (buys) {
+        const best = market.buys === bids[0];
+        drawLabel(ctx, `${best ? '★ ' : ''}buys ${price(market.buys)}`, sells ? p.x + 4 : p.x, y, dpr, { size: 11, weight: best ? 800 : 700, color: best ? '#c8ffc0' : 'rgba(159, 245, 160, 0.85)', align: sells ? 'left' : 'center' });
+      }
     }
     targets.push({ kind: 'system', id: system.id, x: p.x, y: p.y, r: Math.max(16, r * 2.2) });
+    // Your ships there: a badge per kind of ship, with how many, which
+    // selects them all. Each ship also gets a target on its badge (too
+    // small to click) so box selection and selection rings work as on a
+    // system map.
+    const here = counts.get(system.id);
+    if (here) {
+      let bx = p.x + r + 12;
+      const by = p.y - r - 4;
+      for (const [role, ids] of here) {
+        if (!ids.length) continue;
+        const count = String(ids.length);
+        drawAsset(ctx, `ship-${role}`, bx, by, Math.max(15, 18 * u), dpr);
+        drawLabel(ctx, count, bx + 10 * u, by, dpr, { size: 11, weight: 800, align: 'left' });
+        const width = 10 * u + count.length * 7;
+        badges.push({ kind: 'ships-at', id: `${system.id}|${role}`, x: bx + width / 2 - 4, y: by, r: Math.max(10, 9 * u + count.length * 2) });
+        for (const id of ids) badges.push({ kind: 'ship', id, x: bx, y: by, r: 0, ring: 9 * u });
+        bx += width + 14 * u;
+      }
+    }
   }
+  // Badges go after the systems, so they win where they overlap a node.
+  targets.push(...badges);
 
   for (const { ship, pos } of jumping) {
     const p = toScreen(cam, pos.x, pos.y);

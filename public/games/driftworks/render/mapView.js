@@ -10,6 +10,7 @@
 // times a second at most, instead of every frame.
 
 import { findSystem } from '../content/galaxy.js';
+import { HOME_SKY, sceneryOf } from '../content/scenery.js';
 import { HULLS, MODULES } from '../content/ships.js';
 import { shipPosition } from '../systems/travel.js';
 import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, zoomAt } from './camera.js';
@@ -35,6 +36,7 @@ const IDLE_MAX_MS = 1000;
  *   getSelection()           { kind, id } or null
  *   getMenuTarget()          { kind, id } the order menu is open for, or null
  *   getGuideTarget()         { kind, id } the tutorial points at, or null
+ *   getMarketGood()          the good whose prices the galaxy map shows, or null
  *   getSafeArea(w, h)        the free screen rect { x, y, width, height }
  *   onSelect(target, mods)   called with { kind, id } or null on a click;
  *                            mods.additive when Shift was held
@@ -52,6 +54,7 @@ export function createMapView(canvas, options) {
   let height = 0;
   let dpr = 1;
   let sky = null;
+  let skyFor = null;
   let targets = [];
   let hover = null;
   let box = null;
@@ -66,7 +69,7 @@ export function createMapView(canvas, options) {
     dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
-    sky = renderBackground(width, height, dpr);
+    sky = null;
     // Resizing clears the canvas: draw now so it never flashes empty.
     draw(true);
     invalidate();
@@ -74,10 +77,16 @@ export function createMapView(canvas, options) {
 
   /** Draws one frame. Returns true while the camera is still gliding. */
   function draw(snap = false) {
-    if (!sky) return false;
+    if (!width) return false;
     const state = options.getState();
     const scene = options.getScene?.() ?? { kind: 'system', id: 'aurel' };
     const galaxy = scene.kind === 'galaxy';
+    // Each system has its own sky; the galaxy map has Aurel's.
+    const skyKey = galaxy ? 'galaxy' : scene.id;
+    if (!sky || skyFor !== skyKey) {
+      sky = renderBackground(width, height, dpr, galaxy ? HOME_SKY : sceneryOf(findSystem(scene.id)).sky);
+      skyFor = skyKey;
+    }
     extent = galaxy ? galaxyExtent(state) : (findSystem(scene.id)?.extent ?? 480);
     // A different map starts from its whole view.
     const key = galaxy ? 'galaxy' : `system:${scene.id}`;
@@ -98,6 +107,7 @@ export function createMapView(canvas, options) {
       guide: options.getGuideTarget?.() ?? null,
       hover,
       boxed: box ? shipsInBox(targets, box.a, box.b) : null,
+      market: galaxy ? (options.getMarketGood?.() ?? null) : null,
       dpr,
     };
     targets = galaxy ? drawGalaxy(ctx, cam, state, Date.now(), view) : drawSystem(ctx, cam, state, Date.now(), view);

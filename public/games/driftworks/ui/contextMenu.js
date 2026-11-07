@@ -4,6 +4,7 @@
 // detail, and are the way in for keyboard and screen-reader players.
 
 import { goodName } from '../content/goods.js';
+import { stationTint } from '../content/scenery.js';
 import { HULLS, MODULES } from '../content/ships.js';
 import { STATION_TYPES } from '../content/stations.js';
 import { findFaction, findField, findGate, findPlace, findStation, findSystem, systemOf } from '../content/galaxy.js';
@@ -23,7 +24,7 @@ import { at, minusCredits, plural, plusCredits, routeText, span, timing, tonnes 
 function headIcon(target) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
   if (target.kind === 'field') return wrap(fieldIcon(findField(target.id).good, 34));
-  if (target.kind === 'station') return wrap(stationIcon(findStation(target.id).type, { size: 34 }));
+  if (target.kind === 'station') return wrap(stationIcon(findStation(target.id).type, { size: 34, tint: stationTint(findStation(target.id)) }));
   if (target.kind === 'gate') return wrap(gateIcon());
   if (target.kind === 'system') {
     const color = findFaction(findSystem(target.id)?.faction)?.color;

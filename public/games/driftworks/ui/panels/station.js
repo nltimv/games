@@ -1,6 +1,7 @@
 // A station: its market (or ships for sale), the ships docked there, and
 // ships elsewhere that could come over.
 
+import { stationTint } from '../../content/scenery.js';
 import { STATION_TYPES } from '../../content/stations.js';
 import { HULLS, HOLD_CLASS_MAX_TIER, MODULES } from '../../content/ships.js';
 import { GOODS, goodName } from '../../content/goods.js';
@@ -33,7 +34,7 @@ export function stationPanel(ctx, stationId) {
   const incoming = state.ships.filter((s) => s.order?.target === stationId);
 
   return [
-    panelHead({ icon: stationIcon(station.type), title: station.name, subtitle: type.description, onClose: ctx.close }),
+    panelHead({ icon: stationIcon(station.type, { tint: stationTint(station) }), title: station.name, subtitle: type.description, onClose: ctx.close }),
     h(
       'div',
       { class: 'dw-chips' },
