@@ -10,6 +10,7 @@ import { CURVES, STATION_TYPES } from '../content/stations.js';
 import { findStation } from '../content/galaxy.js';
 import { seededUnit } from '../core/rng.js';
 import { MINUTE } from '../core/time.js';
+import { priceFactor } from './standing.js';
 
 /** Time constant of the drift back to target: ~86% recovered after 3 h. */
 export const RECOVERY_TAU = 90 * MINUTE;
@@ -82,7 +83,7 @@ export function marketView(state, stationId, good, at = state.now) {
   return {
     good,
     side: entry.side,
-    price: priceAtFill(entry, fill),
+    price: priceAtFill(entry, fill) * priceFactor(state, stationId, good, entry.side),
     stock,
     fill,
     cap: entry.curve.cap,
@@ -106,7 +107,7 @@ export function quote(state, stationId, good, qty, at = state.now) {
   const amount = Math.max(0, Math.min(qty, Math.floor(room)));
   if (amount <= 0) return { qty: 0, total: 0, average: 0 };
   const end = entry.side === 'buys' ? stock + amount : stock - amount;
-  const average = priceAtFill(entry, (stock + end) / 2 / entry.curve.cap);
+  const average = priceAtFill(entry, (stock + end) / 2 / entry.curve.cap) * priceFactor(state, stationId, good, entry.side);
   return { qty: amount, total: average * amount, average };
 }
 

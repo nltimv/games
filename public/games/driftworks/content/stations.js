@@ -47,6 +47,6 @@ export const STATION_TYPES = {
     description: 'Sells ships and fits new modules.',
     buys: [],
     sells: [],
-    hulls: ['mule', 'kite', 'lark'],
+    hulls: ['mule', 'kite', 'lark', 'heron'],
   },
 };

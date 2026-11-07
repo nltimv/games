@@ -10,12 +10,13 @@ import { contractBonus, contractForSale } from './contracts.js';
 import { holdOf } from './modules.js';
 import { buildOrder, freeSlots, orderTimes, projectShip, refitOffer } from './orders.js';
 import { isSurveyed, knownStations, surveyable } from './explore.js';
+import { knownAt } from './knowledge.js';
 import { canJump, plotCourse, travelTime } from './travel.js';
 
 /** What selling `qty` of `good` at a station pays, contract premium included. */
 export function saleValue(state, stationId, good, qty, at = state.now) {
   if (findEntry(stationId, good)?.side !== 'buys' || qty <= 0) return { qty: 0, total: 0, average: 0, bonus: 0 };
-  const sale = quote(state, stationId, good, Math.floor(qty), at);
+  const sale = quote(state, stationId, good, Math.floor(qty), knownAt(state, stationId, at));
   const bonus = contractBonus(state, stationId, good, sale.qty, sale.average, at);
   return { ...sale, total: sale.total + bonus, bonus };
 }
@@ -27,7 +28,7 @@ export function saleValue(state, stationId, good, qty, at = state.now) {
 export function buyersOf(state, good, at = state.now, systemId = null) {
   return knownStations(state)
     .filter((station) => (!systemId || systemOf(station.id) === systemId) && findEntry(station.id, good)?.side === 'buys')
-    .map((station) => ({ station, view: marketView(state, station.id, good, at) }))
+    .map((station) => ({ station, view: marketView(state, station.id, good, knownAt(state, station.id, at)) }))
     .sort((a, b) => b.view.price - a.view.price);
 }
 
@@ -98,7 +99,7 @@ export function maxPurchase(state, ship, good, at = state.now) {
  * route leads there.
  */
 export function tradePlan(state, ship, good, qty, destId, at = state.now, fromId = ship.at) {
-  const buy = quote(state, fromId, good, qty, at);
+  const buy = quote(state, fromId, good, qty, knownAt(state, fromId, at));
   const sell = saleValue(state, destId, good, buy.qty, at);
   const course = plotCourse(state, ship, fromId, destId);
   const fees = course.ok ? course.fees : 0;
@@ -222,7 +223,7 @@ export function orderOptions(state, ship, target, at = state.now) {
       const trades = [];
       for (const entry of marketEntries(view.at)) {
         if (entry.side !== 'sells' || findEntry(stationId, entry.good)?.side !== 'buys' || !canCarry(view, entry.good)) continue;
-        const max = affordableQty(state, view.at, entry.good, state.credits, viewFree, at);
+        const max = affordableQty(state, view.at, entry.good, state.credits, viewFree, knownAt(state, view.at, at));
         if (max <= 0) continue;
         const best = bestTradeQty(state, view, entry.good, stationId, max, at, view.at);
         if (best.qty <= 0 || best.profit <= 0) continue;
@@ -237,9 +238,10 @@ export function orderOptions(state, ship, target, at = state.now) {
     const buys = [];
     for (const entry of marketEntries(stationId)) {
       if (entry.side !== 'sells' || !canCarry(view, entry.good)) continue;
-      const qty = affordableQty(state, stationId, entry.good, state.credits, viewFree, at);
+      const known = knownAt(state, stationId, at);
+      const qty = affordableQty(state, stationId, entry.good, state.credits, viewFree, known);
       if (qty < 1) continue;
-      const cost = quote(state, stationId, entry.good, qty, at).total;
+      const cost = quote(state, stationId, entry.good, qty, known).total;
       const resale = bestBuyer(state, entry.good, qty, at);
       const margin = (resale?.sale.total ?? 0) - cost;
       buys.push({ kind: 'buy', stationId, good: entry.good, qty, cost, margin, ...timesOf({ type: 'buy', stationId, good: entry.good, qty }) });
@@ -316,7 +318,8 @@ function sharePurchase(state, ships, group, at) {
   const { kind, good, stationId } = group;
   const source = kind === 'trade' ? group.fromId : stationId;
   const wanted = group.members.reduce((sum, member) => sum + member.option.qty, 0);
-  let qty = affordableQty(state, source, good, state.credits, wanted, at);
+  const known = knownAt(state, source, at);
+  let qty = affordableQty(state, source, good, state.credits, wanted, known);
   if (kind === 'trade') {
     const ship = ships.find((s) => s.id === group.members[0]?.shipId);
     qty = ship ? bestTradeQty(state, ship, good, stationId, qty, at, source).qty : 0;
@@ -329,7 +332,7 @@ function sharePurchase(state, ships, group, at) {
     members.push({ shipId: member.shipId, option: { ...member.option, qty: take } });
     left -= take;
   }
-  const cost = quote(state, source, good, qty, at).total;
+  const cost = quote(state, source, good, qty, known).total;
   if (kind === 'buy') {
     const resale = bestBuyer(state, good, qty, at);
     return { ...group, members, qty, cost, margin: (resale?.sale.total ?? 0) - cost };

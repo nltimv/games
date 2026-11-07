@@ -5,15 +5,18 @@ import { GOALS, NEXT_CHAPTER } from '../../content/goals.js';
 import { goodName } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
-import { findStation } from '../../content/galaxy.js';
+import { allFactions, allSystems, findStation } from '../../content/galaxy.js';
 import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/format.js';
 import { CONTRACT_RULES, acceptContract, boardOpen, premiumText } from '../../systems/contracts.js';
 import { currentGoal } from '../../systems/goals.js';
+import { isSurveyed } from '../../systems/explore.js';
+import { canJump } from '../../systems/travel.js';
 import { findShip } from '../../systems/fleet.js';
 import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, rerunnable, runAgain, runAllAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { plural, tonnes } from '../format.js';
+import { factionRow } from './factions.js';
 
 // ---------- Fleet ----------
 
@@ -106,6 +109,20 @@ export function shipRow(ctx, ship) {
 
 // ---------- Company ----------
 
+/** Standing with each faction met so far (from the warp drive on). */
+function standingSection(ctx) {
+  const { state } = ctx;
+  if (!canJump(state)) return null;
+  const met = new Set(allSystems().filter((system) => isSurveyed(state, system.id)).map((system) => system.faction));
+  const factions = allFactions().filter((faction) => met.has(faction.id));
+  return h(
+    'div',
+    { class: 'dw-section' },
+    sectionTitle('Standing', `${plural((state.surveyed?.length ?? 0) + 1, 'system')} surveyed`),
+    h('ul', { class: 'dw-list' }, factions.map((faction) => factionRow(state, faction))),
+  );
+}
+
 export function companyPanel(ctx) {
   const { state } = ctx;
   const goal = currentGoal(state);
@@ -144,6 +161,7 @@ export function companyPanel(ctx) {
     panelHead({ title: 'Your company', subtitle: `Founded ${new Date(state.createdAt).toLocaleDateString()} · ${HOME_SYSTEM.name}`, onClose: ctx.close }),
     goalCard,
     contractsSection(ctx),
+    standingSection(ctx),
     h('div', { class: 'dw-section' }, sectionTitle('Goals', `${state.goals.length} / ${GOALS.length}`, { numeric: true }), h('ul', { class: 'dw-list' }, goals)),
     h(
       'div',

@@ -69,3 +69,13 @@ export function routeText({ jumps = 0, time = 0, fees = 0 }) {
   if (!jumps) return span(time);
   return `${plural(jumps, 'jump')}, ${formatCredits(fees)} · ${span(time)}`;
 }
+
+/** How long ago something was: "just now", "25 min ago", "3 h ago", "2 days ago". */
+export function ago(ms) {
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} days ago`;
+}

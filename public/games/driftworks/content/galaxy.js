@@ -59,8 +59,10 @@ const OTHER_FACTIONS = 4;
 /** How much more a faction pays for goods it wants, and less for goods it has plenty of. */
 export const SPECIALITY = { pays: 1.15, cheap: 0.88 };
 
-// Goods a faction may want or have plenty of.
-const TRADE_GOODS = ['ferrite-ore', 'silicate-rock', 'carbon-ore', 'ice', 'iron', 'silicon', 'graphite', 'water', 'titanium-ore', 'titanium', 'crystal-ore', 'crystal'];
+// Goods a faction may pay more for (ones stations buy) or sell cheaper (ones
+// stations sell that someone else buys).
+const PAYS_GOODS = ['ferrite-ore', 'silicate-rock', 'carbon-ore', 'ice', 'iron', 'silicon', 'graphite', 'titanium-ore', 'titanium', 'crystal-ore', 'crystal'];
+const CHEAP_GOODS = ['iron', 'silicon', 'graphite', 'ice', 'titanium', 'crystal'];
 
 const SYLLABLES = ['al', 'an', 'ar', 'bel', 'cor', 'da', 'del', 'en', 'fa', 'gal', 'hes', 'is', 'ka', 'kel', 'la', 'lor', 'ma', 'mir', 'na', 'nor', 'or', 'pel', 'qua', 'ra', 'ren', 'sa', 'sel', 'ta', 'tor', 'ul', 'va', 'vel', 'wyn', 'xa', 'ze', 'zor', 'thal', 'cas', 'mer', 'io'];
 const ENDINGS = ['', '', 'a', 'is', 'on', 'us', 'ara', 'eth', 'ine', 'or', 'ia', 'ux'];
@@ -217,9 +219,11 @@ function chooseFactions(rng) {
   const chosen = [];
   while (chosen.length < OTHER_FACTIONS) chosen.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
   return chosen.map((faction) => {
-    const goods = [...TRADE_GOODS];
-    const take = () => goods.splice(Math.floor(rng() * goods.length), 1)[0];
-    return { ...faction, pays: [take(), take()], cheap: [take(), take()] };
+    const take = (goods) => goods.splice(Math.floor(rng() * goods.length), 1)[0];
+    const paysFrom = [...PAYS_GOODS];
+    const pays = [take(paysFrom), take(paysFrom)];
+    const cheapFrom = CHEAP_GOODS.filter((good) => !pays.includes(good));
+    return { ...faction, pays, cheap: [take(cheapFrom), take(cheapFrom)] };
   });
 }
 

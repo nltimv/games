@@ -5,6 +5,8 @@
 
 import { createStore } from '../../../shared/js/storage.js';
 import { OLDEST_SAVE_VERSION, SAVE_VERSION } from './state.js';
+import { HOME_FACTION } from '../content/galaxy.js';
+import { CREDITS_PER_POINT } from '../systems/standing.js';
 
 const SAVE_KEY = 'save';
 
@@ -20,7 +22,9 @@ export const MIGRATIONS = {
       stats: { jumps: 0, jumpFees: 0, surveys: 0, farSales: 0, ...save.stats },
       surveyed: save.surveyed ?? [],
       seen: save.seen ?? {},
-      standing: save.standing ?? {},
+      // A company that already has the warp drive starts its Halcyon
+      // standing from what it earned (see standing.openStanding).
+      standing: save.standing ?? (save.research?.done?.includes('warp-drive') ? { [HOME_FACTION]: (save.stats?.earned ?? 0) / CREDITS_PER_POINT } : {}),
     };
   },
 };

@@ -773,10 +773,15 @@ button.dw-chip:hover {
 }
 
 .dw-faction-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 0;
+  align-items: flex-start;
+}
+
+.dw-faction-row:hover {
+  background: var(--dw-row);
+}
+
+.dw-faction-row .dw-faction-dot {
+  margin: 3px 0 0;
 }
 
 .dw-time {

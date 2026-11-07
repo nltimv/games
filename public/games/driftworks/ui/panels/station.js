@@ -4,21 +4,23 @@
 import { STATION_TYPES } from '../../content/stations.js';
 import { HULLS, HOLD_CLASS_MAX_TIER, MODULES } from '../../content/ships.js';
 import { GOODS, goodName } from '../../content/goods.js';
-import { findFaction, findPlace, findStation } from '../../content/galaxy.js';
+import { findFaction, findPlace, findStation, systemOf } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { buyCargo, cargoTotal, sellCargo } from '../../systems/cargo.js';
 import { contractFor, premiumText } from '../../systems/contracts.js';
-import { buyShip, findShip, hullsForSale, missingLicence, shipPrice } from '../../systems/fleet.js';
+import { buyShip, findShip, hullLock, hullsForSale, shipPrice } from '../../systems/fleet.js';
 import { marketEntries, marketView } from '../../systems/market.js';
+import { knownAt, seenAt } from '../../systems/knowledge.js';
 import { holdOf } from '../../systems/modules.js';
 import { giveOrder, orderRefit, refitAll, refitOffer } from '../../systems/orders.js';
 import { bestModules } from '../../systems/research.js';
-import { plotCourse } from '../../systems/travel.js';
+import { canJump, plotCourse } from '../../systems/travel.js';
+import { standingLevel } from '../../systems/standing.js';
 import { bestTradeQty, buyersOf, maxPurchase, saleHere, tradePlan } from '../../systems/advisor.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, contractTag, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { formatPrice, minusCredits, plural, plusCredits, routeText, tonnes, trip } from '../format.js';
+import { ago, formatPrice, minusCredits, plural, plusCredits, routeText, tonnes, trip } from '../format.js';
 
 const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
 const isMiner = (ship) => HULLS[ship.hull].role === 'miner';
@@ -35,8 +37,9 @@ export function stationPanel(ctx, stationId) {
     h(
       'div',
       { class: 'dw-chips' },
-      chip(findFaction(station.faction)?.name ?? 'Unclaimed'),
+      factionChip(state, station),
       chip(type.label),
+      seenChip(ctx, station),
       docked.length ? chip(`${plural(docked.length, 'ship')} docked`, 'aqua') : null,
       incoming.length ? chip(`${incoming.length} on the way`) : null,
     ),
@@ -49,14 +52,29 @@ export function stationPanel(ctx, stationId) {
   ];
 }
 
+/** The station's faction, with your standing once standing counts (act 2). */
+function factionChip(state, station) {
+  const name = findFaction(station.faction)?.name ?? 'Unclaimed';
+  if (!canJump(state)) return chip(name);
+  return chip(`${name} · ${standingLevel(state, station.faction).name}`);
+}
+
 // ---------- Market ----------
+
+/** Where no ship is, the prices are the ones last seen: how old they are. */
+function seenChip(ctx, station) {
+  if (station.type === 'shipyard') return null;
+  const seen = seenAt(ctx.state, systemOf(station.id), ctx.now);
+  return seen == null ? null : chip(`Prices seen ${ago(ctx.now - seen)}`);
+}
 
 function marketSection(ctx, station, docked) {
   const { state, now, ui } = ctx;
   const haulers = docked.filter(isHauler);
   const trade = ui.trade?.stationId === station.id ? ui.trade : null;
   const hauler = haulers.find((s) => s.id === trade?.shipId) ?? haulers[0] ?? null;
-  const views = marketEntries(station.id).map((e) => marketView(state, station.id, e.good, now));
+  const known = knownAt(state, station.id, now);
+  const views = marketEntries(station.id).map((e) => marketView(state, station.id, e.good, known));
   const buys = views.filter((v) => v.side === 'buys');
   const sells = views.filter((v) => v.side === 'sells');
 
@@ -246,25 +264,26 @@ function shipyardSection(ctx, station) {
   const price = shipPrice(state);
   const short = price - state.credits;
   const best = bestModules(state);
-  const cards = hullsForSale(station.id).map((hullId) => {
+  const cards = hullsForSale(state, station.id).map((hullId) => {
     const hull = HULLS[hullId];
-    const licence = missingLicence(state, hullId);
+    const lock = hullLock(state, hullId, station.id);
     const probe = { hull: hullId, modules: best };
+    const holds = hull.holdScale > 0;
     return h(
       'div',
-      { class: `dw-card dw-hull${licence ? ' is-locked' : ''}` },
-      h('div', { class: 'dw-card-head' }, h('strong', null, hull.name), h('span', null, licence ? 'Locked' : formatCredits(price))),
+      { class: `dw-card dw-hull${lock ? ' is-locked' : ''}` },
+      h('div', { class: 'dw-card-head' }, h('strong', null, hull.name), h('span', null, lock ? 'Locked' : formatCredits(price))),
       h('p', { class: 'dw-note' }, hull.blurb),
       h(
         'dl',
         { class: 'dw-specs' },
-        spec('Hold', tonnes(holdOf(probe))),
+        holds ? spec('Hold', tonnes(holdOf(probe))) : null,
         spec('Speed', `${Math.round(MODULES.engine.levels[best.engine] * hull.speedScale)} u/min`),
         hull.role === 'miner' ? spec('Mining', `${MODULES.laser.levels[best.laser]} t/min`) : null,
-        spec('Carries', `tiers 1–${HOLD_CLASS_MAX_TIER[hull.holdClass]}`),
+        holds ? spec('Carries', `tiers 1–${HOLD_CLASS_MAX_TIER[hull.holdClass]}`) : null,
       ),
-      licence
-        ? h('p', { class: 'dw-note' }, `Needs the ${licence.name} research.`)
+      lock
+        ? h('p', { class: 'dw-note' }, lock)
         : button(short > 0 ? `Need ${formatCredits(short)} more` : `Buy for ${formatCredits(price)}`, {
             variant: 'primary',
             disabled: short > 0,

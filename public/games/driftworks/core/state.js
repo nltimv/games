@@ -48,7 +48,7 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
     markets: {},
     // Systems your scouts have surveyed (Aurel is always known).
     surveyed: [],
-    // Prices last seen at each station: { [stationId]: { at, stock: { good: t } } }.
+    // When a ship last saw each system's prices: { [systemId]: time }.
     seen: {},
     // Standing with each faction, in points.
     standing: {},

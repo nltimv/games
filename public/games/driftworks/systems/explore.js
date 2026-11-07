@@ -41,6 +41,9 @@ export function markSurveyed(state, systemId, at) {
   state.surveyed ??= [];
   state.surveyed.push(systemId);
   state.stats.surveys = (state.stats.surveys ?? 0) + 1;
+  // The survey reads the system's markets.
+  state.seen ??= {};
+  state.seen[systemId] = Math.max(state.seen[systemId] ?? 0, at);
   addLog(state, at, `Survey done: ${findSystem(systemId)?.name ?? systemId}`, 'goal');
   return true;
 }

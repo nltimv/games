@@ -6,8 +6,10 @@
 // company gets while the player is away is bounded by the queue length and
 // hold sizes research unlocks.
 
-import { findPlace, findStation } from '../content/galaxy.js';
+import { findPlace, findStation, systemOf } from '../content/galaxy.js';
 import { markSurveyed } from '../systems/explore.js';
+import { markSeen, refreshSeen } from '../systems/knowledge.js';
+import { openStanding } from '../systems/standing.js';
 import { buyCargo, freeHold, sellCargo } from '../systems/cargo.js';
 import { expireContracts, refreshBoard } from '../systems/contracts.js';
 import { logMined, startNextOrder } from '../systems/orders.js';
@@ -76,16 +78,19 @@ export function advance(state, until) {
     state.now = Math.max(state.now, due.at);
     if (due.research) {
       finishResearch(state, due.at);
+      openStanding(state);
       refreshBoard(state, due.at);
     } else {
       const { ship, step } = due;
       STEP_HANDLERS[step.kind]?.(state, ship, step);
+      markSeen(state, systemOf(ship.at), step.at);
       ship.order.stepIndex += 1;
       if (ship.order.stepIndex >= ship.order.steps.length) startNextOrder(state, ship, step.at);
     }
     checkGoals(state, due.at);
   }
   state.now = Math.max(state.now, until);
+  refreshSeen(state, state.now);
   expireContracts(state, state.now);
   refreshBoard(state, state.now);
   return state;

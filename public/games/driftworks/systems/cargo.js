@@ -3,12 +3,14 @@
 
 import { GOODS, goodName } from '../content/goods.js';
 import { HOLD_CLASS_MAX_TIER, HULLS } from '../content/ships.js';
-import { findStation } from '../content/galaxy.js';
+import { findStation, systemOf } from '../content/galaxy.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { affordableQty, buyFromStation, findEntry, sellToStation } from './market.js';
 import { deliverToContract } from './contracts.js';
 import { holdOf } from './modules.js';
 import { addLog } from './log.js';
+import { earnStanding } from './standing.js';
 
 export function cargoTotal(ship) {
   return Object.values(ship.cargo).reduce((sum, qty) => sum + qty, 0);
@@ -62,6 +64,8 @@ export function sellCargo(state, ship, good, qty = Infinity, at = state.now) {
   const profit = total - basis;
   state.credits += total;
   state.stats.sales += 1;
+  if (systemOf(stationId) !== HOME_SYSTEM.id) state.stats.farSales = (state.stats.farSales ?? 0) + 1;
+  earnStanding(state, stationId, total, at);
   // "Earned" counts what the company made: for traded goods that is the
   // profit, not the whole sale, so buying and reselling does not inflate it.
   state.stats.earned += Math.max(0, profit);
@@ -101,6 +105,7 @@ export function buyCargo(state, ship, good, qty, at = state.now) {
 
   const purchase = buyFromStation(state, stationId, good, amount, at);
   state.credits -= purchase.total;
+  earnStanding(state, stationId, purchase.total, at);
   ship.cargo[good] = (ship.cargo[good] ?? 0) + purchase.qty;
   ship.costBasis[good] = (ship.costBasis[good] ?? 0) + purchase.total;
   addLog(

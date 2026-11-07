@@ -16,7 +16,10 @@ import { h } from '../dom.js';
 import { button, fieldIcon, gateIcon, panelHead, sectionTitle, stationIcon } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { plural, span } from '../format.js';
+
+const lowerFirst = (text) => text.charAt(0).toLowerCase() + text.slice(1);
 import { richnessLabel } from './field.js';
+import { factionRow, specialities } from './factions.js';
 import { shipRow } from './lists.js';
 
 function where(system) {
@@ -113,8 +116,11 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
       h('span', { class: 'dw-grow' }, h('strong', null, gate.name), h('small', null, gateLine(state, system, gate))),
     ),
   );
+  const faction = findFaction(system.faction);
+  const special = faction && canJump(state) ? specialities(faction) : null;
   return [
     head,
+    special ? h('p', { class: 'dw-note' }, `${faction.short}: ${lowerFirst(special)}.`) : null,
     open,
     ships.length ? h('div', { class: 'dw-section' }, sectionTitle('Your ships here', String(ships.length), { numeric: true }), h('ul', { class: 'dw-list' }, ships.map((ship) => shipRow(ctx, ship)))) : null,
     system.stations.length ? h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)) : null,
@@ -172,9 +178,7 @@ export function galaxyPanel(ctx) {
       h(
         'ul',
         { class: 'dw-list' },
-        factions.map((faction) =>
-          h('li', { class: 'dw-faction-row' }, h('span', { class: 'dw-faction-dot', style: { background: faction.color }, 'aria-hidden': 'true' }), h('strong', null, faction.name)),
-        ),
+        factions.map((faction) => factionRow(state, faction)),
       ),
     ),
     h('div', { class: 'dw-section' }, sectionTitle('Surveyed systems'), h('div', { class: 'dw-list' }, surveyed.sort((a, b) => a.depth - b.depth).map(row))),

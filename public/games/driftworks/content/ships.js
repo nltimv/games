@@ -40,6 +40,20 @@ export const HULLS = {
     blurb: 'Surveys unknown systems, so other ships can go there.',
     licence: 'scout-licence',
   },
+  heron: {
+    name: 'Heron-class freighter',
+    role: 'hauler',
+    size: 'medium',
+    // Twice a Kite's hold, a little slower.
+    holdScale: 8,
+    speedScale: 0.9,
+    holdClass: 1,
+    namePrefix: 'Heron',
+    blurb: 'A big freighter for long trade routes.',
+    licence: 'warp-drive',
+    // Sold only at shipyards of factions that trust the company.
+    standing: 'trusted',
+  },
 };
 
 /**
