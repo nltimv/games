@@ -3,12 +3,13 @@
 // None of these change the state.
 
 import { HULLS } from '../content/ships.js';
-import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { systemOf } from '../content/galaxy.js';
 import { affordableQty, findEntry, marketEntries, marketView, quote } from './market.js';
 import { canCarry, cargoTotal, freeHold } from './cargo.js';
 import { contractBonus, contractForSale } from './contracts.js';
 import { holdOf } from './modules.js';
 import { buildOrder, freeSlots, orderTimes, projectShip, refitOffer, SHIPYARD_ID } from './orders.js';
+import { knownStations } from './explore.js';
 import { travelTime } from './travel.js';
 
 /** What selling `qty` of `good` at a station pays, contract premium included. */
@@ -19,18 +20,21 @@ export function saleValue(state, stationId, good, qty, at = state.now) {
   return { ...sale, total: sale.total + bonus, bonus };
 }
 
-/** Stations that buy `good`, best price first, with their market view. */
-export function buyersOf(state, good, at = state.now) {
-  return HOME_SYSTEM.stations
-    .filter((station) => findEntry(station.id, good)?.side === 'buys')
+/**
+ * Known stations that buy `good` (in one system, if given), best price
+ * first, with their market view.
+ */
+export function buyersOf(state, good, at = state.now, systemId = null) {
+  return knownStations(state)
+    .filter((station) => (!systemId || systemOf(station.id) === systemId) && findEntry(station.id, good)?.side === 'buys')
     .map((station) => ({ station, view: marketView(state, station.id, good, at) }))
     .sort((a, b) => b.view.price - a.view.price);
 }
 
-/** The best place to sell `qty` of `good`, by total paid. */
-export function bestBuyer(state, good, qty, at = state.now) {
+/** The best place to sell `qty` of `good` (in one system, if given), by total paid. */
+export function bestBuyer(state, good, qty, at = state.now, systemId = null) {
   let best = null;
-  for (const { station } of buyersOf(state, good, at)) {
+  for (const { station } of buyersOf(state, good, at, systemId)) {
     const sale = saleValue(state, station.id, good, qty, at);
     if (!best || sale.total > best.sale.total) best = { stationId: station.id, sale };
   }
@@ -45,7 +49,7 @@ export function deliveryOptions(state, ship, good, qty = ship.cargo[good] ?? 0, 
     .map(({ station }) => ({
       stationId: station.id,
       sale: saleValue(state, station.id, good, Math.floor(qty), at),
-      travel: travelTime(ship, ship.at, station.id),
+      travel: travelTime(state, ship, ship.at, station.id),
     }));
 }
 
@@ -66,7 +70,8 @@ export function minePreview(state, ship, fieldId, amount = null, at = state.now)
   const built = buildOrder(state, view, { type: 'mine', fieldId, amount }, view.time);
   if (!built.ok) return { ok: false, error: built.error, amount: 0, max, value: 0 };
   const step = built.order.steps[0];
-  const best = bestBuyer(state, step.good, step.amount, at);
+  // What the ore fetches in the field's own system, or anywhere known.
+  const best = bestBuyer(state, step.good, step.amount, at, systemOf(fieldId)) ?? bestBuyer(state, step.good, step.amount, at);
   return {
     ok: true,
     amount: step.amount,
@@ -96,7 +101,7 @@ export function tradePlan(state, ship, good, qty, destId, at = state.now, fromId
     buy,
     sell,
     profit: sell.total - buy.total,
-    travel: travelTime(ship, fromId, destId),
+    travel: travelTime(state, ship, fromId, destId),
   };
 }
 

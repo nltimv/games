@@ -4,7 +4,8 @@
 // session.act().
 
 import { createMapView } from '../render/mapView.js';
-import { HOME_SYSTEM, findPlace } from '../content/homeSystem.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { findPlace } from '../content/galaxy.js';
 import { findShip } from '../systems/fleet.js';
 import { minedSoFar, orderPhase } from '../systems/orders.js';
 import { shipPosition } from '../systems/travel.js';

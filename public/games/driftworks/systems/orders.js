@@ -9,15 +9,21 @@
 //                                       it buys (or only `good`)
 //   { type: 'buy', stationId, good, qty }  haulers: fly there and buy
 //   { type: 'fly', stationId }
-//   { type: 'refit', modules, paid }    fly to the shipyard and fit modules
-//                                       (see orderRefit; paid up front)
+//   { type: 'refit', modules, paid, stationId }  fly to a shipyard and fit
+//                                       modules (see orderRefit; paid up front)
+//   { type: 'survey', systemId }        scouts: fly to an unsurveyed system
+//                                       and survey it
+//
+// Targets in another system are reached through the gates (see
+// travel.plotCourse). Jump fees are paid when the order starts.
 //
 // A built order has:
 //   type, label, target         what it is, for the UI
 //   flightLabel                 what it says while flying there
 //   startedAt, endsAt           wall-clock times (ms)
 //   steps: [{ at, kind, ... }]  effects applied at their time, in order
-//   legs:  [{ from, to, start, end }]  where to draw the ship
+//   legs:  [{ from, to, start, end, jump?, fee? }]  where to draw the ship
+//   fees, jumps                 jump fees (cr) and how many jumps
 //
 // A ship holds a few orders at once (orderSlots, raised by research): the
 // current one plus a queue. Each queued order starts as soon as the one
@@ -25,14 +31,16 @@
 
 import { goodName } from '../content/goods.js';
 import { HULLS, REFIT_MINUTES } from '../content/ships.js';
-import { HOME_SYSTEM, findField, findStation } from '../content/homeSystem.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { findField, findPlace, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { MINUTE, SECOND } from '../core/time.js';
 import { findEntry } from './market.js';
 import { canCarry, cargoTotal } from './cargo.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
-import { orderSlots } from './research.js';
-import { travelTime } from './travel.js';
+import { isResearched, orderSlots } from './research.js';
+import { plotCourse } from './travel.js';
+import { isSurveyed, surveyable } from './explore.js';
 import { addLog } from './log.js';
 
 const fail = (error) => ({ ok: false, error });
@@ -58,10 +66,15 @@ function sellable(view, stationId, good) {
   return Object.keys(view.cargo).filter((g) => view.cargo[g] > 0 && (!good || g === good) && findEntry(stationId, g)?.side === 'buys');
 }
 
-function flight(view, to, start) {
-  const travel = travelTime(view, view.at, to);
-  return { travel, legs: travel ? [{ from: view.at, to, start, end: start + travel }] : [] };
+/** The course to `to`, shifted to start at `start`: { ok, travel, legs, fees, jumps } or { ok: false, error }. */
+function flight(state, view, to, start, options) {
+  const course = plotCourse(state, view, view.at, to, options);
+  if (!course.ok) return course;
+  const legs = course.legs.map((leg) => ({ ...leg, start: leg.start + start, end: leg.end + start }));
+  return { ok: true, travel: course.time, legs, fees: course.fees, jumps: course.jumps };
 }
+
+const route = (course) => ({ fees: course.fees, jumps: course.jumps });
 
 // ---------- Builders ----------
 // Each builds an order for `view` (a ship, or a projection of one; see
@@ -75,7 +88,9 @@ function buildMine(state, view, { fieldId, amount }, start) {
   const qty = Math.floor(Math.min(free, amount ?? free));
   if (free < 1) return fail(`${view.name}'s hold is full.`);
   if (!(qty >= 1)) return fail('Pick an amount to mine.');
-  const { travel, legs } = flight(view, fieldId, start);
+  const course = flight(state, view, fieldId, start);
+  if (!course.ok) return course;
+  const { travel, legs } = course;
   const mining = Math.round(((qty / (laserOf(view) * field.richness)) * MINUTE) / SECOND) * SECOND;
   const end = start + travel + mining;
   legs.push({ from: fieldId, to: fieldId, start: start + travel, end });
@@ -90,15 +105,18 @@ function buildMine(state, view, { fieldId, amount }, start) {
       endsAt: end,
       steps: [{ at: end, kind: 'mined', good: field.good, amount: qty, field: fieldId }],
       legs,
+      ...route(course),
     },
   };
 }
 
-function stationLegs(view, stationId, start, stay = 0) {
-  const { travel, legs } = flight(view, stationId, start);
+function stationLegs(state, view, stationId, start, stay = 0, options) {
+  const course = flight(state, view, stationId, start, options);
+  if (!course.ok) return course;
+  const { travel, legs } = course;
   const end = start + travel + stay;
   if (!legs.length || stay) legs.push({ from: stationId, to: stationId, start: start + travel, end });
-  return { end, legs };
+  return { ok: true, end, legs, ...route(course) };
 }
 
 function buildSell(state, view, { stationId, good }, start) {
@@ -109,7 +127,9 @@ function buildSell(state, view, { stationId, good }, start) {
     if (good) return fail(`${station.name} does not buy ${lower(good)}, or ${view.name} has none.`);
     return fail(`${view.name} carries nothing ${station.name} buys.`);
   }
-  const { end, legs } = stationLegs(view, stationId, start);
+  const course = stationLegs(state, view, stationId, start);
+  if (!course.ok) return course;
+  const { end, legs } = course;
   const what = goods.length === 1 ? lower(goods[0]) : 'cargo';
   return {
     ok: true,
@@ -122,6 +142,7 @@ function buildSell(state, view, { stationId, good }, start) {
       endsAt: end,
       steps: [{ at: end, kind: 'sell', station: stationId, ...(good ? { good } : {}) }],
       legs,
+      ...route(course),
     },
   };
 }
@@ -134,7 +155,9 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
   if (!canCarry(view, good)) return fail(`${goodName(good)} needs a better hold.`);
   const amount = Math.floor(Math.min(qty, freeIn(view)));
   if (amount < 1) return fail(`${view.name}'s hold is full.`);
-  const { end, legs } = stationLegs(view, stationId, start);
+  const course = stationLegs(state, view, stationId, start);
+  if (!course.ok) return course;
+  const { end, legs } = course;
   return {
     ok: true,
     order: {
@@ -146,6 +169,7 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
       endsAt: end,
       steps: [{ at: end, kind: 'buy', station: stationId, good, qty: amount }],
       legs,
+      ...route(course),
     },
   };
 }
@@ -154,7 +178,9 @@ function buildFly(state, view, { stationId }, start) {
   const station = findStation(stationId);
   if (!station) return fail('No such station.');
   if (stationId === view.at) return fail(`${view.name} is already there.`);
-  const { end, legs } = stationLegs(view, stationId, start);
+  const course = stationLegs(state, view, stationId, start);
+  if (!course.ok) return course;
+  const { end, legs } = course;
   return {
     ok: true,
     order: {
@@ -166,30 +192,82 @@ function buildFly(state, view, { stationId }, start) {
       endsAt: end,
       steps: [{ at: end, kind: 'arrive', station: stationId }],
       legs,
+      ...route(course),
     },
   };
 }
 
-function buildRefit(state, view, { modules }, start) {
+function buildRefit(state, view, { modules, stationId = SHIPYARD_ID }, start) {
   if (!modules) return fail('Nothing to fit.');
-  const station = findStation(SHIPYARD_ID);
-  const { end, legs } = stationLegs(view, SHIPYARD_ID, start, REFIT_MINUTES * MINUTE);
+  const station = findStation(stationId);
+  if (station?.type !== 'shipyard') return fail('Refits are done at shipyards.');
+  const course = stationLegs(state, view, stationId, start, REFIT_MINUTES * MINUTE);
+  if (!course.ok) return course;
+  const { end, legs } = course;
   return {
     ok: true,
     order: {
       type: 'refit',
       label: `Refitting at ${station.name}`,
       flightLabel: `Flying to ${station.name} for a refit`,
-      target: SHIPYARD_ID,
+      target: stationId,
       startedAt: start,
       endsAt: end,
-      steps: [{ at: end, kind: 'refit', station: SHIPYARD_ID, modules }],
+      steps: [{ at: end, kind: 'refit', station: stationId, modules }],
       legs,
+      ...route(course),
     },
   };
 }
 
-const BUILDERS = { mine: buildMine, sell: buildSell, buy: buildBuy, fly: buildFly, refit: buildRefit };
+/** How long a survey takes once the scout is there. */
+export function surveyTime(state) {
+  return (isResearched(state, 'scanners') ? 5 : 10) * MINUTE;
+}
+
+function buildSurvey(state, view, { systemId }, start) {
+  if (HULLS[view.hull].role !== 'scout') return fail('Only scouts can survey.');
+  const system = findSystem(systemId);
+  if (!system) return fail('No such system.');
+  if (isSurveyed(state, systemId)) return fail(`${system.name} is already surveyed.`);
+  if (!surveyable(state, systemId)) return fail(system.hazard ? `${system.name} has ${system.hazard}. Ships need shielding to go there.` : `${system.name} is too far out to survey yet.`);
+  // The scout surveys from the gate it arrives at.
+  const course = flight(state, view, entryGate(state, view, systemId), start, { surveyTarget: systemId });
+  if (!course.ok) return course;
+  const { travel, legs } = course;
+  const arrival = legs.at(-1)?.to ?? view.at;
+  const end = start + travel + surveyTime(state);
+  legs.push({ from: arrival, to: arrival, start: start + travel, end });
+  return {
+    ok: true,
+    order: {
+      type: 'survey',
+      label: `Surveying ${system.name}`,
+      flightLabel: `Flying to ${system.name} to survey it`,
+      target: arrival,
+      startedAt: start,
+      endsAt: end,
+      steps: [{ at: end, kind: 'survey', system: systemId, station: arrival }],
+      legs,
+      ...route(course),
+    },
+  };
+}
+
+/** The gate a scout comes in by: the one from the surveyed neighbour on the quickest way. */
+function entryGate(state, view, systemId) {
+  const system = findSystem(systemId);
+  const here = systemOf(view.at);
+  const gates = system.gates.filter((gate) => gate.to === here || isSurveyed(state, gate.to));
+  let best = null;
+  for (const gate of gates) {
+    const course = plotCourse(state, view, view.at, gate.id, { surveyTarget: systemId });
+    if (course.ok && (!best || course.time < best.time)) best = { id: gate.id, time: course.time };
+  }
+  return best?.id ?? gates[0]?.id ?? null;
+}
+
+const BUILDERS = { mine: buildMine, sell: buildSell, buy: buildBuy, fly: buildFly, refit: buildRefit, survey: buildSurvey };
 
 export function buildOrder(state, view, spec, start = state.now) {
   const build = BUILDERS[spec?.type];
@@ -218,7 +296,7 @@ function applySteps(view, order, from = 0) {
     } else if (step.kind === 'refit') {
       view.modules = { ...view.modules, ...step.modules };
       view.at = step.station;
-    } else if (step.kind === 'arrive') {
+    } else if (step.kind === 'arrive' || step.kind === 'survey') {
       view.at = step.station;
     }
   }
@@ -256,10 +334,18 @@ export function freeSlots(state, ship) {
   return Math.max(0, orderSlots(state) - (ship.order ? 1 : 0) - ship.queue.length);
 }
 
-/** Starts a spec now on an idle ship. */
+/** Starts a spec now on an idle ship. Jump fees are paid now. */
 function startOrder(state, ship, spec) {
   const result = buildOrder(state, ship, spec, state.now);
   if (!result.ok) return result;
+  const fees = result.order.fees ?? 0;
+  if (fees > state.credits) return fail(`The jump fees are ${formatCredits(fees)}. You need ${formatCredits(fees - state.credits)} more.`);
+  if (fees > 0) {
+    state.credits -= fees;
+    state.stats.jumpFees = (state.stats.jumpFees ?? 0) + fees;
+    addLog(state, state.now, `${ship.name} paid ${formatCredits(fees)} in jump fees`, 'purchase', -fees);
+  }
+  state.stats.jumps = (state.stats.jumps ?? 0) + (result.order.jumps ?? 0);
   ship.order = { ...result.order, spec, stepIndex: 0 };
   ship.at = null;
   if (spec.type === 'mine') state.stats.miningTrips += 1;
@@ -330,7 +416,17 @@ function refund(state, spec) {
   if (spec?.type === 'refit' && spec.paid) state.credits += spec.paid;
 }
 
-const placeName = (id) => (findStation(id) ?? findField(id))?.name ?? 'its target';
+const placeName = (id) => findPlace(id)?.name ?? 'its target';
+
+/** Gives back the fees of jumps that have not started by `at`. */
+function refundJumps(state, ship, order, at) {
+  const unflown = (order.legs ?? []).filter((leg) => leg.jump && leg.start > at).reduce((sum, leg) => sum + (leg.fee ?? 0), 0);
+  if (unflown > 0) {
+    state.credits += unflown;
+    addLog(state, at, `${ship.name} got ${formatCredits(unflown)} of jump fees back`, 'sale', unflown);
+  }
+  return unflown;
+}
 
 /**
  * Tonnes a mining order has mined by `now`. The hold fills as the ship
@@ -370,8 +466,9 @@ export function cancelOrder(state, ship, at = state.now) {
   if (phase.flying) {
     const leg = order.legs.find((l) => l.from !== l.to && at < l.end) ?? order.legs.find((l) => l.from !== l.to);
     const name = placeName(leg.to);
-    if (order.type === 'fly') return fail(`${ship.name} cannot stop in open space. It waits at ${name} when it gets there.`);
+    if (order.type === 'fly' && leg.to === order.target) return fail(`${ship.name} cannot stop in open space. It waits at ${name} when it gets there.`);
     refund(state, order.spec);
+    refundJumps(state, ship, order, at);
     ship.order = {
       type: 'fly',
       label: `Flying to ${name}`,
@@ -383,6 +480,8 @@ export function cancelOrder(state, ship, at = state.now) {
       legs: order.legs.filter((l) => l.end <= leg.end),
       spec: { type: 'fly', stationId: leg.to },
       stepIndex: 0,
+      fees: 0,
+      jumps: 0,
     };
     addLog(state, at, `${ship.name} cancelled its order and waits at ${name} when it gets there`, 'order');
     return { ok: true, flying: true, mined: 0 };
@@ -570,8 +669,13 @@ export function orderPhase(order, now) {
   const legs = order.legs ?? [];
   const leg = legs.find((l) => now < l.end) ?? legs.at(-1);
   if (!leg) return { label: order.label, start: order.startedAt, end: order.endsAt, flying: false };
+  if (leg.jump) {
+    const system = findSystem(systemOf(leg.to));
+    return { label: `Jumping to ${system?.name ?? 'the next system'}`, start: leg.start, end: leg.end, flying: true, jumping: true };
+  }
   if (leg.from !== leg.to) {
-    const label = order.flightLabel ?? `Flying to ${(findStation(leg.to) ?? findField(leg.to))?.name ?? 'its target'}`;
+    // Crossing a system on the way to a gate is still part of the flight.
+    const label = order.flightLabel ?? `Flying to ${placeName(leg.to)}`;
     return { label, start: leg.start, end: leg.end, flying: true };
   }
   return { label: order.label, start: leg.start, end: leg.end, flying: false };
@@ -593,7 +697,7 @@ export function shipStatus(ship, now) {
     const more = ship.queue.length ? ` · ${ship.queue.length} more` : '';
     return `${orderPhase(ship.order, now).label}${more}`;
   }
-  const place = findStation(ship.at) ?? findField(ship.at);
+  const place = findPlace(ship.at);
   const aboard = Object.entries(ship.cargo)
     .filter(([, qty]) => qty > 0)
     .map(([good, qty]) => `${formatNumber(qty)} t ${lower(good)}`);
@@ -615,7 +719,9 @@ export function specLabel(spec) {
     case 'fly':
       return `Fly to ${placeName(spec.stationId)}`;
     case 'refit':
-      return `Refit at ${findStation(SHIPYARD_ID).name}`;
+      return `Refit at ${findStation(spec.stationId ?? SHIPYARD_ID)?.name ?? '?'}`;
+    case 'survey':
+      return `Survey ${findSystem(spec.systemId)?.name ?? '?'}`;
     default:
       return spec.type;
   }

@@ -7,7 +7,7 @@
 
 import { GOODS } from '../content/goods.js';
 import { CURVES, STATION_TYPES } from '../content/stations.js';
-import { findStation } from '../content/homeSystem.js';
+import { findStation } from '../content/galaxy.js';
 import { seededUnit } from '../core/rng.js';
 import { MINUTE } from '../core/time.js';
 
@@ -20,8 +20,9 @@ export function marketEntries(stationId) {
   if (!station) return [];
   const type = STATION_TYPES[station.type];
   const entries = [];
-  for (const good of type.buys) entries.push({ good, side: 'buys', curve: CURVES[type.buyCurve] });
-  for (const good of type.sells) entries.push({ good, side: 'sells', curve: CURVES[type.sellCurve] });
+  // Generated stations list their own goods; Aurel's use their type's.
+  for (const good of station.buys ?? type.buys) entries.push({ good, side: 'buys', curve: CURVES[type.buyCurve] });
+  for (const good of station.sells ?? type.sells) entries.push({ good, side: 'sells', curve: CURVES[type.sellCurve] });
   return entries;
 }
 

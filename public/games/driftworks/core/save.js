@@ -12,7 +12,18 @@ const SAVE_KEY = 'save';
  * Upgrade functions keyed by the version they upgrade FROM:
  * MIGRATIONS[1] turns a version 1 save into version 2, and so on.
  */
-export const MIGRATIONS = {};
+export const MIGRATIONS = {
+  // Act 2: the galaxy. Nothing is lost; the company has surveyed only Aurel.
+  2(save) {
+    return {
+      ...save,
+      stats: { jumps: 0, jumpFees: 0, surveys: 0, farSales: 0, ...save.stats },
+      surveyed: save.surveyed ?? [],
+      seen: save.seen ?? {},
+      standing: save.standing ?? {},
+    };
+  },
+};
 
 export function migrate(data) {
   let save = data;

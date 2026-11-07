@@ -27,7 +27,7 @@ import {
 } from '../../public/games/driftworks/systems/orders.js';
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { travelTime } from '../../public/games/driftworks/systems/travel.js';
-import { findField } from '../../public/games/driftworks/content/homeSystem.js';
+import { findField } from '../../public/games/driftworks/content/galaxy.js';
 import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
 
 const mine = (fieldId = 'kx14', amount = null) => ({ type: 'mine', fieldId, amount });
@@ -39,7 +39,7 @@ test('a full-hold mining order takes the flight plus hold / (laser x richness)',
   const result = giveOrder(state, ship, mine('carbon-drift'));
   assert.ok(result.ok);
   assert.equal(result.queued, false);
-  const travel = travelTime(ship, 'halcyon-refinery', 'carbon-drift');
+  const travel = travelTime(state, ship, 'halcyon-refinery', 'carbon-drift');
   const mining = (holdOf(ship) / (10 * findField('carbon-drift').richness)) * MINUTE;
   assert.equal(ship.order.endsAt, T0 + travel + mining);
   assert.equal(ship.order.steps[0].amount, holdOf(ship));
@@ -52,7 +52,7 @@ test('the flight to the field is not part of the mining job', () => {
   const ship = firstShip(state);
   giveOrder(state, ship, mine('carbon-drift'));
   const order = ship.order;
-  const travel = travelTime(ship, 'halcyon-refinery', 'carbon-drift');
+  const travel = travelTime(state, ship, 'halcyon-refinery', 'carbon-drift');
   const { flight, work } = orderTimes(order);
   assert.equal(flight, travel);
   assert.equal(work, order.endsAt - T0 - travel);

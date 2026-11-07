@@ -3,7 +3,8 @@
 
 import { HULLS, HOLD_CLASS_NAMES, MODULES } from '../../content/ships.js';
 import { goodName } from '../../content/goods.js';
-import { HOME_SYSTEM, findPlace, findStation } from '../../content/homeSystem.js';
+import { HOME_SYSTEM } from '../../content/homeSystem.js';
+import { findPlace, findStation } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { cargoTotal } from '../../systems/cargo.js';
 import { contractForSale } from '../../systems/contracts.js';

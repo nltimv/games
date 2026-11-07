@@ -8,7 +8,8 @@
 
 import { GOODS, goodName } from '../content/goods.js';
 import { HULLS, MODULES } from '../content/ships.js';
-import { HOME_SYSTEM, findStation } from '../content/homeSystem.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { findStation } from '../content/galaxy.js';
 import { formatNumber } from '../../../shared/js/format.js';
 import { seededUnit } from '../core/rng.js';
 import { HOUR } from '../core/time.js';

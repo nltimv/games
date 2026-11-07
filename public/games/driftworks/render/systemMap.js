@@ -6,7 +6,8 @@
 // cached sprite (see labels.js), so a frame is mostly image copies: no
 // gradients, no blur.
 
-import { HOME_SYSTEM, findPlace, findStation } from '../content/homeSystem.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { findPlace, findStation } from '../content/galaxy.js';
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { createRng, hashString } from '../core/rng.js';

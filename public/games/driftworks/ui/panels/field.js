@@ -2,7 +2,7 @@
 
 import { GOODS } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
-import { findField } from '../../content/homeSystem.js';
+import { findField } from '../../content/galaxy.js';
 import { findShip } from '../../systems/fleet.js';
 import { freeSlots, giveOrder, orderPhase } from '../../systems/orders.js';
 import { buyersOf } from '../../systems/advisor.js';

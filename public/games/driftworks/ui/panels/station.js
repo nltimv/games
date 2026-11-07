@@ -4,7 +4,8 @@
 import { FACTIONS, STATION_TYPES } from '../../content/stations.js';
 import { HULLS, HOLD_CLASS_MAX_TIER, MODULES } from '../../content/ships.js';
 import { GOODS, goodName } from '../../content/goods.js';
-import { HOME_SYSTEM, findPlace, findStation } from '../../content/homeSystem.js';
+import { HOME_SYSTEM } from '../../content/homeSystem.js';
+import { findPlace, findStation } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { buyCargo, cargoTotal, sellCargo } from '../../systems/cargo.js';
 import { contractFor, premiumText } from '../../systems/contracts.js';
@@ -428,7 +429,7 @@ function elsewhereSection(ctx, station) {
       const result = ctx.act((s) => giveOrder(s, findShip(s, ship.id), spec));
       if (result?.ok) orderToast(ctx, ship, result);
     };
-    const time = travelTime(ship, ship.at, station.id);
+    const time = travelTime(state, ship, ship.at, station.id);
     const sellable = Object.keys(ship.cargo).find((g) => ship.cargo[g] > 0 && marketView(state, station.id, g, now)?.side === 'buys');
     const action = sellable
       ? button([`Deliver ${tonnes(ship.cargo[sellable], sellable)}`, contractTag(contractFor(state, station.id, sellable, now))], {

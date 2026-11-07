@@ -6,7 +6,7 @@
 import { HULLS, SHIP_PRICES, SHIP_PRICE_GROWTH } from '../content/ships.js';
 import { findResearch } from '../content/research.js';
 import { STATION_TYPES } from '../content/stations.js';
-import { findStation } from '../content/homeSystem.js';
+import { findStation } from '../content/galaxy.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { addLog } from './log.js';
 import { bestModules, isResearched } from './research.js';

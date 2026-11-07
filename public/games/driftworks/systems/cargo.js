@@ -3,7 +3,7 @@
 
 import { GOODS, goodName } from '../content/goods.js';
 import { HOLD_CLASS_MAX_TIER, HULLS } from '../content/ships.js';
-import { findStation } from '../content/homeSystem.js';
+import { findStation } from '../content/galaxy.js';
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { affordableQty, buyFromStation, findEntry, sellToStation } from './market.js';
 import { deliverToContract } from './contracts.js';

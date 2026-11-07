@@ -6,7 +6,7 @@
 import { goodName } from '../content/goods.js';
 import { HULLS, MODULES } from '../content/ships.js';
 import { STATION_TYPES } from '../content/stations.js';
-import { findField, findPlace, findStation } from '../content/homeSystem.js';
+import { findField, findPlace, findStation } from '../content/galaxy.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { groupOrderOptions, orderOptions } from '../systems/advisor.js';
 import { carryOut, carryOutGroup } from '../systems/commands.js';

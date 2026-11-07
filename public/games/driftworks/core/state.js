@@ -1,16 +1,19 @@
 // The shape of a save, and a fresh game.
 
 import { START_STATION } from '../content/homeSystem.js';
+import { useGalaxy } from '../content/galaxy.js';
 import { createShip } from '../systems/fleet.js';
 import { addLog } from '../systems/log.js';
 import { randomSeed } from './rng.js';
 
 // Version 2 rebuilt orders, research and contracts; older saves start over.
-export const SAVE_VERSION = 2;
+// Version 3 added the galaxy (act 2); version 2 saves upgrade (see save.js).
+export const SAVE_VERSION = 3;
 export const OLDEST_SAVE_VERSION = 2;
 export const STARTING_CREDITS = 250;
 
 export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
+  useGalaxy(seed);
   const state = {
     version: SAVE_VERSION,
     seed,
@@ -32,12 +35,23 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
       contractsAccepted: 0,
       copies: 0,
       repeats: 0,
+      jumps: 0,
+      jumpFees: 0,
+      surveys: 0,
+      // Profit from sales in other systems than the one the goods came from.
+      farSales: 0,
     },
     research: { done: [], active: null },
     contracts: { offers: [], active: [], nextId: 1 },
     ships: [],
     nextShipId: 1,
     markets: {},
+    // Systems your scouts have surveyed (Aurel is always known).
+    surveyed: [],
+    // Prices last seen at each station: { [stationId]: { at, stock: { good: t } } }.
+    seen: {},
+    // Standing with each faction, in points.
+    standing: {},
     goals: [],
     tutorial: { skipped: false },
     log: [],

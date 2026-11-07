@@ -3,6 +3,7 @@
 // simulation, check goals, save, and tell listeners what happened, so the UI
 // never has to remember to do any of that itself.
 
+import { useGalaxy } from '../content/galaxy.js';
 import { checkGoals } from '../systems/goals.js';
 import { addLog } from '../systems/log.js';
 import { createSaveStore, exportSave, importSave } from './save.js';
@@ -11,6 +12,7 @@ import { createGame } from './state.js';
 
 function normalize(state) {
   state.lastSeenAt ??= state.now;
+  useGalaxy(state.seed);
   return state;
 }
 
