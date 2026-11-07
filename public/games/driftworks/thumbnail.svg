@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1d44"/>
+      <stop offset="100%" stop-color="#040a1d"/>
+    </linearGradient>
+    <radialGradient id="nebula" cx="30%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="#15407a" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#15407a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lagoon" cx="75%" cy="95%" r="55%">
+      <stop offset="0%" stop-color="#0f5560" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#0f5560" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="160" cy="92" r="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe3a3" stop-opacity="0.55"/>
+      <stop offset="0.4" stop-color="#ffb45e" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#ff9a3d" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="sun" cx="0.4" cy="0.38" r="0.7">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.35" stop-color="#fff1c2"/>
+      <stop offset="0.8" stop-color="#ffbd5c"/>
+      <stop offset="1" stop-color="#ff9b3a"/>
+    </radialGradient>
+    <linearGradient id="hex" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9fffb"/>
+      <stop offset="0.5" stop-color="#7fe9de"/>
+      <stop offset="1" stop-color="#1b9aa8"/>
+    </linearGradient>
+    <radialGradient id="rock" cx="0.35" cy="0.3" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.3" stop-color="#c6d4e8"/>
+      <stop offset="1" stop-color="#3b4c66"/>
+    </radialGradient>
+    <radialGradient id="ice" cx="0.35" cy="0.3" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.3" stop-color="#bdf4ff"/>
+      <stop offset="1" stop-color="#155a86"/>
+    </radialGradient>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)"/>
+  <rect width="320" height="180" fill="url(#nebula)"/>
+  <rect width="320" height="180" fill="url(#lagoon)"/>
+  <g fill="#ffffff">
+    <circle cx="22" cy="20" r="0.9" opacity="0.7"/><circle cx="64" cy="150" r="0.8" opacity="0.5"/>
+    <circle cx="290" cy="30" r="1" opacity="0.6"/><circle cx="270" cy="140" r="0.8" opacity="0.5"/>
+    <circle cx="110" cy="12" r="0.7" opacity="0.5"/><circle cx="214" cy="168" r="0.9" opacity="0.4"/>
+    <circle cx="300" cy="96" r="0.7" opacity="0.6"/><circle cx="14" cy="104" r="0.8" opacity="0.5"/>
+  </g>
+  <g transform="translate(32 -16) scale(0.8)">
+    <circle cx="160" cy="92" r="80" fill="url(#glow)"/>
+    <g fill="none" stroke="#bedcff">
+      <circle cx="160" cy="92" r="42" stroke-opacity="0.2"/>
+      <circle cx="160" cy="92" r="70" stroke-opacity="0.14"/>
+      <circle cx="160" cy="92" r="100" stroke-opacity="0.07" stroke-width="12"/>
+    </g>
+    <circle cx="160" cy="92" r="15" fill="url(#sun)"/>
+    <polygon points="212,52 207,60.7 197,60.7 192,52 197,43.3 207,43.3" fill="url(#hex)" stroke="#ffffff" stroke-width="1"/>
+    <polygon points="134,148 129,156.7 119,156.7 114,148 119,139.3 129,139.3" fill="url(#hex)" stroke="#ffffff" stroke-width="1"/>
+    <polygon points="104,52 99,60.7 89,60.7 84,52 89,43.3 99,43.3" fill="url(#hex)" stroke="#ffffff" stroke-width="1"/>
+    <circle cx="63" cy="92" r="6" fill="url(#rock)"/><circle cx="73" cy="84" r="3.5" fill="url(#rock)"/><circle cx="56" cy="101" r="2.6" fill="url(#rock)"/>
+    <circle cx="262" cy="118" r="6" fill="url(#ice)"/><circle cx="271" cy="110" r="3" fill="url(#ice)"/><circle cx="255" cy="127" r="2.4" fill="url(#ice)"/>
+    <path d="M202 52 Q 240 70 262 118" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-dasharray="3 4"/>
+    <path d="M232 76 l9 2 -7 5 z" fill="#d9fff8"/>
+    <path d="M94 52 Q 70 66 63 92" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-dasharray="3 4"/>
+    <path d="M72 72 l3 8 -7 -3 z" fill="#fff0c8"/>
+  </g>
+  <text x="160" y="155" font-family="Segoe UI, sans-serif" font-size="22" font-weight="700" fill="#eef0f5" text-anchor="middle">Driftworks</text>
+</svg>

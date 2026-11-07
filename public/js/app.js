@@ -43,6 +43,14 @@ function renderCard(game, index) {
   thumb.loading = 'lazy';
   thumbWrap.appendChild(thumb);
 
+  // A game still being built carries a badge, e.g. "Early Access".
+  if (game.status) {
+    const status = document.createElement('span');
+    status.className = 'status-badge';
+    status.textContent = game.status;
+    thumbWrap.appendChild(status);
+  }
+
   const playBadge = document.createElement('div');
   playBadge.className = 'play-badge';
   playBadge.innerHTML = '<span>▶</span>';

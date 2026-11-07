@@ -263,6 +263,22 @@ main {
   transform: scale(1.08);
 }
 
+.game-card .status-badge {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 1;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #2e1f00;
+  background: linear-gradient(180deg, #ffe39a, #ffc04a);
+  box-shadow: 0 6px 16px -6px rgba(255, 192, 74, 0.7);
+}
+
 .game-card .play-badge {
   position: absolute;
   inset: 0;

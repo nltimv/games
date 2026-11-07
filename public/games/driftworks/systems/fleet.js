@@ -1,0 +1,80 @@
+// Buying ships and naming them.
+//
+// Each ship costs more than the last, whatever its hull (see SHIP_PRICES),
+// so a fleet grows steadily instead of exponentially.
+
+import { HULLS, SHIP_PRICES, SHIP_PRICE_GROWTH } from '../content/ships.js';
+import { findResearch } from '../content/research.js';
+import { STATION_TYPES } from '../content/stations.js';
+import { findStation } from '../content/homeSystem.js';
+import { formatCredits } from '../../../shared/js/format.js';
+import { addLog } from './log.js';
+import { bestModules, isResearched } from './research.js';
+
+export function createShip(state, hullId, stationId) {
+  const hull = HULLS[hullId];
+  const taken = new Set(state.ships.map((s) => s.name));
+  let n = state.ships.filter((s) => s.hull === hullId).length + 1;
+  while (taken.has(`${hull.namePrefix}-${n}`)) n += 1;
+  const ship = {
+    id: `ship-${state.nextShipId}`,
+    name: `${hull.namePrefix}-${n}`,
+    hull: hullId,
+    at: stationId,
+    cargo: {},
+    costBasis: {},
+    // Fitted module levels; new ships get the newest researched.
+    modules: bestModules(state),
+    order: null,
+    // Orders waiting to start after the current one.
+    queue: [],
+    // The orders given since the ship was last idle, for "Run again" and
+    // "Copy orders".
+    plan: [],
+  };
+  state.nextShipId += 1;
+  state.ships.push(ship);
+  return ship;
+}
+
+/** What the company's next ship costs, whatever the hull. */
+export function shipPrice(state) {
+  const index = Math.max(0, state.ships.length - 1);
+  if (index < SHIP_PRICES.length) return SHIP_PRICES[index];
+  const raw = SHIP_PRICES.at(-1) * SHIP_PRICE_GROWTH ** (index - SHIP_PRICES.length + 1);
+  return Math.round(raw / 10000) * 10000;
+}
+
+/** Hulls a shipyard stocks, licensed or not. */
+export function hullsForSale(stationId) {
+  const station = findStation(stationId);
+  if (!station) return [];
+  return STATION_TYPES[station.type].hulls ?? [];
+}
+
+/** The research a hull still needs before the company may buy it, or null. */
+export function missingLicence(state, hullId) {
+  const licence = HULLS[hullId]?.licence;
+  return licence && !isResearched(state, licence) ? findResearch(licence) : null;
+}
+
+export function buyShip(state, hullId, stationId) {
+  const hull = HULLS[hullId];
+  if (!hull || !hullsForSale(stationId).includes(hullId)) {
+    return { ok: false, error: 'That ship is not sold here.' };
+  }
+  const licence = missingLicence(state, hullId);
+  if (licence) return { ok: false, error: `${hull.name}s need the ${licence.name} research.` };
+  const price = shipPrice(state);
+  if (state.credits < price) {
+    return { ok: false, error: `You need ${formatCredits(price - state.credits)} more.` };
+  }
+  state.credits -= price;
+  const ship = createShip(state, hullId, stationId);
+  addLog(state, state.now, `Bought ${ship.name}, a ${hull.name.toLowerCase()}, for ${formatCredits(price)}`, 'purchase', -price);
+  return { ok: true, ship };
+}
+
+export function findShip(state, shipId) {
+  return state.ships.find((s) => s.id === shipId) ?? null;
+}

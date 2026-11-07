@@ -5,7 +5,14 @@ Games are listed on a lobby page and can be added without changing any
 server code — just drop a new folder under `public/games/<id>/` and add an
 entry to [`src/games.json`](src/games.json).
 
-Includes **Snake** as the example game (arrow keys / WASD / swipe).
+## Games
+
+| Game | Genre | Notes |
+| --- | --- | --- |
+| **Snake** | Arcade | Arrow keys / WASD / swipe |
+| **Minesweeper** | Puzzle | Click to reveal, right-click or long-press to flag |
+| **Pipelines** | Puzzle | Connect matching dots with pipes |
+| **Driftworks** (Early Access) | Idle trading | A space trading company for short breaks: mine, trade and grow a fleet between work sessions. Built from ES modules with tests; see [`public/games/driftworks/`](public/games/driftworks/) |
 
 ## Project layout
 
@@ -15,18 +22,30 @@ Includes **Snake** as the example game (arrow keys / WASD / swipe).
 ├── src/games.json            # Game registry (id, title, description, path, thumbnail)
 ├── public/
 │   ├── index.html            # Lobby page
-│   ├── css/styles.css
 │   ├── js/app.js             # Fetches /api/games and renders game cards
-│   └── games/snake/          # Example game (self-contained HTML/CSS/JS)
-├── Dockerfile                 # Multi-stage, non-root, healthchecked image
-├── helm/games-hub/            # Helm chart for Kubernetes deployment
-└── .github/workflows/         # CI: build & publish image + Helm chart to GHCR
+│   ├── shared/               # Code and styles any game can use
+│   │   ├── css/site.css      # The hub's theme (lobby and small games)
+│   │   ├── css/glass.css     # Frosted glass building blocks for full-screen games
+│   │   └── js/               # ES modules: storage.js (safe localStorage), format.js
+│   └── games/<id>/           # One folder per game
+├── test/                     # node:test suites (shared code, Driftworks) and balance sims
+├── eslint.config.mjs
+├── Dockerfile                # Multi-stage, non-root, healthchecked image
+├── helm/games-hub/           # Helm chart for Kubernetes deployment
+└── .github/workflows/        # CI: lint and test, then build & publish image + Helm chart
 ```
+
+Small games are a single self-contained `game.js`. Bigger games, like
+Driftworks, are split into ES modules (`core/`, `content/`, `systems/`,
+`render/`, `ui/`) that load natively in the browser, so there is still no
+build step. See [CONTRIBUTING.md](CONTRIBUTING.md) for the conventions.
 
 ## Adding a new game
 
 1. Create `public/games/<your-game>/` with an `index.html` (and any assets it
-   needs). Keep games self-contained — no build step required.
+   needs). Keep games self-contained — no build step required. Link
+   `/shared/css/site.css` for the hub look, and import from
+   `/shared/js/` if you write the game as ES modules.
 2. Add an entry to `src/games.json`:
    ```json
    {
@@ -35,9 +54,12 @@ Includes **Snake** as the example game (arrow keys / WASD / swipe).
      "description": "One line describing the game.",
      "path": "/games/your-game/",
      "thumbnail": "/games/your-game/thumbnail.svg",
+     "genre": "Puzzle",
      "controls": "Describe controls here"
    }
    ```
+   Add `"status": "Early Access"` (or any short label) to show a badge on
+   the game's card while it is still being built.
 3. Restart the server (or just refresh, in dev mode) — the lobby picks up the
    new entry automatically.
 
@@ -50,6 +72,10 @@ npm install
 npm start          # http://localhost:3000
 # or, for auto-restart on file changes:
 npm run dev
+
+npm run lint       # ESLint over the server, games, shared code and tests
+npm test           # node:test suites in test/ (needs Node 22 for the glob)
+npm run balance    # Driftworks pacing simulation, e.g. npm run balance -- all 6
 ```
 
 ## Docker
@@ -113,9 +139,11 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 ## CI/CD
 
 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
-runs two jobs on every push to `main`, on pull requests (build/lint only,
+runs three jobs on every push to `main`, on pull requests (build/lint only,
 no push), and on manual dispatch:
 
+- **`check`** runs `npm run lint` and `npm test` on Node 22. The image
+  build waits for it.
 - **`build-and-push`** builds a multi-arch (`linux/amd64`, `linux/arm64`)
   image and publishes it to the
   [GitHub Container Registry](https://ghcr.io) at `ghcr.io/<owner>/<repo>`.

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="body" cx="0.36" cy="0.32" r="0.78">
+      <stop offset="0" stop-color="#fff4ea"/>
+      <stop offset="0.4" stop-color="#f0a987"/>
+      <stop offset="0.85" stop-color="#8a4337"/>
+      <stop offset="1" stop-color="#5a2a26"/>
+    </radialGradient>
+    <radialGradient id="crater" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#7a3b33" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#7a3b33" stop-opacity="0.55"/>
+    </radialGradient>
+    <clipPath id="disc"><circle cx="32" cy="32" r="29"/></clipPath>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="#f0a987" fill-opacity="0.18"/>
+  <circle cx="32" cy="32" r="29" fill="url(#body)"/>
+  <g clip-path="url(#disc)">
+    <circle cx="23" cy="38" r="5" fill="url(#crater)"/>
+    <circle cx="40" cy="22" r="3.5" fill="url(#crater)"/>
+    <circle cx="44" cy="42" r="6.5" fill="url(#crater)"/>
+    <circle cx="30" cy="15" r="2.2" fill="url(#crater)"/>
+    <path d="M6 44 Q30 52 58 36" fill="none" stroke="#5a2a26" stroke-opacity="0.25" stroke-width="3"/>
+  </g>
+  <path d="M10 22 A24 24 0 0 1 30 7" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

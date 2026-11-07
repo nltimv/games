@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.35" stop-color="#2ec5c0" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#2ec5c0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9fffb"/>
+      <stop offset="0.5" stop-color="#7fe9de"/>
+      <stop offset="1" stop-color="#1b9aa8"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="module" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d7f7f4"/>
+      <stop offset="1" stop-color="#4fb7c0"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="url(#halo)"/>
+  <rect x="27" y="5.5" width="10" height="12" rx="1.5" fill="url(#module)" stroke="#ffffff" stroke-width="0.9"/>
+  <rect x="27" y="46.5" width="10" height="12" rx="1.5" fill="url(#module)" stroke="#ffffff" stroke-width="0.9"/>
+  <polygon points="50,32 41,47.6 23,47.6 14,32 23,16.4 41,16.4" fill="url(#hull)" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M15.6 30 L23.6 17.6 L40.4 17.6 L48.4 30 Q32 26 15.6 30 Z" fill="url(#gloss)"/>
+  <rect x="26" y="27" width="12" height="12" rx="1.5" fill="#03303d" fill-opacity="0.78"/><path d="M29 31.5 h6 M29 34.5 h6" stroke="#bff6ef" stroke-width="1.2" stroke-linecap="round"/>
+</svg>
