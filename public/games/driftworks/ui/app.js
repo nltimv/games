@@ -8,6 +8,7 @@ import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { findFaction, findPlace, findSystem, systemOf } from '../content/galaxy.js';
 import { galaxyPosition } from '../render/galaxyMap.js';
 import { isSurveyed } from '../systems/explore.js';
+import { skipGuide } from '../systems/goals.js';
 import { findShip } from '../systems/fleet.js';
 import { minedSoFar, orderPhase } from '../systems/orders.js';
 import { canJump, shipPosition, shipSystem } from '../systems/travel.js';
@@ -358,10 +359,9 @@ export function createApp(session, doc = document) {
   function renderGuide() {
     const card = guideCard(ui.guide, {
       onSkip: () => {
-        session.act((state) => {
-          state.tutorial.skipped = true;
-        });
-        toast('Tutorial skipped. Goals stay in the Company view.');
+        const act = ui.guide?.goal.act ?? 1;
+        session.act((state) => skipGuide(state, act));
+        toast(`${act > 1 ? 'Guide' : 'Tutorial'} skipped. Goals stay in the Company view.`);
       },
     });
     els.guide.hidden = !card;

@@ -41,7 +41,7 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
       // Profit from sales in other systems than the one the goods came from.
       farSales: 0,
     },
-    research: { done: [], active: null },
+    research: { done: [], active: null, second: null },
     contracts: { offers: [], active: [], nextId: 1 },
     ships: [],
     nextShipId: 1,

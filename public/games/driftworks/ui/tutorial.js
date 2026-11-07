@@ -5,11 +5,16 @@
 
 import { GOALS } from '../content/goals.js';
 import { goodName } from '../content/goods.js';
-import { ORDER_SLOTS } from '../content/ships.js';
+import { HULLS, ORDER_SLOTS } from '../content/ships.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { allSystems, findSystem, systemOf } from '../content/galaxy.js';
 import { cargoTotal } from '../systems/cargo.js';
+import { knownStations, surveyable } from '../systems/explore.js';
 import { tutorialGoal } from '../systems/goals.js';
+import { findEntry, marketEntries } from '../systems/market.js';
 import { canCopy, projectShip } from '../systems/orders.js';
 import { isResearched } from '../systems/research.js';
+import { shipSystem, travelTime } from '../systems/travel.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { h } from './dom.js';
 import { at } from './format.js';
@@ -106,11 +111,99 @@ const GUIDES = {
   },
 };
 
+// ---------- Act 2 ----------
+
+const isScout = (ship) => HULLS[ship.hull].role === 'scout';
+const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
+const inGalaxy = (ui) => ui.view === 'galaxy';
+const OPEN_GALAXY = { text: 'Open the Galaxy map.', selector: '[data-view="galaxy"]' };
+
+/** Selects a ship from the galaxy map: click its system, then pick it under Your ships here. */
+function pickOnGalaxy(state, ui, ship, lead) {
+  const where = shipSystem(ship, state.now);
+  if (ui.selection?.kind === 'system' && ui.selection.id === where) return { text: `${lead}Pick ${ship.name} under Your ships here.`, selector: key(`fleet-${ship.id}`) };
+  return { text: `${lead}Select ${ship.name}: click ${findSystem(where)?.name ?? 'its system'}, then pick ${ship.name} in its panel.`, map: where ? { kind: 'system', id: where } : null };
+}
+
+/** The unsurveyed system a scout reaches first. */
+function nextSurvey(state, scout) {
+  let best = null;
+  for (const system of allSystems()) {
+    if (!surveyable(state, system.id)) continue;
+    const time = travelTime(state, scout, scout.at, system.gates[0]?.id, { surveyTarget: system.id });
+    if (time < (best?.time ?? Infinity)) best = { id: system.id, time };
+  }
+  return best ? findSystem(best.id) : null;
+}
+
+/** A station in another surveyed system that buys something sold where `ship` is. */
+function farBuyer(state, ship) {
+  const here = systemOf(ship.at);
+  const sold = marketEntries(ship.at).filter((e) => e.side === 'sells').map((e) => e.good);
+  const carried = Object.keys(ship.cargo).filter((g) => ship.cargo[g] > 0);
+  const wanted = carried.length ? carried : sold;
+  return knownStations(state).find((station) => systemOf(station.id) !== here && wanted.some((g) => findEntry(station.id, g)?.side === 'buys')) ?? null;
+}
+
+Object.assign(GUIDES, {
+  'first-scout'(state, ui) {
+    if (!isResearched(state, 'scout-licence')) return research(state, ui, 'scout-licence', 'Scout licence', 'The warp drive opens the gates, but only scouts can enter systems nobody has surveyed.');
+    if (!isSelected(ui, 'station', SHIPYARD)) return { text: 'Shipyards sell Lark-class scouts now. Click Halcyon Shipyard on the map.', map: { kind: 'station', id: SHIPYARD } };
+    return { text: 'Buy a Lark-class scout. It is fast and carries no cargo.', selector: key('buy-hull-lark') };
+  },
+  'first-survey'(state, ui) {
+    const scouts = state.ships.filter(isScout);
+    const busy = scouts.find((ship) => ship.order?.spec.type === 'survey');
+    if (busy) {
+      const target = findSystem(busy.order.spec.systemId);
+      return { text: `${busy.name} flies through the gates to ${target.name} and surveys it for a few minutes. Once a system is surveyed, any ship can fly there.`, map: inGalaxy(ui) ? { kind: 'ship', id: busy.id } : null };
+    }
+    const scout = scouts[0];
+    if (!scout?.at) return null;
+    if (!inGalaxy(ui)) return { ...OPEN_GALAXY, text: 'Open the Galaxy map. Each node is a system, and the lines between them are warp lanes.' };
+    if (!(ui.selection?.kind === 'ship' && ui.selection.id === scout.id)) return pickOnGalaxy(state, ui, scout, 'Systems marked ? are unsurveyed. ');
+    const target = nextSurvey(state, scout);
+    if (!target) return null;
+    if (ui.menu?.target.kind === 'system') return { text: `Pick Survey. ${scout.name} pays the jump fee at the gate.`, selector: '[data-key^="menu-survey"]' };
+    return {
+      text: `Right-click ${target.name} (on a touch screen, press and hold it) and pick Survey.`,
+      map: { kind: 'system', id: target.id },
+      tip: 'A system\'s panel has a Survey button for each scout too.',
+    };
+  },
+  'far-sale'(state, ui) {
+    for (const ship of state.ships) {
+      const sale = [ship.order?.spec, ...ship.queue].find((spec) => spec?.type === 'sell' && systemOf(spec.stationId) !== HOME_SYSTEM.id);
+      if (sale) {
+        const where = findSystem(systemOf(sale.stationId));
+        return { text: `${ship.name} jumps to ${where.name} and sells there. Each faction pays more for some goods: the Galaxy panel lists them.` };
+      }
+    }
+    const hauler = state.ships.find((ship) => isHauler(ship) && ship.at && !ship.order) ?? state.ships.find((ship) => isHauler(ship) && ship.at);
+    if (!hauler) return null;
+    const buyer = farBuyer(state, hauler);
+    if (!buyer) return null;
+    const system = findSystem(systemOf(buyer.id));
+    const selected = (ui.selection?.kind === 'ship' && ui.selection.id === hauler.id) || (ui.selection?.kind === 'ships' && ui.selection.ids.includes(hauler.id));
+    if (!selected) {
+      if (inGalaxy(ui)) return pickOnGalaxy(state, ui, hauler, '');
+      return { text: `Select ${hauler.name}: click it on the map.`, map: ui.systemId === systemOf(hauler.at) ? { kind: 'ship', id: hauler.id } : null, selector: ui.systemId === systemOf(hauler.at) ? null : '[data-view="galaxy"]' };
+    }
+    if (ui.view === 'system' && ui.systemId === system.id) {
+      if (menuOn(ui, buyer.id)) return { text: `Pick a Bring or Sell order. ${hauler.name} buys where it is, jumps, and sells here.`, selector: '[data-key^="menu-trade-"], [data-key^="menu-sell-"]' };
+      return { text: `Right-click ${buyer.name} and pick a Bring or Sell order. The menu shows the jumps and fees on the way.`, map: { kind: 'station', id: buyer.id } };
+    }
+    if (!inGalaxy(ui)) return OPEN_GALAXY;
+    if (ui.menu?.target.kind === 'system' && ui.menu.target.id === system.id) return { text: `Pick Open the ${system.name} map. ${hauler.name} stays selected.`, selector: key('menu-open') };
+    return { text: `${system.name} is surveyed. Right-click it and pick Open the ${system.name} map.`, map: { kind: 'system', id: system.id } };
+  },
+});
+
 /** The current guide step: { goal, step, of, text, tip, map, selector }, or null. */
 export function currentGuide(state, ui) {
   const goal = tutorialGoal(state);
   if (!goal) return null;
-  const tutorial = GOALS.filter((g) => g.tutorial);
+  const tutorial = GOALS.filter((g) => g.tutorial && (g.act ?? 1) === (goal.act ?? 1));
   const guide = GUIDES[goal.id]?.(state, ui);
   if (!guide) return null;
   return { goal, step: tutorial.indexOf(goal) + 1, of: tutorial.length, ...guide };
@@ -123,8 +216,8 @@ export function guideCard(guide, { onSkip }) {
     h(
       'div',
       { class: 'dw-guide-head' },
-      h('span', { class: 'dw-eyebrow' }, `Tutorial · ${guide.step} of ${guide.of}`),
-      h('button', { type: 'button', class: 'dw-link', onClick: onSkip, dataset: { key: 'guide-skip' } }, 'Skip tutorial'),
+      h('span', { class: 'dw-eyebrow' }, `${(guide.goal.act ?? 1) > 1 ? 'Guide' : 'Tutorial'} · ${guide.step} of ${guide.of}`),
+      h('button', { type: 'button', class: 'dw-link', onClick: onSkip, dataset: { key: 'guide-skip' } }, (guide.goal.act ?? 1) > 1 ? 'Skip guide' : 'Skip tutorial'),
     ),
     h('div', { class: 'dw-card-head' }, h('strong', null, guide.goal.title), h('span', { class: 'dw-goal-reward' }, `+${formatCredits(guide.goal.reward)}`)),
     h('p', { class: 'dw-guide-text' }, guide.text),

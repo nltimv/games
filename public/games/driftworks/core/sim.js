@@ -13,7 +13,7 @@ import { openStanding } from '../systems/standing.js';
 import { buyCargo, freeHold, sellCargo } from '../systems/cargo.js';
 import { expireContracts, refreshBoard } from '../systems/contracts.js';
 import { logMined, startNextOrder } from '../systems/orders.js';
-import { finishResearch } from '../systems/research.js';
+import { LAB_SLOTS, finishResearch } from '../systems/research.js';
 import { checkGoals } from '../systems/goals.js';
 import { addLog } from '../systems/log.js';
 import { findEntry } from '../systems/market.js';
@@ -27,8 +27,10 @@ function nextDue(state, until) {
     if (!step || step.at > until) continue;
     if (!best || step.at < best.at) best = { ship, step, at: step.at };
   }
-  const research = state.research.active;
-  if (research && research.endsAt <= until && (!best || research.endsAt < best.at)) best = { research, at: research.endsAt };
+  for (const slot of LAB_SLOTS) {
+    const research = state.research[slot];
+    if (research && research.endsAt <= until && (!best || research.endsAt < best.at)) best = { research, slot, at: research.endsAt };
+  }
   return best;
 }
 
@@ -77,7 +79,7 @@ export function advance(state, until) {
     if (!due) break;
     state.now = Math.max(state.now, due.at);
     if (due.research) {
-      finishResearch(state, due.at);
+      finishResearch(state, due.at, due.slot);
       openStanding(state);
       refreshBoard(state, due.at);
     } else {
@@ -100,6 +102,7 @@ export function advance(state, until) {
 export function nextEventAt(state) {
   const times = [
     state.research.active?.endsAt,
+    state.research.second?.endsAt,
     ...state.ships.map((ship) => ship.order?.steps[ship.order.stepIndex]?.at),
     ...state.contracts.active.map((c) => c.deadline),
     ...state.contracts.offers.map((o) => o.expiresAt),

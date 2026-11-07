@@ -24,8 +24,18 @@ export function currentGoal(state) {
   return GOALS.find((goal) => !state.goals.includes(goal.id)) ?? null;
 }
 
-/** Whether the tutorial guide should show: a tutorial goal is next and it was not skipped. */
+/** Whether the guide for an act's tutorial was skipped (each act's can be skipped on its own). */
+export function guideSkipped(state, act = 1) {
+  return act === 1 ? Boolean(state.tutorial.skipped) : Boolean(state.tutorial.skippedActs?.includes(act));
+}
+
+export function skipGuide(state, act = 1) {
+  if (act === 1) state.tutorial.skipped = true;
+  else state.tutorial.skippedActs = [...new Set([...(state.tutorial.skippedActs ?? []), act])];
+}
+
+/** Whether the tutorial guide should show: a tutorial goal is next and its act's guide was not skipped. */
 export function tutorialGoal(state) {
   const goal = currentGoal(state);
-  return goal?.tutorial && !state.tutorial.skipped ? goal : null;
+  return goal?.tutorial && !guideSkipped(state, goal.act ?? 1) ? goal : null;
 }

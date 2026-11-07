@@ -8,12 +8,12 @@
 
 import { GOODS, goodName } from '../content/goods.js';
 import { HULLS, MODULES } from '../content/ships.js';
-import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { findStation } from '../content/galaxy.js';
 import { formatNumber } from '../../../shared/js/format.js';
 import { seededUnit } from '../core/rng.js';
 import { HOUR } from '../core/time.js';
 import { findEntry } from './market.js';
+import { knownStations } from './explore.js';
 import { isResearched, researchLevel } from './research.js';
 import { addLog } from './log.js';
 
@@ -30,8 +30,8 @@ export const CONTRACT_RULES = {
   holds: 3,
 };
 
-const ORES = ['ferrite-ore', 'carbon-ore', 'silicate-rock', 'ice'];
-const REFINED = ['iron', 'silicon', 'graphite', 'water'];
+const ORES = ['ferrite-ore', 'carbon-ore', 'silicate-rock', 'ice', 'titanium-ore', 'crystal-ore'];
+const REFINED = ['iron', 'silicon', 'graphite', 'water', 'titanium', 'crystal'];
 
 const fail = (error) => ({ ok: false, error });
 
@@ -53,7 +53,8 @@ function newOffer(state, at) {
   const pool = hasHauler && roll('kind') < 0.4 ? REFINED : ORES;
   const choices = [];
   for (const good of pool) {
-    for (const station of HOME_SYSTEM.stations) {
+    // Any station the company knows of: Aurel's in act 1, then every surveyed system's.
+    for (const station of knownStations(state)) {
       if (findEntry(station.id, good)?.side === 'buys' && !taken.has(`${station.id}:${good}`)) choices.push({ good, stationId: station.id });
     }
   }

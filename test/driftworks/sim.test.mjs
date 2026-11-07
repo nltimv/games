@@ -46,6 +46,6 @@ test('research finishes on the clock, and goals are checked as it runs', () => {
   assert.ok(startResearch(state, 'hold-1', T0).ok);
   assert.equal(nextEventAt(state), T0 + MINUTE, 'the research ends first');
   advance(state, T0 + 10 * MINUTE);
-  assert.deepEqual(state.research, { done: ['hold-1'], active: null });
+  assert.deepEqual(state.research, { done: ['hold-1'], active: null, second: null });
   assert.deepEqual(state.goals.slice(0, 2), ['first-sale', 'first-research']);
 });

@@ -33,11 +33,16 @@ test('goals complete in order: a later goal waits for the ones before it', () =>
   assert.deepEqual(checkGoals(state).map((g) => g.id), ['first-sale', 'first-research']);
 });
 
-test('goal ids are unique, the tutorial comes first, and only the last goal is unpaid', () => {
+test("goal ids are unique, each act's tutorial comes first, and only each act's last goal is unpaid", () => {
   const ids = new Set(GOALS.map((g) => g.id));
   assert.equal(ids.size, GOALS.length);
-  const firstFree = GOALS.findIndex((g) => !g.tutorial);
-  assert.ok(GOALS.slice(firstFree).every((g) => !g.tutorial));
-  for (const goal of GOALS.slice(0, -1)) assert.ok(goal.reward > 0, goal.id);
-  assert.equal(GOALS.at(-1).id, 'warp-drive');
+  for (const act of [1, 2]) {
+    const goals = GOALS.filter((g) => (g.act ?? 1) === act);
+    const firstFree = goals.findIndex((g) => !g.tutorial);
+    assert.ok(firstFree > 0 && goals.slice(firstFree).every((g) => !g.tutorial), `act ${act}`);
+    for (const goal of goals.slice(0, -1)) assert.ok(goal.reward > 0, goal.id);
+    assert.equal(goals.at(-1).reward, 0);
+  }
+  assert.equal(GOALS.find((g) => !g.act && g.reward === 0).id, 'warp-drive');
+  assert.equal(GOALS.at(-1).id, 'station-blueprints');
 });

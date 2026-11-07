@@ -136,7 +136,7 @@ export function companyPanel(ctx) {
         h('div', { class: 'dw-card-head' }, h('strong', null, goal.title), rewardText(goal)),
         goal.progress ? goalProgress(goal.progress(state)) : null,
       )
-    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, 'Act 1 complete'), h('strong', null, 'The warp drive is ready'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));
+    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, 'Act 2 complete'), h('strong', null, 'Station blueprints are ready'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));
 
   const goals = GOALS.map((g) => {
     const done = state.goals.includes(g.id);
