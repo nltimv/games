@@ -7,7 +7,6 @@ import { findStation, systemOf } from '../content/galaxy.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { affordableQty, buyFromStation, findEntry, sellToStation } from './market.js';
-import { deliverToContract } from './contracts.js';
 import { holdOf } from './modules.js';
 import { addLog } from './log.js';
 import { earnStanding } from './standing.js';
@@ -24,7 +23,8 @@ export function canCarry(ship, good) {
   return GOODS[good].tier <= HOLD_CLASS_MAX_TIER[HULLS[ship.hull].holdClass];
 }
 
-function removeCargo(ship, good, qty) {
+/** Takes `qty` of a good out of a hold. Returns what that part cost to buy. */
+export function removeCargo(ship, good, qty) {
   const held = ship.cargo[good] ?? 0;
   const basis = ship.costBasis[good] ?? 0;
   const share = held > 0 ? basis * (qty / held) : 0;
@@ -41,8 +41,7 @@ function removeCargo(ship, good, qty) {
 
 /**
  * Sells up to `qty` (default: all) of a good from a docked ship to the
- * station it is docked at, plus any contract premium. Returns
- * { ok, qty, total, bonus, profit } or an error.
+ * station it is docked at. Returns { ok, qty, total, profit } or an error.
  */
 export function sellCargo(state, ship, good, qty = Infinity, at = state.now) {
   const stationId = ship.at;
@@ -58,8 +57,7 @@ export function sellCargo(state, ship, good, qty = Infinity, at = state.now) {
   const sale = sellToStation(state, stationId, good, Math.floor(amount), at);
   if (sale.qty <= 0) return { ok: false, error: `${findStation(stationId).name} has no room for more.` };
 
-  const bonus = deliverToContract(state, stationId, good, sale.qty, sale.average, at);
-  const total = sale.total + bonus;
+  const total = sale.total;
   const basis = removeCargo(ship, good, sale.qty);
   const profit = total - basis;
   state.credits += total;
@@ -73,7 +71,6 @@ export function sellCargo(state, ship, good, qty = Infinity, at = state.now) {
   if (HULLS[ship.hull].role === 'hauler') state.stats.tradeProfit += profit;
 
   const notes = [];
-  if (bonus > 0) notes.push(`contract +${formatCredits(bonus)}`);
   if (HULLS[ship.hull].role === 'hauler') notes.push(`profit ${formatCredits(profit)}`);
   addLog(
     state,
@@ -82,7 +79,7 @@ export function sellCargo(state, ship, good, qty = Infinity, at = state.now) {
     'sale',
     total,
   );
-  return { ok: true, qty: sale.qty, total, bonus, profit };
+  return { ok: true, qty: sale.qty, total, profit };
 }
 
 /** Buys up to `qty` of a good for a docked hauler, limited by hold and credits. */

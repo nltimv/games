@@ -11,7 +11,7 @@ import { markSurveyed } from '../systems/explore.js';
 import { markSeen, refreshSeen } from '../systems/knowledge.js';
 import { openStanding } from '../systems/standing.js';
 import { buyCargo, freeHold, sellCargo } from '../systems/cargo.js';
-import { expireContracts, refreshBoard } from '../systems/contracts.js';
+import { deliverCargo, nextContractEvent, updateContracts } from '../systems/contracts.js';
 import { logMined, startNextOrder } from '../systems/orders.js';
 import { LAB_SLOTS, finishResearch } from '../systems/research.js';
 import { checkGoals } from '../systems/goals.js';
@@ -59,6 +59,11 @@ const STEP_HANDLERS = {
       if (!result.ok) addLog(state, step.at, `${ship.name} could not sell: ${result.error}`, 'warning');
     }
   },
+  deliver(state, ship, step) {
+    ship.at = step.station;
+    const result = deliverCargo(state, ship, step.good, step.at);
+    if (!result.ok) addLog(state, step.at, `${ship.name} could not deliver: ${result.error}`, 'warning');
+  },
   buy(state, ship, step) {
     ship.at = step.station;
     const result = buyCargo(state, ship, step.good, step.qty, step.at);
@@ -81,7 +86,7 @@ export function advance(state, until) {
     if (due.research) {
       finishResearch(state, due.at, due.slot);
       openStanding(state);
-      refreshBoard(state, due.at);
+      updateContracts(state, due.at);
     } else {
       const { ship, step } = due;
       STEP_HANDLERS[step.kind]?.(state, ship, step);
@@ -93,8 +98,7 @@ export function advance(state, until) {
   }
   state.now = Math.max(state.now, until);
   refreshSeen(state, state.now);
-  expireContracts(state, state.now);
-  refreshBoard(state, state.now);
+  updateContracts(state, state.now);
   return state;
 }
 
@@ -104,8 +108,7 @@ export function nextEventAt(state) {
     state.research.active?.endsAt,
     state.research.second?.endsAt,
     ...state.ships.map((ship) => ship.order?.steps[ship.order.stepIndex]?.at),
-    ...state.contracts.active.map((c) => c.deadline),
-    ...state.contracts.offers.map((o) => o.expiresAt),
+    nextContractEvent(state),
   ].filter((t) => t != null);
   return times.length ? Math.min(...times) : null;
 }

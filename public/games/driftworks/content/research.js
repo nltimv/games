@@ -8,7 +8,7 @@
 
 export const RESEARCH = [
   { id: 'hold-1', name: 'Cargo racks I', line: 'hold', level: 1, cost: 100, minutes: 1 },
-  { id: 'brokerage', name: 'Brokerage', cost: 50, minutes: 1, effect: 'Opens the contract board: buyers pay 50% over market for set amounts.' },
+  { id: 'brokerage', name: 'Brokerage', cost: 50, minutes: 1, effect: 'Stations offer contracts: a fixed price for a set amount of one good.' },
   { id: 'queue-1', name: 'Order queue I', line: 'queue', level: 1, cost: 300, minutes: 3 },
   { id: 'laser-1', name: 'Mining laser I', line: 'laser', level: 1, cost: 500, minutes: 4 },
   { id: 'kite-licence', name: 'Hauler licence', cost: 700, minutes: 5, effect: 'Halcyon Shipyard sells Kite-class haulers.' },

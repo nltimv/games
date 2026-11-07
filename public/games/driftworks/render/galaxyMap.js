@@ -1,18 +1,21 @@
 // Draws the galaxy map: the systems the company has charted as glowing
 // nodes in their faction's colour over soft faction washes, the lanes
 // between them, a badge for your ships in each system, ships crossing
-// lanes in a jump and, with Market charts, the prices of one good. Systems nobody has
-// charted stay hidden; charted but unsurveyed ones are dim, with a "?".
+// lanes in a jump, marks for contracts and, with Market charts, the prices
+// of one good. Systems nobody has charted stay hidden; charted but
+// unsurveyed ones are dim, with a "?".
 // Returns the clickable things, like drawSystem.
 
 import { allSystems, findFaction, findSystem, lanesFrom } from '../content/galaxy.js';
 import { HULLS } from '../content/ships.js';
 import { systemMarket } from '../systems/advisor.js';
+import { contractMarks } from '../systems/contracts.js';
 import { chartedSystems, isSurveyed } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
+import { drawContractMarks } from './marks.js';
 import { createLabelSpace, drawCount, flock, flockName } from './flocks.js';
 import { drawRing, iconScale } from './systemMap.js';
 
@@ -156,7 +159,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const share = (value, list) => (list.length < 2 || list[0] === list.at(-1) ? 1 : (value - list.at(-1)) / (list[0] - list.at(-1)));
   const everyPrice = s >= 0.9;
 
-  // Systems
+  // Systems, with a "!" above the left shoulder for contracts at their stations.
+  const marks = contractMarks(state, now).systems;
   for (const system of systems) {
     const faction = findFaction(system.faction);
     const surveyed = isSurveyed(state, system.id);
@@ -211,6 +215,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
         drawLabel(ctx, `${best ? '★ ' : ''}buys ${price(market.buys)}`, sells ? p.x + 4 : p.x, y, dpr, { size: 11, weight: best ? 800 : 700, color: best ? '#c8ffc0' : 'rgba(159, 245, 160, 0.85)', align: sells ? 'left' : 'center' });
       }
     }
+    const mark = marks.get(system.id);
+    if (mark) drawContractMarks(ctx, p.x - r - 8 * u - (mark.offer && mark.active ? 16 : 0), p.y - r - 4, mark, dpr, u);
     targets.push({ kind: 'system', id: system.id, x: p.x, y: p.y, r: Math.max(16, r * 2.2) });
     // Your ships there: a badge per kind of ship, with how many, which
     // selects them all. Each ship also gets a target on its badge (too

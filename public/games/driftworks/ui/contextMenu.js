@@ -17,9 +17,9 @@ import { freeSlots, giveOrder, lowerFirst, orderTimes } from '../systems/orders.
 import { orderSlots } from '../systems/research.js';
 import { canJump } from '../systems/travel.js';
 import { h } from './dom.js';
-import { contractTag, fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
+import { fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
-import { at, minusCredits, plural, plusCredits, routeText, span, timing, tonnes } from './format.js';
+import { at, minusCredits, plural, plusCredits, routeText, signedCredits, span, timing, tonnes } from './format.js';
 
 function headIcon(target) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
@@ -80,7 +80,20 @@ function describe(option) {
         value: blocked ?? `${option.now ? '' : 'about '}${plusCredits(option.total)}`,
         note: option.now ? 'Right now' : timing(option),
         good: option.goods[0],
-        contract: option.contract,
+      };
+    case 'deliver':
+      return {
+        label: `Deliver ${tonnes(option.qty, option.good)}`,
+        value: blocked ?? contractValue(option),
+        note: `${option.now ? 'Right now' : timing(option)} · ${progressText(option.contract)}`,
+        good: option.good,
+      };
+    case 'supply':
+      return {
+        label: `${option.outbound ? 'Take' : 'Bring'} ${tonnes(option.qty, option.good)} for ${option.outbound ? 'a' : 'the'} contract`,
+        value: blocked ?? contractValue(option),
+        note: `${option.outbound ? `Delivered to ${placeName(option.stationId, option.fromId)} · bought` : `Bought at ${findStation(option.fromId).name}`} for ${formatCredits(option.cost)} · ${option.jumps ? `${plural(option.jumps, 'jump')}, ${formatCredits(option.fees)}` : '2 orders'}`,
+        good: option.good,
       };
     case 'buy':
       return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: timing(option), good: option.good };
@@ -90,7 +103,6 @@ function describe(option) {
         value: blocked ?? `about ${plusCredits(option.profit)}`,
         note: `${option.outbound ? `Sold at ${placeName(option.stationId, option.fromId)}` : `Bought at ${findStation(option.fromId).name}`} for ${formatCredits(option.outbound ? option.cost + option.profit + option.fees : option.cost)} · ${option.jumps ? `${plural(option.jumps, 'jump')}, ${formatCredits(option.fees)}` : '2 orders'}`,
         good: option.good,
-        contract: option.contract,
       };
     case 'refit':
       return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost), note: `${modulesText(option.modules)} · ${timing(option, 'refit')}` };
@@ -109,6 +121,20 @@ function describe(option) {
   }
 }
 
+/**
+ * What a contract option is worth: the price when it delivers the last
+ * tonnes (less what buying them costs, for a hauler), else what it works toward.
+ */
+function contractValue(option) {
+  if (!option.completes) return `toward ${formatCredits(option.reward)}`;
+  return option.kind === 'supply' ? `about ${signedCredits(option.profit)}` : plusCredits(option.reward);
+}
+
+/** "40 t of 120 t delivered": how far a contract is. */
+function progressText(contract) {
+  return `${tonnes(contract.delivered)} of ${tonnes(contract.qty)} delivered`;
+}
+
 const jumpLabel = (option) => `${option.jumps > 1 ? 'Fly' : 'Jump'} to ${findSystem(option.systemId).name}`;
 
 /** "Hold 25 t, laser 12 t/min" for the levels a refit fits. */
@@ -122,6 +148,7 @@ export function modulesText(modules) {
 }
 
 function optionKey(option) {
+  if (option.kind === 'supply') return `menu-supply-${option.good}-${option.stationId}`;
   return `menu-${option.outbound ? 'take' : option.kind}-${option.good ?? ''}`;
 }
 
@@ -206,7 +233,7 @@ export function orderMenu(ctx, menu) {
               dataset: { key: optionKey(option), menuItem: '' },
               onClick: () => run(ctx, ship.id, option),
             },
-            h('span', { class: 'dw-menu-row' }, text.good ? swatch(text.good) : null, h('strong', { class: 'dw-grow' }, text.label, contractTag(text.contract)), h('span', { class: 'dw-menu-value' }, text.value)),
+            h('span', { class: 'dw-menu-row' }, text.good ? swatch(text.good) : null, h('strong', { class: 'dw-grow' }, text.label), h('span', { class: 'dw-menu-value' }, text.value)),
             text.note ? h('small', null, text.note) : null,
           );
         }),
@@ -250,7 +277,15 @@ function describeGroup(option) {
         label: option.goods.length === 1 ? `Sell ${goodName(option.goods[0]).toLowerCase()}` : 'Sell all cargo',
         value: blocked ?? `about ${plusCredits(option.total)}`,
         good: option.goods.length === 1 ? option.goods[0] : null,
-        contract: option.contract,
+      };
+    case 'deliver':
+      return { label: `Deliver ${tonnes(option.qty, option.good)}`, value: blocked ?? contractValue(option), note: progressText(option.contract), good: option.good };
+    case 'supply':
+      return {
+        label: `${option.outbound ? 'Take' : 'Bring'} ${tonnes(option.qty, option.good)} for ${option.outbound ? 'a' : 'the'} contract`,
+        value: blocked ?? contractValue(option),
+        note: option.outbound ? `to ${placeName(option.stationId, option.fromId)}` : `from ${findStation(option.fromId).name} for ${formatCredits(option.cost)}`,
+        good: option.good,
       };
     case 'buy':
       return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), good: option.good };
@@ -260,7 +295,6 @@ function describeGroup(option) {
         value: blocked ?? `about ${plusCredits(option.profit)}`,
         note: option.outbound ? `to ${placeName(option.stationId, option.fromId)}` : `from ${findStation(option.fromId).name} for ${formatCredits(option.cost)}`,
         good: option.good,
-        contract: option.contract,
       };
     case 'refit':
       return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost) };
@@ -274,6 +308,7 @@ function describeGroup(option) {
 }
 
 function groupKey(option) {
+  if (option.kind === 'supply') return `menu-supply-${option.good}-${option.stationId}-${option.fromId}`;
   if (option.outbound) return `menu-take-${option.good}-${option.stationId}`;
   return `menu-${option.kind}-${option.good ?? ''}${option.kind === 'trade' ? `-${option.fromId}` : ''}`;
 }
@@ -294,7 +329,7 @@ function groupItems(ctx, menu) {
           return h(
             'button',
             { type: 'button', class: 'dw-menu-item', disabled: option.disabled, dataset: { key: groupKey(option), menuItem: '' }, onClick: () => runGroup(ctx, option) },
-            h('span', { class: 'dw-menu-row' }, text.good ? swatch(text.good) : null, h('strong', { class: 'dw-grow' }, text.label, contractTag(text.contract)), h('span', { class: 'dw-menu-value' }, text.value)),
+            h('span', { class: 'dw-menu-row' }, text.good ? swatch(text.good) : null, h('strong', { class: 'dw-grow' }, text.label), h('span', { class: 'dw-menu-value' }, text.value)),
             h('small', null, text.note && !option.disabled ? `${whoText(option)} · ${text.note}` : whoText(option)),
           );
         }),

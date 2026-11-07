@@ -8,7 +8,8 @@ import { randomSeed } from './rng.js';
 
 // Version 2 rebuilt orders, research and contracts; older saves start over.
 // Version 3 added the galaxy (act 2); version 2 saves upgrade (see save.js).
-export const SAVE_VERSION = 3;
+// Version 4 made contracts a fixed price for a set amount.
+export const SAVE_VERSION = 4;
 export const OLDEST_SAVE_VERSION = 2;
 export const STARTING_CREDITS = 250;
 
@@ -42,7 +43,9 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
       farSales: 0,
     },
     research: { done: [], active: null, second: null },
-    contracts: { offers: [], active: [], nextId: 1 },
+    // Offers, running contracts, and when each surveyed system is next
+    // checked for a new offer (see systems/contracts.js).
+    contracts: { offers: [], active: [], nextId: 1, checks: {} },
     ships: [],
     nextShipId: 1,
     markets: {},

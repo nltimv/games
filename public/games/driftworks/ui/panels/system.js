@@ -10,6 +10,7 @@ import { sceneryOf, stationTint } from '../../content/scenery.js';
 import { allFactions, allSystems, findFaction, findGate, findSystem, laneBetween, systemOf } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { systemMarket } from '../../systems/advisor.js';
+import { contractMarks } from '../../systems/contracts.js';
 import { chartedSystems, isSurveyed, surveyable, surveyorOf } from '../../systems/explore.js';
 import { marketEntries } from '../../systems/market.js';
 import { isResearched } from '../../systems/research.js';
@@ -17,7 +18,7 @@ import { findShip } from '../../systems/fleet.js';
 import { giveOrder } from '../../systems/orders.js';
 import { canJump, jumpFee, jumpTime, shipSystem } from '../../systems/travel.js';
 import { h } from '../dom.js';
-import { button, fieldIcon, gateIcon, panelHead, sectionTitle, stationIcon, swatch } from '../components.js';
+import { button, contractMark, fieldIcon, gateIcon, panelHead, sectionTitle, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { formatPrice, plural, span } from '../format.js';
 
@@ -61,13 +62,21 @@ function surveyButtons(ctx, systemId) {
   );
 }
 
-function placeRow(ctx, kind, place, icon, detail) {
+function placeRow(ctx, kind, place, icon, detail, extra = null) {
   return h(
     'button',
     { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select(kind, place.id), dataset: { key: `ov-${place.id}` } },
     h('span', { class: 'dw-ship-icon is-art', 'aria-hidden': 'true' }, icon),
     h('span', { class: 'dw-grow' }, h('strong', null, place.name), h('small', null, detail)),
+    extra,
   );
+}
+
+/** The map's contract marks for a station, also said for screen readers. */
+function contractMarksFor(marks) {
+  if (!marks) return null;
+  const said = [marks.offer ? 'contract offer' : null, marks.active ? 'contract running' : null].filter(Boolean).join(', ');
+  return h('span', { class: 'dw-marks' }, marks.offer ? contractMark(false) : null, marks.active ? contractMark(true) : null, h('span', { class: 'dw-sr' }, said));
 }
 
 function gateLine(state, system, gate) {
@@ -103,7 +112,10 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
     ];
   }
 
-  const stationRows = system.stations.map((station) => placeRow(ctx, 'station', station, stationIcon(station.type, { size: 34, tint: stationTint(station) }), STATION_TYPES[station.type].description));
+  const marks = contractMarks(state, ctx.now).stations;
+  const stationRows = system.stations.map((station) =>
+    placeRow(ctx, 'station', station, stationIcon(station.type, { size: 34, tint: stationTint(station) }), STATION_TYPES[station.type].description, contractMarksFor(marks.get(station.id))),
+  );
   const fieldRows = system.fields.map((field) =>
     placeRow(ctx, 'field', field, fieldIcon(field.good, 34), `${GOODS[field.good].name} · ${richnessLabel(field.richness).toLowerCase()}`),
   );

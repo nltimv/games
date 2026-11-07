@@ -1432,17 +1432,46 @@ button.dw-chip:hover {
   color: var(--gold);
 }
 
-.dw-tag {
-  display: inline-block;
-  white-space: nowrap;
-  margin-left: 6px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
+.dw-contract-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
   color: #3a2a00;
-  background: var(--gold);
-  vertical-align: 1px;
+  background: radial-gradient(circle at 35% 30%, #fff6d8 0%, var(--gold) 45%, #e0a52c 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 1px 4px rgba(0, 0, 0, 0.35);
+  vertical-align: -3px;
+}
+
+.dw-marks {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.dw-marks .dw-contract-mark {
+  margin-right: 0;
+}
+
+.dw-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dw-card-title .dw-contract-mark,
+.dw-ship-row > .dw-contract-mark {
+  margin-right: 0;
+}
+
+.dw-contract-mark.is-running {
+  color: var(--aqua-ink);
+  background: radial-gradient(circle at 35% 30%, #e6fff9 0%, var(--aqua) 45%, #22b8a0 100%);
 }
 
 .dw-hull.is-locked {

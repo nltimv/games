@@ -16,6 +16,7 @@ import { HOME_SKY, sceneryOf, stationTint } from '../../public/games/driftworks/
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { deserialize, serialize } from '../../public/games/driftworks/core/save.js';
+import { SAVE_VERSION } from '../../public/games/driftworks/core/state.js';
 import { chartedSystems, isSurveyed, markSurveyed } from '../../public/games/driftworks/systems/explore.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { cancelOrder, giveOrder } from '../../public/games/driftworks/systems/orders.js';
@@ -232,7 +233,7 @@ test('an act 1 save upgrades with its company intact', () => {
   delete old.standing;
   delete old.stats.jumps;
   const loaded = deserialize(JSON.stringify(old));
-  assert.equal(loaded.version, 3);
+  assert.equal(loaded.version, SAVE_VERSION);
   assert.equal(loaded.credits, 4321);
   assert.equal(loaded.ships.length, 1);
   assert.deepEqual(loaded.surveyed, []);

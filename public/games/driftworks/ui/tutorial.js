@@ -7,7 +7,7 @@ import { GOALS } from '../content/goals.js';
 import { goodName } from '../content/goods.js';
 import { HULLS, ORDER_SLOTS } from '../content/ships.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
-import { allSystems, findSystem, systemOf } from '../content/galaxy.js';
+import { allSystems, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { cargoTotal } from '../systems/cargo.js';
 import { knownStations, surveyable } from '../systems/explore.js';
 import { tutorialGoal } from '../systems/goals.js';
@@ -17,7 +17,7 @@ import { isResearched } from '../systems/research.js';
 import { shipSystem, travelTime } from '../systems/travel.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { h } from './dom.js';
-import { at } from './format.js';
+import { at, tonnes } from './format.js';
 
 const FIELD = 'carbon-drift';
 const REFINERY = 'halcyon-refinery';
@@ -58,6 +58,45 @@ function mineSteps(ui, ship, lead, tip) {
   return { text: 'Right-click Carbon Drift (on a touch screen, press and hold it) and pick Mine a full hold.', map: { kind: 'field', id: FIELD }, tip };
 }
 
+/** Steps to accept the contract offered in Aurel. */
+function acceptSteps(state, ui) {
+  const offer = state.contracts.offers.find((o) => systemOf(o.stationId) === HOME_SYSTEM.id && o.expiresAt > state.now);
+  if (!offer) return null;
+  const station = findStation(offer.stationId);
+  if (!isSelected(ui, 'station', station.id)) {
+    return { text: `Brokerage is done. A gold ! on the map marks a station with a contract offer. Click ${station.name}.`, map: { kind: 'station', id: station.id } };
+  }
+  return {
+    text: `Accept the contract. ${station.name} pays ${formatCredits(offer.reward)} once all ${tonnes(offer.qty, offer.good)} are delivered, within the time it gives.`,
+    selector: key(`accept-${offer.id}`),
+  };
+}
+
+/** Steps to fill a running contract: mine its ore, then deliver it. */
+function deliverSteps(state, ui, contract) {
+  const station = findStation(contract.stationId);
+  const good = goodName(contract.good).toLowerCase();
+  const delivering = state.ships.find((ship) => [ship.order?.spec, ...ship.queue].some((spec) => spec?.type === 'deliver' && spec.stationId === station.id));
+  if (delivering) {
+    return { text: `${delivering.name} delivers ${good} to ${station.name}. The contract pays when the last tonne arrives.`, map: { kind: 'ship', id: delivering.id } };
+  }
+  const carrier = state.ships.find((ship) => (projectShip(state, ship).cargo[contract.good] ?? 0) >= 1);
+  if (carrier) {
+    const tip = carrier.order ? QUEUE_TIP : undefined;
+    if (menuOn(ui, station.id)) return { text: 'Pick Deliver. Delivered goods go to the contract and are not sold, so prices do not matter.', selector: key(`menu-deliver-${contract.good}`), tip };
+    const aboard = (carrier.cargo[contract.good] ?? 0) >= 1 ? `${carrier.name} has ${good} aboard.` : `${carrier.name} is getting ${good}.`;
+    if (!isSelected(ui, 'ship', carrier.id)) return { text: `${aboard} Select it to deliver.`, map: { kind: 'ship', id: carrier.id }, tip };
+    return { text: `Right-click ${station.name} (on a touch screen, press and hold it) and pick Deliver.`, map: { kind: 'station', id: station.id }, tip };
+  }
+  const field = HOME_SYSTEM.fields.find((f) => f.good === contract.good);
+  const miner = mules(state).find((ship) => !ship.order) ?? mules(state)[0];
+  if (!field || !miner) return null;
+  const lead = `The contract wants ${tonnes(contract.qty, contract.good)}. `;
+  if (!isSelected(ui, 'ship', miner.id)) return { text: `${lead}Select ${miner.name}: click it on the map.`, map: { kind: 'ship', id: miner.id } };
+  if (menuOn(ui, field.id)) return { text: 'Pick Mine a full hold.', selector: key('menu-mine-') };
+  return { text: `${lead}Right-click ${field.name} and pick Mine a full hold.`, map: { kind: 'field', id: field.id } };
+}
+
 const GUIDES = {
   'first-sale'(state, ui) {
     const mule = state.ships[0];
@@ -90,9 +129,10 @@ const GUIDES = {
     return mineSteps(ui, idle, 'It waits next to the shipyard. ', tip);
   },
   'first-contract'(state, ui) {
-    if (!isResearched(state, 'brokerage')) return research(state, ui, 'brokerage', 'Brokerage', 'Contracts pay more for the ore you already mine.');
-    if (ui.view !== 'company') return { text: 'Brokerage is done. Open Company to see the contract board.', selector: '[data-view="company"]' };
-    return { text: 'Accept a contract. Sales of that good at that station pay 50% more until it is filled.', selector: '[data-key^="accept-"]' };
+    if (!isResearched(state, 'brokerage')) return research(state, ui, 'brokerage', 'Brokerage', 'Contracts pay a fixed price for ore you already mine.');
+    const contract = state.contracts.active.find((c) => c.deadline > state.now);
+    if (!contract) return acceptSteps(state, ui);
+    return deliverSteps(state, ui, contract);
   },
   'third-mule'(state, ui) {
     return { ...buyMule(state, ui, 'A third Mule pays for itself in about an hour.'), tip: hasMouse() ? BOX_TIP : undefined };

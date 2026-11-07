@@ -8,6 +8,8 @@
 //   { type: 'sell', stationId, good }   fly to a station and sell everything
 //                                       it buys (or only `good`)
 //   { type: 'buy', stationId, good, qty }  haulers: fly there and buy
+//   { type: 'deliver', stationId, good }   fly to a station and hand `good`
+//                                       to the contract running there
 //   { type: 'fly', stationId }
 //   { type: 'refit', modules, paid, stationId }  fly to a shipyard and fit
 //                                       modules (see orderRefit; paid up front)
@@ -37,6 +39,7 @@ import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { MINUTE, SECOND } from '../core/time.js';
 import { findEntry } from './market.js';
 import { canCarry, cargoTotal } from './cargo.js';
+import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
 import { isResearched, orderSlots } from './research.js';
 import { plotCourse, travelTime } from './travel.js';
@@ -174,6 +177,36 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
   };
 }
 
+function buildDeliver(state, view, { stationId, good }, start) {
+  const station = findStation(stationId);
+  if (!station) return fail('No such station.');
+  const contract = contractFor(state, stationId, good, start);
+  if (!contract) return fail(`${station.name} has no contract for ${lower(good)} running.`);
+  const carried = Math.floor(view.cargo[good] ?? 0);
+  if (carried < 1) return fail(`${view.name} has no ${lower(good)} aboard.`);
+  // Deliveries this ship already has lined up for the same contract.
+  const needed = stillNeeded(contract) - (view.delivered?.[contract.id] ?? 0);
+  if (needed < 1) return fail(`${view.name}'s orders already deliver all the contract needs.`);
+  const course = stationLegs(state, view, stationId, start);
+  if (!course.ok) return course;
+  const { end, legs } = course;
+  if (end > contract.deadline) return fail(`The contract runs out before ${view.name} gets there.`);
+  return {
+    ok: true,
+    order: {
+      type: 'deliver',
+      label: `Delivering ${lower(good)} to ${station.name}`,
+      flightLabel: `Flying to ${station.name} to deliver ${lower(good)}`,
+      target: stationId,
+      startedAt: start,
+      endsAt: end,
+      steps: [{ at: end, kind: 'deliver', station: stationId, good, qty: Math.min(carried, needed), contract: contract.id }],
+      legs,
+      ...route(course),
+    },
+  };
+}
+
 function buildFly(state, view, { stationId }, start) {
   // Any place will do: a station, a field or a gate.
   const station = findPlace(stationId);
@@ -270,7 +303,7 @@ function entryGate(state, view, systemId) {
   return best?.id ?? gates[0]?.id ?? null;
 }
 
-const BUILDERS = { mine: buildMine, sell: buildSell, buy: buildBuy, fly: buildFly, refit: buildRefit, survey: buildSurvey };
+const BUILDERS = { mine: buildMine, sell: buildSell, buy: buildBuy, deliver: buildDeliver, fly: buildFly, refit: buildRefit, survey: buildSurvey };
 
 export function buildOrder(state, view, spec, start = state.now) {
   const build = BUILDERS[spec?.type];
@@ -296,6 +329,12 @@ function applySteps(view, order, from = 0) {
     } else if (step.kind === 'buy') {
       view.cargo[step.good] = (view.cargo[step.good] ?? 0) + Math.min(step.qty, freeIn(view));
       view.at = step.station;
+    } else if (step.kind === 'deliver') {
+      const qty = Math.min(step.qty, view.cargo[step.good] ?? 0);
+      view.cargo[step.good] = (view.cargo[step.good] ?? 0) - qty;
+      if (view.cargo[step.good] <= 0) delete view.cargo[step.good];
+      view.delivered = { ...view.delivered, [step.contract]: (view.delivered?.[step.contract] ?? 0) + qty };
+      view.at = step.station;
     } else if (step.kind === 'refit') {
       view.modules = { ...view.modules, ...step.modules };
       view.at = step.station;
@@ -318,6 +357,8 @@ export function projectShip(state, ship) {
     at: ship.at,
     cargo: { ...ship.cargo },
     modules: { ...ship.modules },
+    // Tonnes its orders will deliver to each contract: { [contractId]: t }.
+    delivered: {},
     time: state.now,
   };
   if (ship.order) {
@@ -731,6 +772,8 @@ export function specLabel(spec) {
       return `Sell ${spec.good ? lower(spec.good) : 'cargo'} at ${findStation(spec.stationId)?.name ?? '?'}`;
     case 'buy':
       return `Buy ${formatNumber(spec.qty)} t ${lower(spec.good)} at ${findStation(spec.stationId)?.name ?? '?'}`;
+    case 'deliver':
+      return `Deliver ${lower(spec.good)} to ${findStation(spec.stationId)?.name ?? '?'}`;
     case 'fly':
       return `Fly to ${placeName(spec.stationId)}`;
     case 'refit':

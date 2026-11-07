@@ -27,6 +27,14 @@ export const MIGRATIONS = {
       standing: save.standing ?? (save.research?.done?.includes('warp-drive') ? { [HOME_FACTION]: (save.stats?.earned ?? 0) / CREDITS_PER_POINT } : {}),
     };
   },
+  // Contracts became a fixed price for a set amount. Old offers and
+  // contracts (a premium on sales) are dropped; new offers turn up soon.
+  3(save) {
+    return {
+      ...save,
+      contracts: { offers: [], active: [], nextId: save.contracts?.nextId ?? 1, checks: {} },
+    };
+  },
 };
 
 export function migrate(data) {

@@ -7,8 +7,9 @@ import { HULLS, HOLD_CLASS_MAX_TIER, MODULES } from '../../content/ships.js';
 import { GOODS, goodName } from '../../content/goods.js';
 import { findFaction, findPlace, findStation, systemOf } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
+import { HOUR } from '../../core/time.js';
 import { buyCargo, cargoTotal, sellCargo } from '../../systems/cargo.js';
-import { contractFor, premiumText } from '../../systems/contracts.js';
+import { CONTRACT_RULES, acceptContract, activeAt, boardOpen, contractFor, deliverCargo, offersAt, stillNeeded } from '../../systems/contracts.js';
 import { buyShip, findShip, hullLock, hullsForSale, shipPrice } from '../../systems/fleet.js';
 import { marketEntries, marketView } from '../../systems/market.js';
 import { knownAt, seenAt } from '../../systems/knowledge.js';
@@ -19,9 +20,9 @@ import { canJump, plotCourse } from '../../systems/travel.js';
 import { standingLevel } from '../../systems/standing.js';
 import { bestTradeQty, buyersOf, maxPurchase, saleHere, tradePlan } from '../../systems/advisor.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, contractTag, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
+import { button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { ago, formatPrice, minusCredits, plural, plusCredits, routeText, tonnes, trip } from '../format.js';
+import { ago, formatPrice, minusCredits, plural, plusCredits, routeText, signedCredits, tonnes, trip } from '../format.js';
 
 const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
 const isMiner = (ship) => HULLS[ship.hull].role === 'miner';
@@ -47,7 +48,7 @@ export function stationPanel(ctx, stationId) {
     // Ships come first: selling what just arrived is the usual reason to
     // open a station.
     dockedSection(ctx, station, docked),
-    contractsHere(ctx, station),
+    contractsSection(ctx, station),
     station.type === 'shipyard' ? [refitSection(ctx, station), shipyardSection(ctx, station)] : marketSection(ctx, station, docked),
     elsewhereSection(ctx, station),
   ];
@@ -84,7 +85,7 @@ function marketSection(ctx, station, docked) {
       'div',
       { class: 'dw-market-row' },
       swatch(v.good),
-      h('span', { class: 'dw-name' }, goodName(v.good), contractTag(contractFor(state, station.id, v.good, now))),
+      h('span', { class: 'dw-name' }, goodName(v.good)),
       h('span', { class: 'dw-price' }, formatPrice(v.price)),
       bar({ fraction: 1 - v.fill, small: true }),
       trendMark(v.pressure),
@@ -203,7 +204,7 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
           dataset: { key: `trade-dest-${dest.id}` },
           onClick: () => ctx.update({ trade: { ...trade, dest: dest.id } }),
         },
-        h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name, contractTag(contractFor(state, dest.id, good, now))), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, profitText(p.profit))),
+        h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, signedCredits(p.profit))),
         h('span', null, `${p.jumps ? routeText({ jumps: p.jumps, time: p.travel, fees: p.fees }) : `${trip(p.travel)} away`} · sells for about ${formatCredits(p.sell.total)}`),
       );
     }),
@@ -240,9 +241,9 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     ),
     destChoices,
     line(`Buy ${tonnes(plan.qty, good)} here`, minusCredits(plan.buy.total)),
-    line([`Sell at ${chosen.dest.name}`, contractTag(contractFor(state, chosen.dest.id, good, now))], `about ${plusCredits(plan.sell.total)}`),
+    line(`Sell at ${chosen.dest.name}`, `about ${plusCredits(plan.sell.total)}`),
     plan.fees ? line(`Jump fees · ${plural(plan.jumps, 'jump')}`, minusCredits(plan.fees)) : null,
-    line('Expected profit', profitText(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`),
+    line('Expected profit', signedCredits(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`),
     plan.profit <= 0 ? h('p', { class: 'dw-note is-warn' }, 'Prices here and there are too close right now. They drift back over a few hours.') : null,
     h(
       'div',
@@ -251,11 +252,6 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
       button('Buy only', { onClick: buyOnly, key: 'trade-buy-only' }),
     ),
   );
-}
-
-function profitText(value) {
-  const rounded = Math.round(value);
-  return rounded >= 0 ? plusCredits(rounded) : minusCredits(-rounded);
 }
 
 // ---------- Shipyard ----------
@@ -361,24 +357,41 @@ function refitChanges(ship, modules) {
 
 // ---------- Contracts ----------
 
-function contractsHere(ctx, station) {
+/** Contracts running here, and offers waiting to be accepted. */
+function contractsSection(ctx, station) {
   const { state, now } = ctx;
-  const here = state.contracts.active.filter((c) => c.stationId === station.id && c.deadline > now);
-  if (!here.length) return null;
-  return h(
-    'div',
-    { class: 'dw-section' },
-    sectionTitle('Contracts here'),
-    here.map((c) =>
-      h(
-        'div',
-        { class: 'dw-card is-gold' },
-        h('div', { class: 'dw-card-head' }, h('strong', null, [swatch(c.good), ` ${goodName(c.good)} ${premiumText(c)}`]), countdown(c.deadline)),
-        bar({ fraction: c.delivered / c.qty, variant: 'gold' }),
-        h('span', { class: 'dw-note' }, `${tonnes(c.delivered)} of ${tonnes(c.qty)} delivered`),
-      ),
+  if (!boardOpen(state)) return null;
+  const running = activeAt(state, station.id, now);
+  const offers = offersAt(state, station.id, now);
+  if (!running.length && !offers.length) return null;
+  const held = state.contracts.active.length;
+  const full = held >= CONTRACT_RULES.maxActive;
+  const head = (contract, isRunning, right) =>
+    h('div', { class: 'dw-card-head' }, h('strong', { class: 'dw-card-title' }, contractMark(isRunning), swatch(contract.good), tonnes(contract.qty, contract.good)), right);
+  const runningCards = running.map((c) =>
+    h(
+      'div',
+      { class: 'dw-card is-aqua', dataset: { key: `contract-${c.id}` } },
+      head(c, true, countdown(c.deadline)),
+      bar({ fraction: c.delivered / c.qty }),
+      h('span', { class: 'dw-note' }, `${tonnes(c.delivered)} of ${tonnes(c.qty)} delivered · pays ${formatCredits(c.reward)}`),
     ),
   );
+  const offerCards = offers.map((offer) =>
+    h(
+      'div',
+      { class: 'dw-card is-gold' },
+      head(offer, false, h('strong', { class: 'is-good' }, formatCredits(offer.reward))),
+      h('span', { class: 'dw-note' }, `${trip(offer.hours * HOUR)} to deliver · `, countdown(offer.expiresAt, { prefix: 'offer ends in ' })),
+      button(full ? `You hold ${CONTRACT_RULES.maxActive} contracts` : 'Accept', {
+        variant: full ? null : 'primary',
+        disabled: full,
+        key: `accept-${offer.id}`,
+        onClick: () => ctx.act((s, t) => acceptContract(s, offer.id, t)),
+      }),
+    ),
+  );
+  return h('div', { class: 'dw-section' }, sectionTitle('Contracts', `${held} / ${CONTRACT_RULES.maxActive} held`, { numeric: true }), runningCards, offerCards);
 }
 
 function spec(term, value) {
@@ -399,20 +412,32 @@ function dockedCard(ctx, station, ship) {
   const actions = [];
 
   for (const good of goods) {
+    const contract = contractFor(state, station.id, good, now);
+    if (contract) {
+      const qty = Math.min(Math.floor(ship.cargo[good]), stillNeeded(contract));
+      actions.push(
+        button([contractMark(true), `Deliver ${tonnes(qty, good)}`], {
+          variant: 'primary',
+          sub: qty >= stillNeeded(contract) ? plusCredits(contract.reward) : `${tonnes(contract.delivered + qty)} of ${tonnes(contract.qty)}`,
+          key: `deliver-${ship.id}-${good}`,
+          onClick: () => ctx.act((s) => deliverCargo(s, findShip(s, ship.id), good)),
+        }),
+      );
+    }
     const sale = saleHere(state, ship, good, now);
     if (sale && sale.qty > 0) {
       actions.push(
-        button([`Sell ${tonnes(sale.qty, good)}`, contractTag(contractFor(state, station.id, good, now))], {
-          variant: 'primary',
+        button(`Sell ${tonnes(sale.qty, good)}`, {
+          variant: contract ? null : 'primary',
           sub: plusCredits(sale.total),
           key: `sell-${ship.id}-${good}`,
           onClick: () => ctx.act((s) => sellCargo(s, findShip(s, ship.id), good)),
         }),
       );
-    } else {
+    } else if (!contract) {
       actions.push(
-        button(`Deliver ${goodName(good).toLowerCase()} elsewhere`, {
-          key: `deliver-${ship.id}-${good}`,
+        button(`Sell ${goodName(good).toLowerCase()} elsewhere`, {
+          key: `elsewhere-${ship.id}-${good}`,
           onClick: () => ctx.select('ship', ship.id),
         }),
       );
@@ -452,9 +477,18 @@ function elsewhereSection(ctx, station) {
     // Only ships with a known route here.
     const course = plotCourse(state, ship, ship.at, station.id);
     if (!course.ok) return null;
+    const wanted = Object.keys(ship.cargo).find((g) => ship.cargo[g] >= 1 && contractFor(state, station.id, g, now));
     const sellable = Object.keys(ship.cargo).find((g) => ship.cargo[g] > 0 && marketView(state, station.id, g, now)?.side === 'buys');
-    const action = sellable
-      ? button([`Deliver ${tonnes(ship.cargo[sellable], sellable)}`, contractTag(contractFor(state, station.id, sellable, now))], {
+    const action = wanted
+      ? button([contractMark(true), `Deliver ${tonnes(Math.min(ship.cargo[wanted], stillNeeded(contractFor(state, station.id, wanted, now))), wanted)}`], {
+          small: true,
+          variant: 'primary',
+          key: `bring-${ship.id}`,
+          sub: routeText(course),
+          onClick: () => send({ type: 'deliver', stationId: station.id, good: wanted }),
+        })
+      : sellable
+      ? button(`Sell ${tonnes(ship.cargo[sellable], sellable)}`, {
           small: true,
           variant: 'primary',
           key: `bring-${ship.id}`,

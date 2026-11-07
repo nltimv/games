@@ -6,6 +6,8 @@ import { markSurveyed } from '../../public/games/driftworks/systems/explore.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { guideSkipped, skipGuide } from '../../public/games/driftworks/systems/goals.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { acceptContract } from '../../public/games/driftworks/systems/contracts.js';
+import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
 import { currentGuide } from '../../public/games/driftworks/ui/tutorial.js';
 import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
 
@@ -84,4 +86,27 @@ test('a second Mule can be given any orders; copying is a tip', () => {
   const guide = currentGuide(state, onMap({ kind: 'ship', id: b.id }));
   assert.match(guide.text, /Mine a full hold/);
   assert.match(guide.tip, new RegExp(`Copy orders from ${a.name}`));
+});
+
+test('the contract guide finds the offer, then has its ore mined and delivered', () => {
+  const state = newGame();
+  state.goals = ['first-sale', 'first-research', 'second-mule'];
+  state.research.done.push('brokerage');
+  advance(state, T0);
+  const [offer] = state.contracts.offers;
+  const find = currentGuide(state, onMap());
+  assert.match(find.text, /gold !/);
+  assert.deepEqual(find.map, { kind: 'station', id: offer.stationId });
+  assert.equal(currentGuide(state, onMap({ kind: 'station', id: offer.stationId })).selector, `[data-key="accept-${offer.id}"]`);
+
+  acceptContract(state, offer.id, T0);
+  const mule = firstShip(state);
+  const field = HOME_SYSTEM.fields.find((f) => f.good === offer.good);
+  assert.deepEqual(currentGuide(state, onMap({ kind: 'ship', id: mule.id })).map, { kind: 'field', id: field.id });
+  giveOrder(state, mule, { type: 'mine', fieldId: field.id, amount: null });
+  const deliver = currentGuide(state, { ...onMap({ kind: 'ship', id: mule.id }), menu: { target: { kind: 'station', id: offer.stationId } } });
+  assert.equal(deliver.selector, `[data-key="menu-deliver-${offer.good}"]`);
+  assert.match(deliver.tip, /queue/);
+  giveOrder(state, mule, { type: 'deliver', stationId: offer.stationId, good: offer.good });
+  assert.match(currentGuide(state, onMap()).text, /pays when the last tonne arrives/);
 });

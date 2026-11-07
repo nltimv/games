@@ -3,6 +3,7 @@
 // panels can never disagree about what an order does.
 
 import { sellCargo } from './cargo.js';
+import { deliverCargo } from './contracts.js';
 import { findShip } from './fleet.js';
 import { giveOrder, giveOrders, orderRefit } from './orders.js';
 
@@ -30,6 +31,14 @@ export function carryOut(state, shipId, option) {
     case 'sell':
       if (option.now) return sellAllHere(state, ship, option.goods);
       return giveOrder(state, ship, { type: 'sell', stationId: option.stationId });
+    case 'deliver':
+      if (option.now) return deliverCargo(state, ship, option.good);
+      return giveOrder(state, ship, { type: 'deliver', stationId: option.stationId, good: option.good });
+    case 'supply':
+      return giveOrders(state, ship, [
+        { type: 'buy', stationId: option.fromId, good: option.good, qty: option.qty },
+        { type: 'deliver', stationId: option.stationId, good: option.good },
+      ]);
     case 'buy':
       return giveOrder(state, ship, { type: 'buy', stationId: option.stationId, good: option.good, qty: option.qty });
     case 'trade':

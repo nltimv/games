@@ -26,7 +26,7 @@ test('a goal pays its reward exactly once', () => {
 
 test('goals complete in order: a later goal waits for the ones before it', () => {
   const state = newGame();
-  state.stats.contractsAccepted = 1;
+  state.stats.contracts = 1;
   assert.deepEqual(checkGoals(state), []);
   state.stats.oreSold = 1;
   state.research.done.push('hold-1');

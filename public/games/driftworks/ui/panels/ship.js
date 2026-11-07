@@ -6,7 +6,7 @@ import { goodName } from '../../content/goods.js';
 import { allSystems, findPlace, findStation, findSystem, systemOf } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { cargoTotal } from '../../systems/cargo.js';
-import { contractForSale } from '../../systems/contracts.js';
+import { contractFor, deliverCargo, stillNeeded } from '../../systems/contracts.js';
 import { sellAllHere } from '../../systems/commands.js';
 import { findShip } from '../../systems/fleet.js';
 import { holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
@@ -37,7 +37,7 @@ import { findEntry } from '../../systems/market.js';
 import { knownStations, surveyable, surveyorOf } from '../../systems/explore.js';
 import { plotCourse } from '../../systems/travel.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, contractTag, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
+import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { at, plusCredits, routeText, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
@@ -177,6 +177,26 @@ function ordersSection(ctx, ship) {
   );
 }
 
+/** Contracts the ship's cargo could go to: { contract, qty, completes, here, course, error }. */
+function deliverRows(state, view, aboard, queued, ship, now) {
+  const rows = [];
+  for (const good of aboard) {
+    for (const contract of state.contracts.active) {
+      if (contract.good !== good || !contractFor(state, contract.stationId, good, now)) continue;
+      const needed = stillNeeded(contract) - (view.delivered[contract.id] ?? 0);
+      if (needed < 1) continue;
+      const qty = Math.min(Math.floor(view.cargo[good]), needed);
+      if (qty < 1) continue;
+      const here = !queued && ship.at === contract.stationId;
+      const course = here ? null : plotCourse(state, view, view.at, contract.stationId);
+      if (course && !course.ok) continue;
+      const late = course && view.time + course.time > contract.deadline;
+      rows.push({ contract, qty, completes: qty >= needed, here, course, error: late ? 'Runs out first' : null });
+    }
+  }
+  return rows;
+}
+
 function report(ctx, ship, result) {
   if (result?.ok && result.given) ctx.toast(`${ship.name} has ${result.given} new ${result.given === 1 ? 'order' : 'orders'}`, 'order');
 }
@@ -200,6 +220,39 @@ function newOrders(ctx, ship) {
   // Sell what it carries (or will carry once its orders are done): every
   // buyer in this system, and the best few elsewhere that a route reaches.
   const aboard = Object.keys(view.cargo).filter((g) => view.cargo[g] > 0);
+  const deliveries = deliverRows(state, view, aboard, queued, ship, now);
+  if (deliveries.length) {
+    sections.push(
+      h(
+        'div',
+        { class: 'dw-section' },
+        sectionTitle(queued ? 'Then deliver' : 'Deliver'),
+        h(
+          'div',
+          { class: 'dw-choices', role: 'group', 'aria-label': 'Deliver' },
+          deliveries.map((row) =>
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'dw-choice',
+                disabled: Boolean(row.error),
+                dataset: { key: `deliver-${row.contract.id}` },
+                onClick: () => (row.here ? ctx.act((s) => deliverCargo(s, findShip(s, ship.id), row.contract.good)) : give({ type: 'deliver', stationId: row.contract.stationId, good: row.contract.good })),
+              },
+              h(
+                'span',
+                { class: 'dw-choice-row' },
+                h('strong', null, contractMark(true), row.here ? 'Deliver here' : `Deliver to ${findStation(row.contract.stationId).name}`),
+                h('strong', { class: 'is-good' }, row.completes ? plusCredits(row.contract.reward) : `${tonnes(row.contract.delivered + row.qty)} of ${tonnes(row.contract.qty)}`),
+              ),
+              h('span', null, [tonnes(row.qty, row.contract.good), row.error ? ` · ${row.error}` : row.course?.jumps ? ` · ${routeText(row.course)}` : ''].join('')),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
   if (aboard.length) {
     const near = [];
     const far = [];
@@ -211,7 +264,7 @@ function newOrders(ctx, ship) {
       if (course && !course.ok) continue;
       const total = goods.reduce((sum, g) => sum + saleValue(state, station.id, g, view.cargo[g], now).total, 0);
       const here = !queued && ship.at === station.id;
-      (local ? near : far).push({ station, goods, total, here, course, contract: contractForSale(state, station.id, goods, now) });
+      (local ? near : far).push({ station, goods, total, here, course });
     }
     near.sort((a, b) => b.total - a.total);
     far.sort((a, b) => b.total - (b.course?.fees ?? 0) - (a.total - (a.course?.fees ?? 0)));
@@ -237,7 +290,7 @@ function newOrders(ctx, ship) {
                   h(
                     'span',
                     { class: 'dw-choice-row' },
-                    h('strong', null, row.here ? 'Sell here' : `Sell at ${row.station.name}`, contractTag(row.contract)),
+                    h('strong', null, row.here ? 'Sell here' : `Sell at ${row.station.name}`),
                     h('strong', { class: 'is-good' }, `${row.here ? '' : 'about '}${plusCredits(row.total)}`),
                   ),
                   h('span', null, [row.goods.map((g) => goodName(g).toLowerCase()).join(', '), row.course ? ` · ${routeText(row.course)}` : ''].join('')),

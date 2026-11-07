@@ -3,7 +3,6 @@
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { assetUrl, tintedUrl } from '../render/assets.js';
-import { premiumText } from '../systems/contracts.js';
 import { h, svgIcon } from './dom.js';
 
 export function swatch(good) {
@@ -105,7 +104,7 @@ export function line(left, right, className) {
   return h('div', { class: `dw-line${className ? ` ${className}` : ''}` }, h('span', null, left), h('span', null, right));
 }
 
-/** The tag on a sale that counts towards a contract: "contract +50%". */
-export function contractTag(contract) {
-  return contract ? h('span', { class: 'dw-tag' }, `contract ${premiumText(contract)}`) : null;
+/** The "!" that marks contracts, as on the map: gold for an offer, aqua for one running. */
+export function contractMark(running = false) {
+  return h('span', { class: `dw-contract-mark${running ? ' is-running' : ''}`, 'aria-hidden': 'true' }, '!');
 }

@@ -21,6 +21,12 @@ export function minusCredits(value) {
   return `−${formatCredits(value)}`;
 }
 
+/** "+120 cr" or "−40 cr". */
+export function signedCredits(value) {
+  const rounded = Math.round(value);
+  return rounded >= 0 ? plusCredits(rounded) : minusCredits(-rounded);
+}
+
 /** "3 min" for travel times. */
 export function trip(ms) {
   return formatDuration(ms);

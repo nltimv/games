@@ -14,12 +14,14 @@ import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { createRng, hashString } from '../core/rng.js';
 import { SECOND, timeLeft } from '../core/time.js';
+import { contractMarks } from '../systems/contracts.js';
 import { isSurveyed } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { orderPhase, projectShip } from '../systems/orders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
+import { drawContractMarks } from './marks.js';
 import { createLabelSpace, drawCount, flock, flockName } from './flocks.js';
 
 // Sizes of map art in CSS pixels at an icon scale of 1.
@@ -233,7 +235,9 @@ export function drawSystem(ctx, cam, state, now, view) {
     targets.push({ kind: 'field', id: field.id, x: p.x, y: p.y, r: Math.max(22, w * 0.45) });
   }
 
-  // Stations: the hex is 36/64 of the art's width.
+  // Stations: the hex is 36/64 of the art's width. A "!" above the
+  // right shoulder marks contracts.
+  const marks = contractMarks(state, now).stations;
   for (const station of system.stations) {
     const p = toScreen(cam, station.x, station.y);
     const w = SIZE.station * u;
@@ -245,6 +249,7 @@ export function drawSystem(ctx, cam, state, now, view) {
       const text = docked.length === 1 ? `${docked[0].name} docked` : `${docked.length} ships docked`;
       drawLabel(ctx, text, p.x, p.y + hex + 28, dpr, { size: 11, weight: 600, color: 'rgba(220, 236, 255, 0.72)' });
     }
+    drawContractMarks(ctx, p.x + hex * 0.95, p.y - hex * 1.05, marks.get(station.id), dpr, u);
     targets.push({ kind: 'station', id: station.id, x: p.x, y: p.y, r: Math.max(18, hex * 1.7) });
   }
 

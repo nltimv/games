@@ -36,10 +36,10 @@ export const GOALS = [
   },
   {
     id: 'first-contract',
-    title: 'Accept a contract',
+    title: 'Complete a contract',
     reward: 150,
     tutorial: true,
-    done: (s) => s.stats.contractsAccepted > 0,
+    done: (s) => s.stats.contracts > 0,
   },
   {
     id: 'third-mule',

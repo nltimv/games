@@ -2,19 +2,18 @@
 // stats and log). Systems and gates are in system.js.
 
 import { GOALS, NEXT_CHAPTER } from '../../content/goals.js';
-import { goodName } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
-import { allFactions, allSystems, findStation } from '../../content/galaxy.js';
+import { allFactions, allSystems } from '../../content/galaxy.js';
 import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/format.js';
-import { CONTRACT_RULES, acceptContract, boardOpen, premiumText } from '../../systems/contracts.js';
+import { CONTRACT_RULES, boardOpen, contractPlace } from '../../systems/contracts.js';
 import { currentGoal } from '../../systems/goals.js';
 import { isSurveyed } from '../../systems/explore.js';
 import { canJump } from '../../systems/travel.js';
 import { findShip } from '../../systems/fleet.js';
 import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, rerunnable, runAgain, runAllAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
+import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { plural, tonnes } from '../format.js';
 import { factionRow } from './factions.js';
 
@@ -208,44 +207,35 @@ export function runAllButton(ctx, count) {
 
 // ---------- Contracts ----------
 
+/** The contracts running now; each opens its station. */
 function contractsSection(ctx) {
   const { state, now } = ctx;
   if (!boardOpen(state)) return null;
-  const { active, offers } = state.contracts;
-  const full = active.length >= CONTRACT_RULES.maxActive;
-  const what = (c) => `${tonnes(c.qty)} ${goodName(c.good).toLowerCase()} for ${findStation(c.stationId).name}`;
-  const activeCards = active
-    .filter((c) => c.deadline > now)
-    .map((c) =>
-      h(
-        'div',
-        { class: 'dw-card is-gold' },
-        h('div', { class: 'dw-card-head' }, h('strong', null, [swatch(c.good), ` ${what(c)}`]), countdown(c.deadline)),
-        bar({ fraction: c.delivered / c.qty, variant: 'gold' }),
-        h('span', { class: 'dw-note' }, `${tonnes(c.delivered)} delivered · pays ${premiumText(c)} over market`),
-      ),
-    );
-  const offerRows = offers.map((offer) =>
+  const running = state.contracts.active.filter((c) => c.deadline > now);
+  const rows = running.map((c) =>
     h(
       'li',
-      { class: 'dw-ship-row' },
-      swatch(offer.good),
-      h('span', { class: 'dw-grow' }, h('strong', null, what(offer)), h('small', null, `${premiumText(offer)} over market · ${CONTRACT_RULES.hours} h to deliver`)),
-      button('Accept', {
-        small: true,
-        variant: full ? null : 'primary',
-        disabled: full,
-        key: `accept-${offer.id}`,
-        onClick: () => ctx.act((s, t) => acceptContract(s, offer.id, t)),
-      }),
+      null,
+      h(
+        'button',
+        { type: 'button', class: 'dw-ship-row', dataset: { key: `contract-${c.id}` }, onClick: () => ctx.select('station', c.stationId) },
+        contractMark(true),
+        h(
+          'span',
+          { class: 'dw-grow' },
+          h('strong', { class: 'dw-card-title' }, swatch(c.good), `${tonnes(c.qty, c.good)} for ${contractPlace(c)}`),
+          h('small', null, `${tonnes(c.delivered)} delivered · pays ${formatCredits(c.reward)}`),
+          bar({ fraction: c.delivered / c.qty }),
+        ),
+        countdown(c.deadline),
+      ),
     ),
   );
   return h(
     'div',
     { class: 'dw-section' },
-    sectionTitle('Contracts', `${active.length} / ${CONTRACT_RULES.maxActive}`, { numeric: true }),
-    activeCards,
-    offerRows.length ? h('ul', { class: 'dw-list' }, offerRows) : h('p', { class: 'dw-note' }, 'No offers right now.'),
+    sectionTitle('Contracts', `${running.length} / ${CONTRACT_RULES.maxActive}`, { numeric: true }),
+    rows.length ? h('ul', { class: 'dw-list' }, rows) : h('p', { class: 'dw-note' }, 'No contracts running.'),
   );
 }
 
