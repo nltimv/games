@@ -431,7 +431,7 @@ function dot(ctx, x, y, r, color) {
 
 /** A price per tonne for a map label: one decimal under 100 cr. */
 const price = (value) => (value < 100 ? value.toFixed(1) : String(Math.round(value)));
-const ROLES = ['miner', 'hauler', 'scout'];
+const ROLES = ['miner', 'hauler', 'scout', 'command'];
 
 /**
  * Draws the galaxy. `view` is as for drawSystem. Returns hit targets for
@@ -532,6 +532,31 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const bids = [...markets.values()].map((m) => m.buys).filter((v) => v != null).sort((a, b) => b - a);
   const share = (value, list) => (list.length < 2 || list[0] === list.at(-1) ? 1 : (value - list.at(-1)) / (list[0] - list.at(-1)));
   const everyPrice = s >= 0.9;
+
+  // A fleet's mission area: a soft cyan pool under each of its systems.
+  const area = view.area ? new Set(view.area) : null;
+  if (area) {
+    for (const system of systems) {
+      if (!area.has(system.id)) continue;
+      const p = toScreen(cam, system.gx, system.gy);
+      if (!onScreen(p)) continue;
+      const r = nodeRadius(system, u) * 3.4;
+      const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      glow.addColorStop(0, 'rgba(127, 231, 255, 0.5)');
+      glow.addColorStop(1, 'rgba(127, 231, 255, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(127, 231, 255, 0.85)';
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 0.62, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
 
   // Systems, with a "!" above the left shoulder for contracts at their stations.
   const marks = contractMarks(state, now).systems;

@@ -50,6 +50,7 @@ import { isResearched, orderSlots } from './research.js';
 import { plotCourse, travelTime } from './travel.js';
 import { flight, route, stationLegs } from './courses.js';
 import { buildInvestigate, buildSalvage } from './signalOrders.js';
+import { buildStandby } from './standby.js';
 import { isFieldOpen } from './signals.js';
 import { isSurveyed, knownStations, surveyable, surveyorOf } from './explore.js';
 import { hazardNote } from './shielding.js';
@@ -303,6 +304,7 @@ const BUILDERS = {
   survey: buildSurvey,
   investigate: buildInvestigate,
   salvage: buildSalvage,
+  standby: buildStandby,
 };
 
 export function buildOrder(state, view, spec, start = state.now) {
@@ -341,7 +343,7 @@ function applySteps(view, order, from = 0) {
     } else if (step.kind === 'salvage') {
       view.cargo[step.good] = (view.cargo[step.good] ?? 0) + Math.min(step.qty, freeIn(view));
       view.at = step.station;
-    } else if (step.kind === 'arrive' || step.kind === 'survey' || step.kind === 'investigate') {
+    } else if (step.kind === 'arrive' || step.kind === 'survey' || step.kind === 'investigate' || step.kind === 'standby') {
       view.at = step.station;
     }
   }
@@ -405,7 +407,8 @@ export function freeSlots(state, ship) {
 }
 
 /** Starts a spec now on an idle ship. Its jump fees are paid at the gates. */
-function startOrder(state, ship, spec) {
+/** Starts an order on an idle ship now, without touching its plan. */
+export function startOrder(state, ship, spec) {
   const result = buildOrder(state, ship, spec, state.now);
   if (!result.ok) return result;
   const fees = result.order.fees ?? 0;
@@ -429,7 +432,12 @@ function remember(ship, spec) {
  */
 export function giveOrder(state, ship, spec) {
   if (!ship) return fail('No such ship.');
-  if (!BUILDERS[spec?.type]) return fail('Unknown order.');
+  if (!BUILDERS[spec?.type] || spec.type === 'standby') return fail('Unknown order.');
+  // An order of the player's own comes before a commander's next one.
+  if (ship.order?.type === 'standby') {
+    ship.at = ship.order.target;
+    ship.order = null;
+  }
   if (ship.order) {
     if (freeSlots(state, ship) <= 0) return fail(`${ship.name}'s orders are full.`);
     const view = projectShip(state, ship);
@@ -559,6 +567,7 @@ export function cancelOrder(state, ship, at = state.now) {
   if (!ship) return fail('No such ship.');
   const order = ship.order;
   if (!order) return fail(`${ship.name} has no order to cancel.`);
+  if (order.type === 'standby') return fail(`${ship.name} is waiting for its commander's orders.`);
   const phase = orderPhase(order, at);
   if (phase.flying) {
     const leg = order.legs.find((l) => l.from !== l.to && at < l.end) ?? order.legs.find((l) => l.from !== l.to);
@@ -820,6 +829,8 @@ export function specLabel(spec) {
       return `Investigate the signal in ${findSystem(systemOf(spec.signalId))?.name ?? '?'}`;
     case 'salvage':
       return `Salvage the derelict in ${findSystem(systemOf(spec.signalId))?.name ?? '?'}`;
+    case 'standby':
+      return `Wait for ${spec.by}'s orders`;
     default:
       return spec.type;
   }

@@ -44,6 +44,7 @@ const REVEAL_MARGIN = 40;
  *   getMenuTarget()          { kind, id } the order menu is open for, or null
  *   getGuideTarget()         { kind, id } the tutorial points at, or null
  *   getMarketGood()          the good whose prices the galaxy map shows, or null
+ *   getArea()                system ids of a fleet's mission area to light up, or null
  *   getOpenSystem()          the system whose map the System view shows
  *   isCompact()              true on a phone-sized screen
  *   getSafeArea(w, h)        the free screen rect { x, y, width, height }
@@ -128,6 +129,7 @@ export function createMapView(canvas, options) {
       hover,
       boxed: box ? shipsInBox(targets, box.a, box.b) : null,
       market: galaxy ? (options.getMarketGood?.() ?? null) : null,
+      area: galaxy ? (options.getArea?.() ?? null) : null,
       current: galaxy ? (options.getOpenSystem?.() ?? null) : null,
       compact: options.isCompact?.() ?? false,
       dpr,

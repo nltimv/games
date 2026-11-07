@@ -40,7 +40,8 @@ export function createShip(state, hullId, stationId) {
 
 /** What the company's next ship costs, whatever the hull. */
 export function shipPrice(state) {
-  const index = Math.max(0, state.ships.length - 1);
+  // Command ships come with their commander, at their own prices.
+  const index = Math.max(0, state.ships.filter((ship) => !HULLS[ship.hull].hired).length - 1);
   if (index < SHIP_PRICES.length) return SHIP_PRICES[index];
   const raw = SHIP_PRICES.at(-1) * SHIP_PRICE_GROWTH ** (index - SHIP_PRICES.length + 1);
   return Math.round(raw / 10000) * 10000;

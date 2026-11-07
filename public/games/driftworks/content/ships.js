@@ -54,6 +54,20 @@ export const HULLS = {
     // Sold only at shipyards of factions that trust the company.
     standing: 'trusted',
   },
+  osprey: {
+    name: 'Osprey-class command ship',
+    role: 'command',
+    size: 'medium',
+    // A commander's ship carries no cargo; it leads a wing on missions.
+    holdScale: 0,
+    speedScale: 1.3,
+    holdClass: 1,
+    namePrefix: 'Osprey',
+    blurb: 'Carries a commander, who leads a wing of your ships on missions.',
+    licence: 'fleet-1',
+    // Comes with a commander, hired at a shipyard (see systems/commanders.js).
+    hired: true,
+  },
 };
 
 /**

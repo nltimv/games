@@ -26,6 +26,7 @@ import { companyPanel, fleetPanel, groupPanel } from './panels/lists.js';
 import { researchPanel } from './panels/research.js';
 import { galaxyPanel, gatePanel, systemPanel } from './panels/system.js';
 import { signalPanel } from './panels/signal.js';
+import { plannedArea } from './panels/commander.js';
 import { currentGuide, guideCard, markGuided } from './tutorial.js';
 
 const TOAST_KINDS = new Set(['sale', 'goal', 'arrival', 'warning', 'purchase']);
@@ -472,6 +473,10 @@ export function createApp(session, doc = document) {
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
     getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
     getMarketGood: () => (isResearched(session.state, 'market-charts') ? ui.marketGood : null),
+    getArea: () => {
+      const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
+      return ship?.commander ? plannedArea(session.state, ship) : null;
+    },
     getStartView: startViewFor,
     getOpenSystem: () => ui.systemId,
     isCompact: isPhone,

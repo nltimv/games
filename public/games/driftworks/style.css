@@ -843,6 +843,11 @@ button.dw-price-row[aria-pressed='true'] {
   border-color: rgba(150, 200, 255, 0.35);
 }
 
+.dw-ship-icon.is-command {
+  background: rgba(127, 231, 255, 0.14);
+  border-color: rgba(127, 231, 255, 0.45);
+}
+
 /* A faction's colour as a small glowing dot, as on the galaxy map. */
 .dw-faction-dot {
   flex: none;
@@ -979,6 +984,115 @@ button.dw-price-row[aria-pressed='true'] {
 .dw-dot.is-order,
 .dw-dot.is-research {
   background: #b7c8ff;
+}
+
+.dw-dot.is-fleet {
+  background: #7fe7ff;
+  box-shadow: 0 0 8px rgba(127, 231, 255, 0.7);
+}
+
+/* ---------- Commanders and fleets ---------- */
+
+.dw-portrait {
+  display: block;
+  flex: none;
+  border-radius: 50%;
+  filter: drop-shadow(0 2px 6px rgba(0, 40, 80, 0.35));
+}
+
+.dw-commander {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dw-commander-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dw-commander-head .dw-grow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dw-commander-head strong {
+  font-size: 16px;
+}
+
+.dw-traits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--glass-muted);
+}
+
+.dw-traits strong {
+  color: #bff4ff;
+}
+
+.dw-captains-log {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-left: 3px solid #7fe7ff;
+  border-radius: 0 10px 10px 0;
+  background: rgba(127, 231, 255, 0.08);
+  font-size: 13px;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.dw-fleet-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.dw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 12.5px;
+  color: var(--glass-muted);
+}
+
+.dw-select {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--glass-soft-edge);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--glass-ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.dw-select option {
+  color: #0d2a40;
+}
+
+.dw-btn .dw-portrait,
+.dw-btn .dw-art {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.dw-run-face {
+  display: flex;
+  justify-content: center;
+}
+
+.dw-act.is-survey {
+  color: #c7b6ff;
 }
 
 .dw-stats-grid {

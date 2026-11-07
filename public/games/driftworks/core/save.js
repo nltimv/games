@@ -36,12 +36,13 @@ export const MIGRATIONS = {
     };
   },
   // Act 3: sealed holds (a new module line, standard on every ship until a
-  // refit), sales counted per tier, and signals in the deep galaxy.
+  // refit), sales counted per tier, signals in the deep galaxy and commanders.
   4(save) {
     return {
       ...save,
-      stats: { tierTonnes: {}, tierProfit: {}, chartPay: 0, signals: 0, salvaged: 0, ...save.stats },
+      stats: { tierTonnes: {}, tierProfit: {}, chartPay: 0, signals: 0, salvaged: 0, missions: 0, ...save.stats },
       signals: save.signals ?? {},
+      hires: save.hires ?? 0,
       ships: save.ships.map((ship) => ({ ...ship, modules: { seal: 0, ...ship.modules } })),
     };
   },

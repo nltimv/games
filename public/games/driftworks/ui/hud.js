@@ -2,7 +2,10 @@
 
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { findPlace, findSystem, systemOf } from '../content/galaxy.js';
+import { MISSIONS } from '../content/commanders.js';
+import { commanders, wingOf } from '../systems/commanders.js';
 import { currentGoal } from '../systems/goals.js';
+import { portrait } from './portrait.js';
 import { orderPhase, shipStatus } from '../systems/orders.js';
 import { shipGlyph } from './components.js';
 import { bar, countdown, h, svgIcon } from './dom.js';
@@ -65,17 +68,21 @@ export function renderTopBar(els, state, previous) {
 // whole order.
 export function underwayCard(ctx) {
   const { state, now } = ctx;
-  const busy = state.ships.filter((s) => s.order).sort((a, b) => a.order.endsAt - b.order.endsAt);
-  const idle = state.ships.filter((s) => !s.order);
+  // A fleet on a mission is one row, with its ships folded under it.
+  const fleets = commanders(state).filter((c) => c.mission);
+  const folded = new Set(fleets.flatMap((c) => [c.id, ...wingOf(state, c).map((ship) => ship.id)]));
+  const ships = state.ships.filter((s) => !folded.has(s.id));
+  const busy = ships.filter((s) => s.order).sort((a, b) => a.order.endsAt - b.order.endsAt);
+  const idle = ships.filter((s) => !s.order);
   const goal = currentGoal(state);
-  const rows = [...idle, ...busy].map((ship) => runRow(ctx, ship, now));
+  const rows = [...idle.map((ship) => runRow(ctx, ship, now)), ...fleets.map((c) => fleetRow(ctx, c)), ...busy.map((ship) => runRow(ctx, ship, now))];
 
   return [
     h(
       'div',
       { class: 'dw-underway-head' },
       h('strong', null, 'Underway'),
-      h('span', { class: 'dw-underway-sub' }, `${busy.length} running · ${idle.length} waiting`),
+      h('span', { class: 'dw-underway-sub' }, `${busy.length + fleets.length} running · ${idle.length} waiting`),
     ),
     h('div', { class: 'dw-runs' }, rows),
     goal
@@ -91,6 +98,28 @@ export function underwayCard(ctx) {
         )
       : null,
   ];
+}
+
+// The mission icons borrow the order icons for the same work.
+const MISSION_ICONS = { mine: 'mine', trade: 'sell', survey: 'survey' };
+
+function fleetRow(ctx, commander) {
+  const { state } = ctx;
+  const mission = commander.mission;
+  const wing = wingOf(state, commander);
+  const where = findSystem(mission.center)?.name ?? '?';
+  const returning = mission.status === 'returning';
+  const status = `${commander.name}: ${MISSIONS[mission.kind].name.toLowerCase()} mission around ${where}`;
+  return h(
+    'button',
+    { type: 'button', class: 'dw-run is-fleet', onClick: () => ctx.select('ship', commander.id), dataset: { key: `run-${commander.id}` }, title: status, 'aria-label': status },
+    h('span', { class: 'dw-run-face' }, portrait(commander, 22)),
+    h('span', { class: 'dw-run-name' }, commander.name),
+    activityIcon(MISSION_ICONS[mission.kind]),
+    h('span', { class: 'dw-run-where' }, where, h('span', { class: 'dw-run-more' }, ` +${wing.length}`)),
+    returning ? h('span', { class: 'dw-run-time' }, 'Finishing') : countdown(mission.endsAt, { className: 'dw-run-time' }),
+    returning ? null : bar({ start: mission.startedAt, end: mission.endsAt }),
+  );
 }
 
 function runRow(ctx, ship, now) {

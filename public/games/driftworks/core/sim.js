@@ -18,11 +18,14 @@ import { LAB_SLOTS, finishResearch } from '../systems/research.js';
 import { checkGoals } from '../systems/goals.js';
 import { addLog } from '../systems/log.js';
 import { findEntry } from '../systems/market.js';
+import { dispatch, endMission, finishIfDone, nextMissionEnd, trackMission, wakeFleets } from '../systems/missions.js';
+import { findShip } from '../systems/fleet.js';
 
 const MAX_STEPS = 50_000;
 
 function nextDue(state, until) {
-  let best = null;
+  const end = nextMissionEnd(state);
+  let best = end && end.at <= until ? { mission: end.commander, at: end.at } : null;
   for (const ship of state.ships) {
     // A jump is paid as the ship enters it, before anything later in the order.
     const jump = nextJump(ship.order);
@@ -90,26 +93,45 @@ const STEP_HANDLERS = {
     state.stats.refits += 1;
     addLog(state, step.at, `${ship.name} has new modules`, 'arrival');
   },
+  standby(state, ship, step) {
+    ship.at = step.station;
+  },
 };
+
+/** After a ship's order ends: its commander's next order, and the log of a mission that is over. */
+function afterOrder(state, ship, finished, at) {
+  if (!ship.order) dispatch(state, ship, at, finished);
+  if (finished?.missionBy) finishIfDone(state, findShip(state, finished.missionBy), at);
+}
 
 /** Runs every event due up to `until` and moves the clock there. */
 export function advance(state, until) {
+  wakeFleets(state, state.now);
   for (let i = 0; i < MAX_STEPS; i += 1) {
     const due = nextDue(state, until);
     if (!due) break;
     state.now = Math.max(state.now, due.at);
-    if (due.research) {
+    if (due.mission) {
+      endMission(state, due.mission, due.at);
+    } else if (due.research) {
       finishResearch(state, due.at, due.slot);
       openStanding(state);
       updateContracts(state, due.at);
     } else if (due.jump) {
-      payJump(state, due.ship, due.jump);
+      const { ship } = due;
+      const order = ship.order;
+      const paid = trackMission(state, ship, null, () => payJump(state, ship, due.jump));
+      if (!paid?.ok) afterOrder(state, ship, order, due.at);
     } else {
       const { ship, step } = due;
-      STEP_HANDLERS[step.kind]?.(state, ship, step);
+      trackMission(state, ship, step, () => STEP_HANDLERS[step.kind]?.(state, ship, step));
       markSeen(state, systemOf(ship.at), step.at);
       ship.order.stepIndex += 1;
-      if (ship.order.stepIndex >= ship.order.steps.length) startNextOrder(state, ship, step.at);
+      if (ship.order.stepIndex >= ship.order.steps.length) {
+        const finished = ship.order;
+        startNextOrder(state, ship, step.at);
+        afterOrder(state, ship, finished, step.at);
+      }
     }
     checkGoals(state, due.at);
   }
@@ -125,6 +147,7 @@ export function nextEventAt(state) {
     state.research.active?.endsAt,
     state.research.second?.endsAt,
     ...state.ships.map((ship) => nextJump(ship.order)?.start ?? ship.order?.steps[ship.order.stepIndex]?.at),
+    nextMissionEnd(state)?.at,
     nextContractEvent(state),
   ].filter((t) => t != null);
   return times.length ? Math.min(...times) : null;

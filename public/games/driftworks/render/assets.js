@@ -48,6 +48,7 @@ export const ASSETS = {
   'ship-miner': { file: 'ship-miner.svg' },
   'ship-hauler': { file: 'ship-hauler.svg' },
   'ship-scout': { file: 'ship-scout.svg' },
+  'ship-command': { file: 'ship-command.svg' },
 };
 
 const MAX_PX = 1024;

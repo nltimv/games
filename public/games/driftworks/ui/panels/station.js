@@ -23,6 +23,7 @@ import { bar, countdown, h } from '../dom.js';
 import { button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { ago, formatPrice, minusCredits, plural, plusCredits, routeText, signedCredits, tonnes, trip } from '../format.js';
+import { hireSection } from './commander.js';
 
 const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
 const isMiner = (ship) => HULLS[ship.hull].role === 'miner';
@@ -49,7 +50,7 @@ export function stationPanel(ctx, stationId) {
     // open a station.
     dockedSection(ctx, station, docked),
     contractsSection(ctx, station),
-    station.type === 'shipyard' ? [refitSection(ctx, station), shipyardSection(ctx, station)] : marketSection(ctx, station, docked),
+    station.type === 'shipyard' ? [refitSection(ctx, station), shipyardSection(ctx, station), hireSection(ctx, station)] : marketSection(ctx, station, docked),
     elsewhereSection(ctx, station),
   ];
 }

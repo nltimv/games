@@ -41,6 +41,7 @@ import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch 
 import { orderToast } from '../contextMenu.js';
 import { at, plusCredits, routeText, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
+import { commanderSections, fleetSection } from './commander.js';
 
 export function shipPanel(ctx, shipId) {
   const { state } = ctx;
@@ -52,19 +53,31 @@ export function shipPanel(ctx, shipId) {
   const total = cargoTotal({ cargo });
   const hold = holdOf(ship);
 
+  if (ship.commander) {
+    return [
+      panelHead({ icon: shipGlyph(ship.hull), title: ship.name, subtitle: hull.name, onClose: ctx.close }),
+      commanderSections(ctx, ship),
+      statusCard(ctx, ship),
+      newOrders(ctx, ship),
+      modulesSection(ctx, ship),
+    ];
+  }
   return [
     panelHead({ icon: shipGlyph(ship.hull), title: ship.name, subtitle: hull.name, onClose: ctx.close }),
     statusCard(ctx, ship),
+    fleetSection(ctx, ship),
     ordersSection(ctx, ship),
-    h(
-      'div',
-      { class: 'dw-section' },
-      sectionTitle('Hold', `${tonnes(total)} / ${tonnes(hold)}`, { numeric: true }),
-      bar({ fraction: total / hold, variant: hull.role === 'hauler' ? 'gold' : null }),
-      total > 0
-        ? h('div', { class: 'dw-chips' }, Object.keys(cargo).map((g) => chip([swatch(g), tonnes(cargo[g], g)])))
-        : h('p', { class: 'dw-note' }, 'Empty.'),
-    ),
+    hold > 0
+      ? h(
+          'div',
+          { class: 'dw-section' },
+          sectionTitle('Hold', `${tonnes(total)} / ${tonnes(hold)}`, { numeric: true }),
+          bar({ fraction: total / hold, variant: hull.role === 'hauler' ? 'gold' : null }),
+          total > 0
+            ? h('div', { class: 'dw-chips' }, Object.keys(cargo).map((g) => chip([swatch(g), tonnes(cargo[g], g)])))
+            : h('p', { class: 'dw-note' }, 'Empty.'),
+        )
+      : null,
     newOrders(ctx, ship),
     modulesSection(ctx, ship),
   ];
@@ -90,8 +103,9 @@ function statusCard(ctx, ship) {
     const phase = orderPhase(order, ctx.now);
     const { work } = orderTimes(order);
     const after = work > 0 ? `Then ${lowerFirst(order.label)} for ${span(work)}.` : 'Done when it arrives.';
-    // A plain flight cannot be cancelled: there is nowhere to stop.
-    const cancellable = !(phase.flying && order.type === 'fly');
+    // A plain flight cannot be cancelled: there is nowhere to stop. A wait
+    // for a commander's orders ends when the ship leaves the fleet.
+    const cancellable = !(phase.flying && order.type === 'fly') && order.type !== 'standby';
     return h(
       'div',
       { class: 'dw-card is-aqua' },

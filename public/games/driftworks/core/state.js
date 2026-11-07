@@ -44,6 +44,7 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
       chartPay: 0,
       signals: 0,
       salvaged: 0,
+      missions: 0,
       // Profit from sales in other systems than the one the goods came from.
       farSales: 0,
       // Tonnes sold and profit made per goods tier: { [tier]: number }.
@@ -63,6 +64,8 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
     seen: {},
     // Signals investigated or salvaged: { [signalId]: { investigatedAt, salvaged } }.
     signals: {},
+    // Commanders hired so far; the next three candidates come from it.
+    hires: 0,
     // Standing with each faction, in points.
     standing: {},
     goals: [],

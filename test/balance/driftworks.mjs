@@ -17,6 +17,12 @@
 // included), and buys Heron freighters once a shipyard's faction trusts it.
 // Run it for two weeks or so to see act 2: npm run balance -- worker 16
 //
+// In act 3 it investigates signals near its surveys, salvages derelicts,
+// and, once Fleet command I is in, hires a commander for every two free
+// ships of a kind (the trait that suits them), fills their wings and sends
+// each idle fleet out for as long as a mission may last. --no-fleets plays
+// act 3 by hand instead, to compare.
+//
 // Contracts: the bot accepts offers that pay better per minute than its
 // best market round and that its fleet can fill in time (two clicks: open
 // the station, accept). While playing it counts on looking again soon;
@@ -66,6 +72,7 @@ import {
   roomForRounds,
   canRunAgain,
   runAgain,
+  clearQueue,
 } from '../../public/games/driftworks/systems/orders.js';
 import { freeLab, orderSlots, researchCost, researchStatus, shieldingsDone, startResearch } from '../../public/games/driftworks/systems/research.js';
 import { SHIELDED_DEPTH, isShielded } from '../../public/games/driftworks/systems/shielding.js';
@@ -74,6 +81,8 @@ import { affordableQty, marketEntries, marketView, findEntry } from '../../publi
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { canCarry, cargoTotal } from '../../public/games/driftworks/systems/cargo.js';
 import { derelictLeft, foundSignals, isGateOpen, isInvestigated, workerAt } from '../../public/games/driftworks/systems/signals.js';
+import { candidates, commanderLevel, commanderPrice, commanders, fleetCommand, hireCommander, leaderOf, wingOf } from '../../public/games/driftworks/systems/commanders.js';
+import { areaAround, joinFleet, startMission } from '../../public/games/driftworks/systems/missions.js';
 
 const PROFILES = {
   newcomer: { firstSession: 60, checks: () => [] },
@@ -90,7 +99,7 @@ const RERUN_AT = 0.6;
 // A trade must make at least this much to be worth a hauler's trip.
 const MIN_TRADE = 20;
 
-function play(profileName, days, { from = null, saveAt = {} } = {}) {
+function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {}) {
   const profile = PROFILES[profileName];
   const DAY = 24 * HOUR;
   const state = from ? deserialize(readFileSync(from, 'utf8')) : createGame({ now: Date.UTC(2026, 10, 2, 9, 0, 0), seed: 20261106 });
@@ -98,7 +107,7 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
   useGalaxy(state.seed);
   // A run from a save starts at 9:00 on the morning after it.
   const T0 = from ? Math.floor(state.now / DAY) * DAY + DAY + 9 * HOUR : state.now;
-  const report = { profileName, days, from, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [], contracts: [] };
+  const report = { profileName, days, from, fleets, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [], contracts: [], missions: [] };
   for (const id of state.goals) report.goals[id] = -Infinity;
   report.startStats = structuredClone(state.stats);
   let clicks = 0;
@@ -392,6 +401,87 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
     return true;
   }
 
+  // ---------- Fleets ----------
+
+  // The traits the bot looks for in a commander for each kind of wing, best first.
+  const WANTED_TRAITS = { miner: ['prospector', 'thrifty', 'cautious'], hauler: ['thrifty', 'greedy', 'cautious'], scout: ['curious'] };
+  const MISSION_FOR = { miner: 'mine', hauler: 'trade', scout: 'survey' };
+  const onMission = (ship) => Boolean(leaderOf(state, ship)?.mission);
+  const freeShips = (r) => state.ships.filter((s) => role(s) === r && !s.fleet);
+  /** The kind of ship a commander leads: its wing's, or what its trait suits. */
+  function wingRole(commander) {
+    const wing = wingOf(state, commander);
+    if (wing.length) return role(wing[0]);
+    const trait = commander.commander.traits[0];
+    return Object.keys(WANTED_TRAITS).find((r) => WANTED_TRAITS[r][0] === trait) ?? 'hauler';
+  }
+  /** Where a wing works best: where its lead ship's best job is, or for scouts where most is left to survey. */
+  function missionCenter(commander, r) {
+    const lead = wingOf(state, commander)[0];
+    const command = fleetCommand(state);
+    if (r === 'miner') {
+      const round = bestMiningRound(lead, state.now);
+      if (round) return systemOf(round.fieldId);
+    } else if (r === 'hauler') {
+      const trade = bestTrade(lead, state.now);
+      if (trade) return systemOf(trade.from);
+    } else {
+      let best = null;
+      for (const system of allSystems()) {
+        if (!isSurveyed(state, system.id) || !isShielded(state, system)) continue;
+        const open = areaAround(state, system.id, command.reach).filter((id) => surveyable(state, id)).length;
+        if (open && (!best || open > best.open || (open === best.open && system.depth < best.depth))) best = { id: system.id, open, depth: system.depth };
+      }
+      if (best) return best.id;
+    }
+    return systemOf(lead.at ?? lead.order?.target) ?? HOME_SYSTEM.id;
+  }
+  /** Hires a commander for every two free ships of a kind, fills wings, and sends idle fleets out for as long as they may go. */
+  function manageFleets(now) {
+    const command = fleetCommand(state);
+    if (!fleets || !command) return;
+    const next = nextResearch();
+    const reserve = freeLab(state) && next ? costOf(next) : 0;
+    for (const r of ['miner', 'hauler', 'scout']) {
+      if (freeShips(r).length < 2 || commanders(state).some((c) => wingRole(c) === r && wingOf(state, c).length < command.wing)) continue;
+      if (cash() < commanderPrice(state) + reserve) continue;
+      const rank = (c) => {
+        const i = WANTED_TRAITS[r].indexOf(c.traits[0]);
+        return i < 0 ? 99 : i;
+      };
+      const pick = [...candidates(state)].sort((a, b) => rank(a) - rank(b))[0];
+      const hired = hireCommander(state, pick.id, 'halcyon-shipyard', now);
+      if (!hired.ok) continue;
+      click(2);
+      report.missions.push({ hired: true, at: now, trait: pick.traits[0], role: r });
+      for (const ship of freeShips(r).slice(0, command.wing)) if (joinFleet(state, ship, hired.ship, now).ok) click();
+    }
+    for (const c of commanders(state)) {
+      const r = wingRole(c);
+      for (const ship of freeShips(r).slice(0, command.wing - wingOf(state, c).length)) if (joinFleet(state, ship, c, now).ok) click();
+    }
+    for (const c of commanders(state)) {
+      if (c.mission || !wingOf(state, c).length) continue;
+      const r = wingRole(c);
+      // Ships still on the player's orders drop the rest of their queues.
+      const queued = wingOf(state, c).filter((s) => s.queue.length);
+      for (const ship of queued) clearQueue(state, ship);
+      if (queued.length) click(2);
+      const started = startMission(state, c, { kind: MISSION_FOR[r], center: missionCenter(c, r), hours: command.hours.at(-1) }, now);
+      if (started.ok) click(3);
+    }
+  }
+  /** Mission reports that came in since the last look. */
+  const seenReports = new Set();
+  function collectReports() {
+    for (const c of commanders(state)) {
+      const r = c.commander.report;
+      if (!r || seenReports.has(r.at + c.id)) continue;
+      seenReports.add(r.at + c.id);
+      report.missions.push({ at: r.at, name: c.name, trait: c.commander.traits[0], level: commanderLevel(c), kind: r.kind, ships: r.ships, hours: r.time / HOUR, credits: r.credits, fees: r.fees });
+    }
+  }
+
   // ---------- Research ----------
 
   /** How many systems ships could enter with one more shielding: the bot picks the one that opens most. */
@@ -416,7 +506,13 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
 
   // Goals that need a research, such as the one that ends each act: the bot saves for it once it is the goal.
   const byId = (id) => () => RESEARCH.find((r) => r.id === id);
-  const ACT_ENDS = { 'warp-drive': byId('warp-drive'), 'sell-processed': byId('sealed-holds'), 'first-shielding': bestShielding };
+  const ACT_ENDS = {
+    'warp-drive': byId('warp-drive'),
+    'sell-processed': byId('sealed-holds'),
+    'first-shielding': bestShielding,
+    'first-commander': () => (fleets ? byId('fleet-1')() : null),
+    'station-blueprints': byId('station-blueprints'),
+  };
   const currentGoalId = () => GOALS.find((g) => !state.goals.includes(g.id))?.id;
   const actEnd = () => {
     const research = ACT_ENDS[currentGoalId()]?.();
@@ -434,6 +530,9 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
   function nextResearch() {
     const scouts = RESEARCH.find((r) => r.id === 'scout-licence');
     if (researchStatus(state, scouts) === 'open') return scouts;
+    // With fleets: Fleet command I as soon as the first shielding opens it.
+    const command = RESEARCH.find((r) => r.id === 'fleet-1');
+    if (fleets && researchStatus(state, command) === 'open') return command;
     const next = actEnd() ?? RESEARCH.find((r) => r.id !== 'market-charts' && researchStatus(state, r) === 'open');
     return next?.hazard ? bestShielding() : next;
   }
@@ -488,9 +587,13 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
     const refitCost = behind.reduce((sum, s) => sum + refitOffer(state, s).cost, 0);
     if (behind.length && cash() >= refitCost * 2 && refitAll(state).ok) click();
 
+    collectReports();
+    manageFleets(now);
+
     // Idle ships: run the last route again (one click for all), or plan anew.
     const rerun = [];
     for (const ship of state.ships) {
+      if (role(ship) === 'command' || onMission(ship)) continue;
       if (role(ship) === 'scout') {
         keepSurveying(ship);
         continue;
@@ -511,7 +614,7 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
     // Between work blocks, fill every queue that has room for more rounds.
     if (!active) {
       for (const ship of state.ships) {
-        if (role(ship) !== 'scout' && ship.plan.length && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
+        if (role(ship) !== 'scout' && !onMission(ship) && ship.plan.length && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
       }
     }
 
@@ -589,8 +692,9 @@ function play(profileName, days, { from = null, saveAt = {} } = {}) {
     } else {
       // Free cargo: a derelict comes before any trade.
       if (cargoTotal(ship) === 0 && salvage(ship)) return;
-      // A player after "Sell steel or glass" sends a hauler on a tier 3 run, even if another route pays more.
-      const forGoal = currentGoalId() === 'sell-processed' && canCarry(ship, 'steel') ? bestTrade(ship, now, false, 3) : null;
+      // A player after "Sell steel or glass" (or a tier 4 good) sends a hauler on such a run, even if another route pays more.
+      const goalTier = { 'sell-processed': 3, 'sell-component': 4 }[currentGoalId()];
+      const forGoal = goalTier && canCarry(ship, goalTier === 3 ? 'steel' : 'circuits') ? bestTrade(ship, now, false, goalTier) : null;
       const trade = forGoal ?? bestTrade(ship, now);
       const supply = forGoal ? null : bestSupply(ship, now);
       if (supply && supply.rate > (trade?.rate ?? 0)) {
@@ -740,6 +844,21 @@ function print(report) {
     console.log(`    routes between systems pay ${ratio ? ratio.toFixed(2) : '-'}x the best home trade (median of ${report.tradeRates.length} picks)`);
     console.log(`    standing: ${Object.entries(state.standing).map(([id, p]) => `${id} ${Math.floor(p)}`).join(', ')}`);
     if (warp) console.log(`    first hazard shielding ${shielded ? `${((shielded - warp.at) / (24 * HOUR)).toFixed(1)} days after starting the warp drive` : 'not reached'}`);
+    const missions = report.missions.filter((m) => !m.hired);
+    if (missions.length) {
+      const fleetEarned = missions.reduce((sum, m) => sum + m.credits, 0);
+      console.log(`    fleets: ${commanders(state).length} commanders, ${missions.length} missions, ${Math.round(fleetEarned)} cr (${((fleetEarned / Math.max(1, stats.earned)) * 100).toFixed(0)}% of earnings)`);
+      const groups = {};
+      for (const m of missions) {
+        const key = `${m.kind} ${m.trait}`;
+        groups[key] ??= { credits: 0, shipHours: 0, n: 0, levels: [] };
+        groups[key].credits += m.credits;
+        groups[key].shipHours += m.ships * m.hours;
+        groups[key].n += 1;
+        groups[key].levels.push(m.level);
+      }
+      for (const [key, g] of Object.entries(groups)) console.log(`      ${key.padEnd(20)} ${String(g.n).padStart(3)} missions, ${Math.round(g.credits / Math.max(1, g.shipHours))} cr per ship-hour, levels ${Math.min(...g.levels)}-${Math.max(...g.levels)}`);
+    } else if (!report.fleets) console.log('    fleets: off');
     const tiers = Object.entries(stats.tierProfit ?? {});
     const profit = tiers.reduce((sum, [, p]) => sum + Math.max(0, p), 0);
     console.log(`    sales profit by tier: ${tiers.map(([tier, p]) => `tier ${tier} ${((Math.max(0, p) / Math.max(1, profit)) * 100).toFixed(0)}%`).join(', ')}`);
@@ -755,5 +874,5 @@ const from = flag('from')[0] ?? null;
 const saveAt = Object.fromEntries(flag('save-at').map((s) => [s.slice(0, s.indexOf(':')), s.slice(s.indexOf(':') + 1)]));
 for (const name of names) {
   if (!PROFILES[name]) throw new Error(`Unknown profile "${name}". Try: ${Object.keys(PROFILES).join(', ')}, all`);
-  print(play(name, days, { from, saveAt: { ...saveAt } }));
+  print(play(name, days, { from, saveAt: { ...saveAt }, fleets: !args.includes('--no-fleets') }));
 }
