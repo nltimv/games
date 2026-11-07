@@ -353,7 +353,7 @@ function applySteps(view, order, from = 0) {
  * Where a ship will be, what it will carry and when, once its current and
  * queued orders are done. Sales and purchases are estimates.
  */
-export function projectShip(state, ship) {
+export function projectShip(state, ship, built = null) {
   const view = {
     id: ship.id,
     name: ship.name,
@@ -370,10 +370,33 @@ export function projectShip(state, ship) {
     view.at = ship.order.target;
   }
   for (const spec of ship.queue) {
-    const built = buildOrder(state, view, spec, view.time);
-    if (built.ok) applySteps(view, built.order);
+    const next = buildOrder(state, view, spec, view.time);
+    if (!next.ok) continue;
+    built?.push(next.order);
+    applySteps(view, next.order);
   }
   return view;
+}
+
+/**
+ * The jumps still ahead of a ship, through its current order and then its
+ * queued ones: [{ from, to, start, end, queued }] with system ids, in order.
+ * Queued jumps are estimates, like projectShip.
+ */
+export function shipRoute(state, ship, now = state.now) {
+  const hops = [];
+  const add = (order, queued) => {
+    for (const leg of order.legs ?? []) {
+      if (leg.jump && leg.end > now) hops.push({ from: systemOf(leg.from), to: systemOf(leg.to), start: leg.start, end: leg.end, queued });
+    }
+  };
+  if (ship.order) add(ship.order, false);
+  if (ship.queue.length) {
+    const queued = [];
+    projectShip(state, ship, queued);
+    for (const order of queued) add(order, true);
+  }
+  return hops;
 }
 
 // ---------- Giving orders ----------

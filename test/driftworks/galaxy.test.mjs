@@ -19,7 +19,7 @@ import { deserialize, serialize } from '../../public/games/driftworks/core/save.
 import { SAVE_VERSION } from '../../public/games/driftworks/core/state.js';
 import { chartedSystems, isSurveyed, markSurveyed } from '../../public/games/driftworks/systems/explore.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
-import { cancelOrder, feesDue, giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { cancelOrder, feesDue, giveOrder, shipRoute } from '../../public/games/driftworks/systems/orders.js';
 import { orderOptions } from '../../public/games/driftworks/systems/advisor.js';
 import { findEntry } from '../../public/games/driftworks/systems/market.js';
 import { carryOut } from '../../public/games/driftworks/systems/commands.js';
@@ -297,4 +297,21 @@ test('the fees a ship still pays at its gates count as due until it jumps', () =
   assert.equal(feesDue(state), jump.fee);
   advance(state, jump.start);
   assert.equal(feesDue(state), 0);
+});
+
+test("a ship's route lists the jumps ahead, queued ones last", () => {
+  const state = newGame({ credits: 10_000 });
+  state.research.done.push('warp-drive', 'queue-1');
+  markSurveyed(state, 'brennan', state.now);
+  const mule = firstShip(state);
+  assert.deepEqual(shipRoute(state, mule), []);
+  assert.ok(giveOrder(state, mule, { type: 'fly', stationId: findSystem('brennan').stations[0].id }).ok);
+  assert.ok(giveOrder(state, mule, { type: 'fly', stationId: 'halcyon-refinery' }).ok);
+  const route = shipRoute(state, mule);
+  assert.deepEqual(route.map((hop) => [hop.from, hop.to, hop.queued]), [
+    ['aurel', 'brennan', false],
+    ['brennan', 'aurel', true],
+  ]);
+  advance(state, route[0].end);
+  assert.deepEqual(shipRoute(state, mule).map((hop) => hop.to), ['aurel'], 'a finished jump drops off');
 });

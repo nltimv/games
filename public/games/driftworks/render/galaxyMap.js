@@ -3,7 +3,7 @@
 // between them, a badge for your ships in each system, ships crossing
 // lanes in a jump, marks for contracts and, with Market charts, the prices
 // of one good. Corner brackets frame the system whose map the System view
-// shows. Systems nobody has charted stay hidden; charted but unsurveyed
+// shows, and a selected ship's jumps still ahead light up as its route. Systems nobody has charted stay hidden; charted but unsurveyed
 // ones are dim, with a "?". On a phone zoomed far out, the text labels
 // give way (see PHONE_LABEL_ROOM).
 // Returns the clickable things, like drawSystem.
@@ -15,6 +15,7 @@ import { systemMarket } from '../systems/advisor.js';
 import { contractMarks } from '../systems/contracts.js';
 import { chartedSystems, isSurveyed } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
+import { shipRoute } from '../systems/orders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
@@ -115,6 +116,76 @@ export function renderGalaxyBackground(width, height, dpr) {
   dust(Math.round(area * 2.4), true);
   ctx.globalAlpha = 1;
   return canvas;
+}
+
+// The route of a selected ship: its jumps still ahead as bright lanes
+// (dashed for queued orders), each with an arrow, and a ring on the system
+// where its last jump lands. A jump under way starts from the ship.
+const ROUTE_COLOR = 'rgba(150, 255, 232, 0.95)';
+const MAX_ROUTES = 12;
+
+function drawRoutes(ctx, cam, state, now, selection) {
+  const ids = selection?.kind === 'ship' ? [selection.id] : selection?.kind === 'ships' ? selection.ids : [];
+  for (const id of ids.slice(0, MAX_ROUTES)) {
+    const index = state.ships.findIndex((ship) => ship.id === id);
+    const ship = state.ships[index];
+    if (!ship) continue;
+    const hops = shipRoute(state, ship, now);
+    if (!hops.length) continue;
+    for (const hop of hops) {
+      const a = findSystem(hop.from);
+      const b = findSystem(hop.to);
+      const flying = !hop.queued && hop.start <= now;
+      const from = flying ? galaxyPosition(ship, now, index) : null;
+      const p = toScreen(cam, from?.x ?? a.gx, from?.y ?? a.gy);
+      const q = toScreen(cam, b.gx, b.gy);
+      routeLine(ctx, p, q, hop.queued);
+    }
+    const end = findSystem(hops.at(-1).to);
+    const e = toScreen(cam, end.gx, end.gy);
+    ctx.strokeStyle = ROUTE_COLOR;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(hops.at(-1).queued ? [5, 4] : []);
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 15 * iconScale(cam), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function routeLine(ctx, p, q, queued) {
+  const length = Math.hypot(q.x - p.x, q.y - p.y);
+  if (length < 1) return;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(150, 255, 232, 0.22)';
+  ctx.lineWidth = 7;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.lineTo(q.x, q.y);
+  ctx.stroke();
+  ctx.strokeStyle = ROUTE_COLOR;
+  ctx.lineWidth = 2.4;
+  ctx.setLineDash(queued ? [6, 5] : []);
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.lineTo(q.x, q.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
+  if (length < 40) return;
+  // An arrow halfway, pointing the way the ship goes.
+  const ux = (q.x - p.x) / length;
+  const uy = (q.y - p.y) / length;
+  const mx = (p.x + q.x) / 2 + ux * 4;
+  const my = (p.y + q.y) / 2 + uy * 4;
+  ctx.fillStyle = ROUTE_COLOR;
+  ctx.beginPath();
+  ctx.moveTo(mx, my);
+  ctx.lineTo(mx - ux * 9 - uy * 5, my - uy * 9 + ux * 5);
+  ctx.lineTo(mx - ux * 9 + uy * 5, my - uy * 9 - ux * 5);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /** Corner brackets around the system whose map the System tab shows. */
@@ -233,6 +304,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     }
   }
   ctx.setLineDash([]);
+
+  drawRoutes(ctx, cam, state, now, view.selection);
 
   // Ships: a count beside each system, and ships in a jump on their lane.
   const counts = new Map();
