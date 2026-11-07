@@ -1,6 +1,6 @@
 {
   "name": "games-hub",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A web application hub for random browser-based games",
   "private": true,
   "license": "MIT",
