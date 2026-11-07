@@ -122,22 +122,47 @@ test('a course to another system flies to the gate, jumps and flies on', () => {
   assert.equal(onward.to, station.id);
   assert.equal(course.fees, jump.fee);
 
-  // The fee is paid when the order starts.
+  // The fee is paid as the ship enters the warp, not when the order starts.
   const credits = state.credits;
+  const t0 = state.now;
   assert.ok(giveOrder(state, mule, { type: 'fly', stationId: station.id }).ok);
+  assert.equal(state.credits, credits);
+  advance(state, t0 + jump.start - 1);
+  assert.equal(state.credits, credits, 'still flying to the gate');
+  assert.equal(state.stats.jumps, 0);
+  advance(state, t0 + jump.start);
   assert.equal(state.credits, credits - course.fees);
   assert.equal(state.stats.jumps, 1);
+  assert.equal(state.stats.jumpFees, course.fees);
 
   // Halfway through the jump the ship is between the two systems.
-  const mid = (jump.start + jump.end) / 2 + state.now;
+  const mid = (jump.start + jump.end) / 2 + t0;
   assert.deepEqual(shipPosition(mule, mid).jump.from, 'aurel');
   assert.equal(shipPosition(mule, mid).system, null);
-  advance(state, state.now + course.time + 1000);
+  advance(state, t0 + course.time + 1000);
   assert.equal(mule.at, station.id);
   assert.equal(systemOf(mule.at), 'brennan');
+  assert.equal(state.credits, credits - course.fees, 'paid once');
 });
 
-test('cancelling before a jump gives its fee back, and the ship waits at the gate', () => {
+test('a ship that cannot pay at the gate waits there', () => {
+  const state = newGame({ credits: 10_000 });
+  state.research.done.push('warp-drive');
+  markSurveyed(state, 'brennan', state.now);
+  const mule = firstShip(state);
+  const station = findSystem('brennan').stations[0];
+  assert.ok(giveOrder(state, mule, { type: 'fly', stationId: station.id }).ok);
+  const jump = mule.order.legs.find((leg) => leg.jump);
+  state.credits = jump.fee - 1;
+  advance(state, mule.order.endsAt);
+  assert.equal(mule.order, null);
+  assert.equal(mule.at, 'gate-brennan');
+  assert.equal(state.credits, jump.fee - 1, 'nothing was paid');
+  assert.equal(state.stats.jumps, 0);
+  assert.ok(state.log.some((entry) => /waits at Gate to Brennan: the jump to Brennan costs/.test(entry.text)));
+});
+
+test('cancelling before a jump costs nothing, and the ship waits at the gate', () => {
   const state = newGame({ credits: 10_000 });
   state.research.done.push('warp-drive');
   markSurveyed(state, 'brennan', state.now);
@@ -147,9 +172,9 @@ test('cancelling before a jump gives its fee back, and the ship waits at the gat
   giveOrder(state, mule, { type: 'fly', stationId: station.id });
   const result = cancelOrder(state, mule, state.now + 10_000);
   assert.ok(result.ok && result.flying);
-  assert.equal(state.credits, start, 'the fee is back');
   advance(state, state.now + 10 * MINUTE);
   assert.equal(mule.at, 'gate-brennan');
+  assert.equal(state.credits, start, 'no fee was paid');
 });
 
 test('a scout surveys a system next to a surveyed one, opening it to other ships', () => {

@@ -471,6 +471,8 @@ export function createApp(session, doc = document) {
     getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
     getMarketGood: () => (isResearched(session.state, 'market-charts') ? ui.marketGood : null),
     getStartView: startViewFor,
+    getOpenSystem: () => ui.systemId,
+    isCompact: isPhone,
     onSelect(target, mods = {}) {
       const again = target && ui.selection?.kind === target.kind && ui.selection.id === target.id;
       if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);

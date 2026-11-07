@@ -17,7 +17,9 @@
 //                                       and survey it
 //
 // Targets in another system are reached through the gates (see
-// travel.plotCourse). Jump fees are paid when the order starts.
+// travel.plotCourse). Each jump's fee is paid as the ship enters the
+// warp (see payJump); an order only starts while the company can pay all
+// of them.
 //
 // A built order has:
 //   type, label, target         what it is, for the UI
@@ -26,6 +28,8 @@
 //   steps: [{ at, kind, ... }]  effects applied at their time, in order
 //   legs:  [{ from, to, start, end, jump?, fee? }]  where to draw the ship
 //   fees, jumps                 jump fees (cr) and how many jumps
+//   jumpsPaid                   how many of its jumps have been paid (an
+//                               order saved without it paid them all)
 //
 // A ship holds a few orders at once (orderSlots, raised by research): the
 // current one plus a queue. Each queued order starts as soon as the one
@@ -378,19 +382,13 @@ export function freeSlots(state, ship) {
   return Math.max(0, orderSlots(state) - (ship.order ? 1 : 0) - ship.queue.length);
 }
 
-/** Starts a spec now on an idle ship. Jump fees are paid now. */
+/** Starts a spec now on an idle ship. Its jump fees are paid at the gates. */
 function startOrder(state, ship, spec) {
   const result = buildOrder(state, ship, spec, state.now);
   if (!result.ok) return result;
   const fees = result.order.fees ?? 0;
   if (fees > state.credits) return fail(`The jump fees are ${formatCredits(fees)}. You need ${formatCredits(fees - state.credits)} more.`);
-  if (fees > 0) {
-    state.credits -= fees;
-    state.stats.jumpFees = (state.stats.jumpFees ?? 0) + fees;
-    addLog(state, state.now, `${ship.name} paid ${formatCredits(fees)} in jump fees`, 'purchase', -fees);
-  }
-  state.stats.jumps = (state.stats.jumps ?? 0) + (result.order.jumps ?? 0);
-  ship.order = { ...result.order, spec, stepIndex: 0 };
+  ship.order = { ...result.order, spec, stepIndex: 0, jumpsPaid: 0 };
   ship.at = null;
   if (spec.type === 'mine') state.stats.miningTrips += 1;
   return { ok: true, order: ship.order };
@@ -462,14 +460,37 @@ function refund(state, spec) {
 
 const placeName = (id) => findPlace(id)?.name ?? 'its target';
 
-/** Gives back the fees of jumps that have not started by `at`. */
-function refundJumps(state, ship, order, at) {
-  const unflown = (order.legs ?? []).filter((leg) => leg.jump && leg.start > at).reduce((sum, leg) => sum + (leg.fee ?? 0), 0);
-  if (unflown > 0) {
-    state.credits += unflown;
-    addLog(state, at, `${ship.name} got ${formatCredits(unflown)} of jump fees back`, 'sale', unflown);
+/** The jump legs of an order, in order. */
+const jumpLegs = (order) => (order?.legs ?? []).filter((leg) => leg.jump);
+
+/** The next jump of a ship's order still to pay for, or null. */
+export function nextJump(order) {
+  const legs = jumpLegs(order);
+  return legs[order?.jumpsPaid ?? legs.length] ?? null;
+}
+
+/**
+ * Called by the simulation as a ship enters a warp: pays that jump's fee.
+ * Without the credits, the ship stays at the gate and its order ends there;
+ * its queued orders carry on from the gate if they can.
+ */
+export function payJump(state, ship, leg) {
+  const order = ship.order;
+  order.jumpsPaid = (order.jumpsPaid ?? 0) + 1;
+  const fee = leg.fee ?? 0;
+  const to = findSystem(systemOf(leg.to))?.name ?? 'the next system';
+  if (fee > state.credits) {
+    ship.order = null;
+    ship.at = leg.from;
+    addLog(state, leg.start, `${ship.name} waits at ${placeName(leg.from)}: the jump to ${to} costs ${formatCredits(fee)}`, 'warning');
+    startNextOrder(state, ship, leg.start);
+    return { ok: false };
   }
-  return unflown;
+  state.credits -= fee;
+  state.stats.jumpFees = (state.stats.jumpFees ?? 0) + fee;
+  state.stats.jumps = (state.stats.jumps ?? 0) + 1;
+  if (fee > 0) addLog(state, leg.start, `${ship.name} paid ${formatCredits(fee)} to jump to ${to}`, 'purchase', -fee);
+  return { ok: true };
 }
 
 /**
@@ -511,8 +532,8 @@ export function cancelOrder(state, ship, at = state.now) {
     const leg = order.legs.find((l) => l.from !== l.to && at < l.end) ?? order.legs.find((l) => l.from !== l.to);
     const name = placeName(leg.to);
     if (order.type === 'fly' && leg.to === order.target) return fail(`${ship.name} cannot stop in open space. It waits at ${name} when it gets there.`);
+    // Jumps not yet entered are never paid for.
     refund(state, order.spec);
-    refundJumps(state, ship, order, at);
     ship.order = {
       type: 'fly',
       label: `Flying to ${name}`,
@@ -526,6 +547,7 @@ export function cancelOrder(state, ship, at = state.now) {
       stepIndex: 0,
       fees: 0,
       jumps: 0,
+      jumpsPaid: order.jumpsPaid,
     };
     addLog(state, at, `${ship.name} cancelled its order and waits at ${name} when it gets there`, 'order');
     return { ok: true, flying: true, mined: 0 };

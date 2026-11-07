@@ -12,7 +12,7 @@ import { markSeen, refreshSeen } from '../systems/knowledge.js';
 import { openStanding } from '../systems/standing.js';
 import { buyCargo, freeHold, sellCargo } from '../systems/cargo.js';
 import { deliverCargo, nextContractEvent, updateContracts } from '../systems/contracts.js';
-import { logMined, startNextOrder } from '../systems/orders.js';
+import { logMined, nextJump, payJump, startNextOrder } from '../systems/orders.js';
 import { LAB_SLOTS, finishResearch } from '../systems/research.js';
 import { checkGoals } from '../systems/goals.js';
 import { addLog } from '../systems/log.js';
@@ -23,6 +23,12 @@ const MAX_STEPS = 50_000;
 function nextDue(state, until) {
   let best = null;
   for (const ship of state.ships) {
+    // A jump is paid as the ship enters it, before anything later in the order.
+    const jump = nextJump(ship.order);
+    if (jump && jump.start <= until) {
+      if (!best || jump.start < best.at) best = { ship, jump, at: jump.start };
+      continue;
+    }
     const step = ship.order?.steps[ship.order.stepIndex];
     if (!step || step.at > until) continue;
     if (!best || step.at < best.at) best = { ship, step, at: step.at };
@@ -87,6 +93,8 @@ export function advance(state, until) {
       finishResearch(state, due.at, due.slot);
       openStanding(state);
       updateContracts(state, due.at);
+    } else if (due.jump) {
+      payJump(state, due.ship, due.jump);
     } else {
       const { ship, step } = due;
       STEP_HANDLERS[step.kind]?.(state, ship, step);
@@ -107,7 +115,7 @@ export function nextEventAt(state) {
   const times = [
     state.research.active?.endsAt,
     state.research.second?.endsAt,
-    ...state.ships.map((ship) => ship.order?.steps[ship.order.stepIndex]?.at),
+    ...state.ships.map((ship) => nextJump(ship.order)?.start ?? ship.order?.steps[ship.order.stepIndex]?.at),
     nextContractEvent(state),
   ].filter((t) => t != null);
   return times.length ? Math.min(...times) : null;

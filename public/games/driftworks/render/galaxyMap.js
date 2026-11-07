@@ -2,8 +2,10 @@
 // nodes in their faction's colour over soft faction washes, the lanes
 // between them, a badge for your ships in each system, ships crossing
 // lanes in a jump, marks for contracts and, with Market charts, the prices
-// of one good. Systems nobody has charted stay hidden; charted but
-// unsurveyed ones are dim, with a "?".
+// of one good. Corner brackets frame the system whose map the System view
+// shows. Systems nobody has charted stay hidden; charted but unsurveyed
+// ones are dim, with a "?". On a phone zoomed far out, the text labels
+// give way (see PHONE_LABEL_ROOM).
 // Returns the clickable things, like drawSystem.
 
 import { allSystems, findFaction, findSystem, lanesFrom } from '../content/galaxy.js';
@@ -21,6 +23,11 @@ import { createLabelSpace, drawCount, flock, flockName } from './flocks.js';
 import { drawRing, iconScale } from './systemMap.js';
 
 const WASH_RADIUS = 120;
+// On a phone, zoomed out so far that neighbouring systems (about 100 units
+// apart) sit closer than this many pixels, the map drops its text labels;
+// only the selected and open systems keep their names.
+const PHONE_LABEL_ROOM = 72;
+const SYSTEM_SPACING = 100;
 const blobs = new Map();
 
 /** A soft round glow in `color`, pre-rendered once per size bucket. */
@@ -107,6 +114,38 @@ export function renderGalaxyBackground(width, height, dpr) {
   return canvas;
 }
 
+/** Corner brackets around the system whose map the System tab shows. */
+function drawViewfinder(ctx, p, half) {
+  const arm = half * 0.42;
+  const corners = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ];
+  const path = () => {
+    ctx.beginPath();
+    for (const [dx, dy] of corners) {
+      const x = p.x + dx * half;
+      const y = p.y + dy * half;
+      ctx.moveTo(x - dx * arm, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y - dy * arm);
+    }
+  };
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(160, 250, 235, 0.28)';
+  ctx.lineWidth = 5;
+  path();
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(200, 255, 245, 0.95)';
+  ctx.lineWidth = 2;
+  path();
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+}
+
 /** How far out the charted part of the galaxy reaches from Aurel, for framing. */
 export function galaxyExtent(state) {
   let far = 180;
@@ -154,6 +193,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const charted = chartedSystems(state);
   const systems = allSystems().filter((system) => charted.has(system.id));
   const open = canJump(state);
+  const crowded = Boolean(view.compact) && s * SYSTEM_SPACING < PHONE_LABEL_ROOM;
+  const named = new Set([view.current, view.selection?.kind === 'system' ? view.selection.id : null, view.guide?.kind === 'system' ? view.guide.id : null]);
 
   // Faction washes behind everything, so regions read as soft colour.
   for (const system of systems) {
@@ -183,7 +224,7 @@ export function drawGalaxy(ctx, cam, state, now, view) {
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.stroke();
-      if (open && s > 0.5) {
+      if (open && s > 0.5 && !crowded) {
         drawLabel(ctx, `${Math.round(jumpTime(state, lane) / 60000)} min`, (a.x + b.x) / 2, (a.y + b.y) / 2, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.55)' });
       }
     }
@@ -226,6 +267,10 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     const surveyed = isSurveyed(state, system.id);
     const p = toScreen(cam, system.gx, system.gy);
     const r = (system.id === 'aurel' ? 8 : 6) * u;
+    // The open system's brackets push its labels down a little.
+    const framed = system.id === view.current ? Math.max(15, r * 2.5) : 0;
+    if (framed) drawViewfinder(ctx, p, framed);
+    const below = framed ? framed + 11 : r + 11;
     if (surveyed) {
       const glow = r * 4;
       ctx.drawImage(blob(withAlpha(faction.color, 0.75), glow * 2 * dpr), p.x - glow, p.y - glow, glow * 2, glow * 2);
@@ -250,12 +295,13 @@ export function drawGalaxy(ctx, cam, state, now, view) {
       ctx.setLineDash([]);
       drawLabel(ctx, '?', p.x, p.y + 0.5, dpr, { size: 11, weight: 800, color: 'rgba(220, 236, 255, 0.8)' });
     }
-    drawLabel(ctx, system.name, p.x, p.y + r + 11, dpr, { size: 12, weight: 800, color: surveyed ? '#ffffff' : 'rgba(220, 236, 255, 0.7)' });
+    const labelled = !crowded || named.has(system.id);
+    if (labelled) drawLabel(ctx, system.name, p.x, p.y + below, dpr, { size: 12, weight: 800, color: surveyed ? '#ffffff' : 'rgba(220, 236, 255, 0.7)' });
     const sub = system.hazard ? system.hazard : !surveyed ? 'unsurveyed' : system.id === 'aurel' ? 'home' : null;
-    if (sub) drawLabel(ctx, sub, p.x, p.y + r + 25, dpr, { size: 10, weight: 600, color: system.hazard ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
+    if (sub && labelled) drawLabel(ctx, sub, p.x, p.y + below + 14, dpr, { size: 10, weight: 600, color: system.hazard ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
     const market = markets.get(system.id);
     if (market) {
-      const y = p.y + r + (sub ? 39 : 25);
+      const y = p.y + below + (sub ? 28 : 14);
       const sells = market.sells != null && (everyPrice || market.sells <= asks[Math.min(2, asks.length - 1)]);
       const buys = market.buys != null && (everyPrice || market.buys >= bids[Math.min(2, bids.length - 1)]);
       if (market.sells != null) {
@@ -266,17 +312,17 @@ export function drawGalaxy(ctx, cam, state, now, view) {
         const q = share(market.buys, bids);
         dot(ctx, p.x + r + 7 * u, p.y, (2 + 3.5 * q) * u, `rgba(159, 245, 160, ${0.5 + 0.5 * q})`);
       }
-      if (sells) {
+      if (sells && !crowded) {
         const best = market.sells === asks[0];
         drawLabel(ctx, `${best ? '★ ' : ''}sells ${price(market.sells)}`, buys ? p.x - 4 : p.x, y, dpr, { size: 11, weight: best ? 800 : 700, color: best ? '#bfe6ff' : 'rgba(143, 211, 255, 0.85)', align: buys ? 'right' : 'center' });
       }
-      if (buys) {
+      if (buys && !crowded) {
         const best = market.buys === bids[0];
         drawLabel(ctx, `${best ? '★ ' : ''}buys ${price(market.buys)}`, sells ? p.x + 4 : p.x, y, dpr, { size: 11, weight: best ? 800 : 700, color: best ? '#c8ffc0' : 'rgba(159, 245, 160, 0.85)', align: sells ? 'left' : 'center' });
       }
     }
     const mark = marks.get(system.id);
-    if (mark) drawContractMarks(ctx, p.x - r - 8 * u - (mark.offer && mark.active ? 16 : 0), p.y - r - 4, mark, dpr, u);
+    if (mark) drawContractMarks(ctx, p.x - (framed ? framed + 6 : r + 8 * u) - (mark.offer && mark.active ? 16 : 0), p.y - r - 4, mark, dpr, u);
     targets.push({ kind: 'system', id: system.id, x: p.x, y: p.y, r: Math.max(16, r * 2.2) });
     // Your ships there: a badge per kind of ship, with how many, which
     // selects them all. Each ship also gets a target on its badge (too
@@ -284,7 +330,7 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     // system map.
     const here = counts.get(system.id);
     if (here) {
-      let bx = p.x + r + 12;
+      let bx = p.x + (framed ? framed + 14 : r + 12);
       const by = p.y - r - 4;
       for (const [role, ids] of here) {
         if (!ids.length) continue;
@@ -302,7 +348,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   targets.push(...badges);
 
   // Ships in a jump, on their lane. Ships close together fly as one flock.
-  const label = createLabelSpace(ctx, dpr);
+  const placeLabel = createLabelSpace(ctx, dpr);
+  const label = (...args) => !crowded && placeLabel(...args);
   const w = 26 * u;
   const onLanes = jumping.map((entry) => ({ ...entry, p: toScreen(cam, entry.pos.x, entry.pos.y) }));
   for (const group of flock(onLanes, w * 0.8)) {
