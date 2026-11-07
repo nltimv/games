@@ -50,7 +50,3 @@ export const STATION_TYPES = {
     hulls: ['mule', 'kite', 'lark'],
   },
 };
-
-export const FACTIONS = {
-  halcyon: { name: 'Halcyon Compact', color: '#2ec5c0' },
-};

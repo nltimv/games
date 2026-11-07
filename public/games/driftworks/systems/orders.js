@@ -39,8 +39,8 @@ import { findEntry } from './market.js';
 import { canCarry, cargoTotal } from './cargo.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
 import { isResearched, orderSlots } from './research.js';
-import { plotCourse } from './travel.js';
-import { isSurveyed, surveyable } from './explore.js';
+import { plotCourse, travelTime } from './travel.js';
+import { isSurveyed, knownStations, surveyable } from './explore.js';
 import { addLog } from './log.js';
 
 const fail = (error) => ({ ok: false, error });
@@ -175,8 +175,9 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
 }
 
 function buildFly(state, view, { stationId }, start) {
-  const station = findStation(stationId);
-  if (!station) return fail('No such station.');
+  // Any place will do: a station, a field or a gate.
+  const station = findPlace(stationId);
+  if (!station) return fail('No such place.');
   if (stationId === view.at) return fail(`${view.name} is already there.`);
   const course = stationLegs(state, view, stationId, start);
   if (!course.ok) return course;
@@ -517,13 +518,25 @@ export function refitOffer(state, ship) {
   return modules ? { modules, cost: refitCost(modules) } : null;
 }
 
-/** Pays for a refit and gives the order to fly to the shipyard for it. */
-export function orderRefit(state, ship) {
+/** The known shipyard a ship reaches first (the home one when none is nearer). */
+export function nearestShipyard(state, ship) {
+  const view = projectShip(state, ship);
+  let best = { id: SHIPYARD_ID, time: travelTime(state, view, view.at, SHIPYARD_ID) };
+  for (const station of knownStations(state)) {
+    if (station.type !== 'shipyard' || station.id === SHIPYARD_ID) continue;
+    const time = travelTime(state, view, view.at, station.id);
+    if (time < best.time) best = { id: station.id, time };
+  }
+  return best.id;
+}
+
+/** Pays for a refit and gives the order to fly to a shipyard (the nearest, by default) for it. */
+export function orderRefit(state, ship, stationId = nearestShipyard(state, ship)) {
   if (!ship) return fail('No such ship.');
   const offer = refitOffer(state, ship);
   if (!offer) return fail(`${ship.name} already has the newest modules.`);
   if (state.credits < offer.cost) return fail(`A refit costs ${formatCredits(offer.cost)}. You need ${formatCredits(offer.cost - state.credits)} more.`);
-  const result = giveOrder(state, ship, { type: 'refit', modules: offer.modules, paid: offer.cost });
+  const result = giveOrder(state, ship, { type: 'refit', modules: offer.modules, paid: offer.cost, stationId });
   if (!result.ok) return result;
   state.credits -= offer.cost;
   addLog(state, state.now, `${ship.name} booked a refit for ${formatCredits(offer.cost)}`, 'purchase', -offer.cost);
@@ -531,13 +544,13 @@ export function orderRefit(state, ship) {
 }
 
 /** Books a refit for every ship that is behind and has room for the order. */
-export function refitAll(state) {
+export function refitAll(state, stationId) {
   let count = 0;
   let cost = 0;
   let error = null;
   for (const ship of state.ships) {
     if (!refitOffer(state, ship)) continue;
-    const result = orderRefit(state, ship);
+    const result = stationId ? orderRefit(state, ship, stationId) : orderRefit(state, ship);
     if (result.ok) {
       count += 1;
       cost += result.cost;

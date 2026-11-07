@@ -6,27 +6,42 @@
 import { goodName } from '../content/goods.js';
 import { HULLS, MODULES } from '../content/ships.js';
 import { STATION_TYPES } from '../content/stations.js';
-import { findField, findPlace, findStation } from '../content/galaxy.js';
+import { findFaction, findField, findGate, findPlace, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { groupOrderOptions, orderOptions } from '../systems/advisor.js';
 import { carryOut, carryOutGroup } from '../systems/commands.js';
 import { findShip } from '../systems/fleet.js';
+import { isSurveyed } from '../systems/explore.js';
 import { freeSlots, giveOrder, lowerFirst, orderTimes } from '../systems/orders.js';
 import { orderSlots } from '../systems/research.js';
+import { canJump } from '../systems/travel.js';
 import { h } from './dom.js';
 import { contractTag, fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
-import { at, minusCredits, plusCredits, span, timing, tonnes } from './format.js';
+import { at, minusCredits, plusCredits, routeText, span, timing, tonnes } from './format.js';
 
 function headIcon(target) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
   if (target.kind === 'field') return wrap(fieldIcon(findField(target.id).good, 34));
   if (target.kind === 'station') return wrap(stationIcon(findStation(target.id).type, { size: 34 }));
   if (target.kind === 'gate') return wrap(gateIcon());
+  if (target.kind === 'system') {
+    const color = findFaction(findSystem(target.id)?.faction)?.color;
+    return h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, h('span', { class: 'dw-faction-dot is-large', style: { background: color } }));
+  }
   return null;
 }
 
-function heading(target) {
+/** Why nobody can go to a system: locked gates, a hazard, or no survey yet. */
+function closedNote(state, systemId) {
+  const system = findSystem(systemId);
+  if (!canJump(state)) return 'Gates open with the warp drive.';
+  if (system?.hazard) return `${system.name} has ${system.hazard}. Ships need shielding to go there.`;
+  if (!isSurveyed(state, systemId)) return `${system?.name ?? 'That system'} has not been surveyed yet.`;
+  return null;
+}
+
+function heading(state, target) {
   if (target.kind === 'field') {
     const field = findField(target.id);
     return { title: field.name, subtitle: `Asteroid field · ${goodName(field.good).toLowerCase()}` };
@@ -35,8 +50,14 @@ function heading(target) {
     const station = findStation(target.id);
     return { title: station.name, subtitle: STATION_TYPES[station.type].label };
   }
-  const place = findPlace(target.id);
-  return { title: place?.name ?? 'Gate', subtitle: 'Jump gate · locked' };
+  if (target.kind === 'system') {
+    const system = findSystem(target.id);
+    const faction = findFaction(system?.faction);
+    return { title: `${system?.name ?? '?'} system`, subtitle: `${faction?.name ?? 'Unclaimed'}${isSurveyed(state, target.id) ? '' : ' · unsurveyed'}` };
+  }
+  const gate = findGate(target.id);
+  const far = findSystem(gate?.to);
+  return { title: gate?.name ?? 'Gate', subtitle: canJump(state) ? `Warp gate to ${far?.name ?? '?'}` : 'Warp gate · locked' };
 }
 
 
@@ -74,10 +95,20 @@ function describe(option) {
       return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost), note: `${modulesText(option.modules)} · ${timing(option, 'refit')}` };
     case 'fly':
       return { label: 'Fly here', value: blocked ?? `arrives ${at(option.endsAt)}`, note: timing(option) };
+    case 'jump':
+      return { label: jumpLabel(option), value: blocked ?? `arrives ${at(option.endsAt)}`, note: `${option.queued ? 'After its orders · ' : ''}${routeText({ jumps: option.jumps, time: option.flight, fees: option.fees })}` };
+    case 'survey':
+      return {
+        label: `Survey ${findSystem(option.systemId).name}`,
+        value: blocked ?? `done ${at(option.endsAt)}`,
+        note: option.fees ? `${timing(option, 'surveying')} · ${formatCredits(option.fees)} in fees` : timing(option, 'surveying'),
+      };
     default:
       return { label: option.kind, value: '', note: '' };
   }
 }
+
+const jumpLabel = (option) => `${option.jumps > 1 ? 'Fly' : 'Jump'} to ${findSystem(option.systemId).name}`;
 
 /** "Hold 25 t, laser 12 t/min" for the levels a refit fits. */
 export function modulesText(modules) {
@@ -94,8 +125,13 @@ function optionKey(option) {
 }
 
 /** Why the ship has no orders for the target. */
-function emptyNote(ship, target) {
-  if (target.kind === 'gate') return 'Gates open with the warp drive.';
+function emptyNote(state, ship, target) {
+  if (target.kind === 'gate' || target.kind === 'system') {
+    const systemId = target.kind === 'gate' ? findGate(target.id)?.to : target.id;
+    const closed = closedNote(state, systemId);
+    if (closed) return closed;
+    if (systemOf(ship.at) === systemId) return `${ship.name} is already in ${findSystem(systemId).name}.`;
+  }
   if (target.kind === 'field' && HULLS[ship.hull].role !== 'miner') return `${ship.name} is a hauler and cannot mine.`;
   return `${ship.name} has nothing to do here.`;
 }
@@ -114,7 +150,7 @@ export function orderMenu(ctx, menu) {
   const { state, now } = ctx;
   const target = menu.target;
   const ship = findShip(state, menu.shipId);
-  const { title, subtitle } = heading(target);
+  const { title, subtitle } = heading(state, target);
   const parts = [
     h(
       'div',
@@ -169,7 +205,7 @@ export function orderMenu(ctx, menu) {
       ),
     );
   } else {
-    parts.push(h('p', { class: 'dw-menu-note' }, emptyNote(ship, target)));
+    parts.push(h('p', { class: 'dw-menu-note' }, emptyNote(state, ship, target)));
   }
 
   parts.push(menuButton('Details', '›', 'menu-details', () => ctx.select(target.kind, target.id)));
@@ -212,6 +248,8 @@ function describeGroup(option) {
       return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost) };
     case 'fly':
       return { label: 'Fly here', value: '' };
+    case 'jump':
+      return { label: `Fly to ${findSystem(option.systemId).name}`, value: '' };
     default:
       return { label: option.kind, value: '' };
   }

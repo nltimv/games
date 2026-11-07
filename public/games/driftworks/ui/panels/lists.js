@@ -1,10 +1,9 @@
-// List panels: the system overview, the fleet, the company (goals, stats and
-// log), and the locked warp gates.
+// List panels: the fleet, several selected ships, and the company (goals,
+// stats and log). Systems and gates are in system.js.
 
 import { GOALS, NEXT_CHAPTER } from '../../content/goals.js';
-import { GOODS, goodName } from '../../content/goods.js';
+import { goodName } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
-import { STATION_TYPES, FACTIONS } from '../../content/stations.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
 import { findStation } from '../../content/galaxy.js';
 import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/format.js';
@@ -13,57 +12,8 @@ import { currentGoal } from '../../systems/goals.js';
 import { findShip } from '../../systems/fleet.js';
 import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, rerunnable, runAgain, runAllAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, fieldIcon, gateIcon, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
+import { button, chip, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { plural, tonnes } from '../format.js';
-import { richnessLabel } from './field.js';
-
-// ---------- System overview ----------
-
-export function overviewPanel(ctx) {
-  const system = HOME_SYSTEM;
-  const stationRows = system.stations.map((station) =>
-    h(
-      'button',
-      { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('station', station.id), dataset: { key: `ov-${station.id}` } },
-      h('span', { class: 'dw-ship-icon is-art', 'aria-hidden': 'true' }, stationIcon(station.type, { size: 34 })),
-      h('span', { class: 'dw-grow' }, h('strong', null, station.name), h('small', null, STATION_TYPES[station.type].description)),
-    ),
-  );
-  const fieldRows = system.fields.map((field) =>
-    h(
-      'button',
-      { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('field', field.id), dataset: { key: `ov-${field.id}` } },
-      h('span', { class: 'dw-ship-icon is-art', 'aria-hidden': 'true' }, fieldIcon(field.good, 34)),
-      h('span', { class: 'dw-grow' }, h('strong', null, field.name), h('small', null, `${GOODS[field.good].name} · ${richnessLabel(field.richness).toLowerCase()}`)),
-    ),
-  );
-  return [
-    panelHead({
-      title: `${system.name} system`,
-      subtitle: `${FACTIONS[system.faction].name} space · your home`,
-      onClose: ctx.isPhone() ? ctx.close : null,
-    }),
-    h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)),
-    h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)),
-    h(
-      'div',
-      { class: 'dw-section' },
-      sectionTitle('Warp gates'),
-      h('p', { class: 'dw-note' }, `${plural(system.gates.length, 'gate')} lead out of ${system.name}. ${NEXT_CHAPTER}`),
-    ),
-  ];
-}
-
-// ---------- Gate ----------
-
-export function gatePanel(ctx, gateId) {
-  const gate = HOME_SYSTEM.gates.find((g) => g.id === gateId);
-  return [
-    panelHead({ icon: gateIcon(), title: gate.name, subtitle: 'Warp gate · locked', onClose: ctx.close }),
-    h('p', { class: 'dw-note' }, `Gates link ${HOME_SYSTEM.name} to the systems next door. Each jump will cost credits and time.`),
-    h('div', { class: 'dw-card is-gold' }, h('strong', null, 'Coming next'), h('p', { class: 'dw-note' }, NEXT_CHAPTER)),
-  ];
-}
 
 // ---------- Fleet ----------
 
@@ -145,7 +95,7 @@ export function shipRow(ctx, ship) {
       h(
         'span',
         { class: 'dw-grow' },
-        h('strong', null, `${ship.name} · ${HULLS[ship.hull].role === 'hauler' ? 'hauler' : 'miner'}`),
+        h('strong', null, `${ship.name} · ${HULLS[ship.hull].role}`),
         h('small', null, shipStatus(ship, ctx.now)),
         phase ? bar({ start: phase.start, end: phase.end }) : null,
       ),

@@ -5,10 +5,12 @@
 
 import { createMapView } from '../render/mapView.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
-import { findPlace } from '../content/galaxy.js';
+import { findFaction, findPlace, findSystem, systemOf } from '../content/galaxy.js';
+import { galaxyPosition } from '../render/galaxyMap.js';
+import { isSurveyed } from '../systems/explore.js';
 import { findShip } from '../systems/fleet.js';
 import { minedSoFar, orderPhase } from '../systems/orders.js';
-import { shipPosition } from '../systems/travel.js';
+import { canJump, shipPosition, shipSystem } from '../systems/travel.js';
 import { renderInto, updateLive, h } from './dom.js';
 import { renderTopBar, underwayCard } from './hud.js';
 import { showAway, showSettings } from './modals.js';
@@ -16,15 +18,16 @@ import { menuKeydown, orderMenu, placeMenu } from './contextMenu.js';
 import { stationPanel } from './panels/station.js';
 import { fieldPanel } from './panels/field.js';
 import { shipPanel } from './panels/ship.js';
-import { companyPanel, fleetPanel, gatePanel, groupPanel, overviewPanel } from './panels/lists.js';
+import { companyPanel, fleetPanel, groupPanel } from './panels/lists.js';
 import { researchPanel } from './panels/research.js';
+import { galaxyPanel, gatePanel, systemPanel } from './panels/system.js';
 import { currentGuide, guideCard, markGuided } from './tutorial.js';
 
 const TOAST_KINDS = new Set(['sale', 'goal', 'arrival', 'warning', 'purchase']);
 const TOAST_MS = 4200;
-const LOCKED_VIEWS = {
-  galaxy: 'The galaxy map arrives with the warp drive in the next update.',
-};
+const MAP_VIEWS = new Set(['system', 'galaxy']);
+const isMapView = (view) => MAP_VIEWS.has(view);
+const PLACE_KINDS = new Set(['station', 'field', 'gate']);
 
 export function createApp(session, doc = document) {
   const $ = (id) => doc.getElementById(id);
@@ -45,10 +48,13 @@ export function createApp(session, doc = document) {
     modal: $('modal'),
     menu: $('menu'),
     systemName: $('system-name'),
+    systemSub: $('system-sub'),
   };
 
   const phoneQuery = matchMedia('(max-width: 760px)');
-  const ui = { view: 'system', selection: null, miner: null, trade: null, overview: false, menu: null, guide: null };
+  // `map` is the map shown behind the panels ('system' or 'galaxy') and
+  // `systemId` the system the System view shows.
+  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null };
   let shownCredits = null;
   let panelKey = null;
   // While a slider is being dragged, panels and the menu wait to re-render,
@@ -61,26 +67,62 @@ export function createApp(session, doc = document) {
   const isPhone = () => phoneQuery.matches;
 
   function panelVisible() {
-    if (ui.view !== 'system') return true;
+    if (!isMapView(ui.view)) return true;
     if (ui.selection) return true;
     return !isPhone() || ui.overview;
   }
 
   // ---------- Navigation ----------
 
+  /** Which map shows a selection: places show their system, a ship the map it is on. */
+  function showFor(kind, id) {
+    if (kind === 'system') return { view: 'galaxy', map: 'galaxy' };
+    if (PLACE_KINDS.has(kind)) return { view: 'system', map: 'system', systemId: systemOf(id) ?? ui.systemId };
+    if (kind === 'ship') {
+      const ship = findShip(session.state, id);
+      const where = ship ? shipSystem(ship, Date.now()) : null;
+      if (ui.view === 'galaxy') return { view: 'galaxy', map: 'galaxy' };
+      if (!where) return canJump(session.state) ? { view: 'galaxy', map: 'galaxy' } : { view: 'system', map: 'system' };
+      return { view: 'system', map: 'system', systemId: where };
+    }
+    return { view: isMapView(ui.view) ? ui.view : ui.map, map: ui.map };
+  }
+
   function select(kind, id, extra = {}) {
     // Picking a field right after a ship sends that ship (when it can mine).
     const miner = kind === 'field' && ui.selection?.kind === 'ship' ? { miner: ui.selection.id } : {};
-    Object.assign(ui, { view: 'system', selection: { kind, id }, overview: false, menu: null, ...miner, ...extra });
+    Object.assign(ui, { ...showFor(kind, id), selection: { kind, id }, overview: false, menu: null, ...miner, ...extra });
     if (kind !== 'station' || ui.trade?.stationId !== id) ui.trade = null;
     render();
     focusPanelIfNeeded();
     // On phones the sheet covers the lower half: slide the pick into view.
     if (isPhone()) {
-      const ship = kind === 'ship' ? findShip(session.state, id) : null;
-      const point = ship ? shipPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : findPlace(id);
+      const point = mapPoint(kind, id);
       if (point) map.focusOn(point.x, point.y);
     }
+  }
+
+  /** Where a selection sits on the map shown now. */
+  function mapPoint(kind, id) {
+    const state = session.state;
+    if (kind === 'system') {
+      const system = findSystem(id);
+      return system ? { x: system.gx, y: system.gy } : null;
+    }
+    if (kind === 'ship') {
+      const ship = findShip(state, id);
+      if (!ship) return null;
+      const index = state.ships.indexOf(ship);
+      return ui.map === 'galaxy' ? galaxyPosition(ship, Date.now(), index) : shipPosition(ship, Date.now(), index);
+    }
+    return findPlace(id);
+  }
+
+  /** Opens a system's map, keeping a ship selection so orders can follow. */
+  function openSystem(id) {
+    const keep = ui.selection?.kind === 'ship' || ui.selection?.kind === 'ships' ? ui.selection : null;
+    Object.assign(ui, { view: 'system', map: 'system', systemId: id, selection: keep, overview: false, menu: null, trade: null });
+    render();
   }
 
   /**
@@ -93,7 +135,8 @@ export function createApp(session, doc = document) {
     const all = [...new Set([...current, ...ids])].filter((id) => findShip(session.state, id));
     if (!all.length) return additive ? undefined : close();
     if (all.length === 1) return select('ship', all[0]);
-    Object.assign(ui, { view: 'system', selection: { kind: 'ships', ids: all }, overview: false, menu: null, trade: null });
+    const view = isMapView(ui.view) ? ui.view : ui.map;
+    Object.assign(ui, { view, map: view, selection: { kind: 'ships', ids: all }, overview: false, menu: null, trade: null });
     render();
     focusPanelIfNeeded();
   }
@@ -108,7 +151,7 @@ export function createApp(session, doc = document) {
 
   /** The ships selected now: one, several, or none. */
   function selectedShips() {
-    if (ui.view !== 'system') return [];
+    if (!isMapView(ui.view)) return [];
     const ids = ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
     return ids.map((id) => findShip(session.state, id)).filter(Boolean);
   }
@@ -118,23 +161,25 @@ export function createApp(session, doc = document) {
     ui.trade = null;
     ui.overview = false;
     ui.menu = null;
-    if (ui.view !== 'system') ui.view = 'system';
+    if (!isMapView(ui.view)) ui.view = ui.map;
     render();
     if (isPhone()) map.focusOn(0, 0);
   }
 
   function setView(view) {
-    if (LOCKED_VIEWS[view]) {
-      toast(LOCKED_VIEWS[view]);
+    if (view === 'galaxy' && !canJump(session.state)) {
+      toast('The galaxy map opens with the warp drive research.');
       return;
     }
-    if (view === 'system' && ui.view === 'system' && isPhone()) {
-      ui.overview = !ui.overview || Boolean(ui.selection);
+    if (view === ui.view && isMapView(view)) {
+      if (isPhone()) ui.overview = !ui.overview || Boolean(ui.selection);
       ui.selection = null;
-    } else if (view === 'system' && ui.view === 'system') {
+    } else if (isMapView(view) && ui.selection && !['ship', 'ships'].includes(ui.selection.kind)) {
+      // Ships stay selected across the two maps; places belong to one.
       ui.selection = null;
     }
     ui.view = view;
+    if (isMapView(view)) ui.map = view;
     ui.trade = null;
     ui.menu = null;
     render();
@@ -210,6 +255,7 @@ export function createApp(session, doc = document) {
       close,
       setView,
       isPhone,
+      openSystem,
       openSettings,
       toast,
       closeMenu,
@@ -231,12 +277,14 @@ export function createApp(session, doc = document) {
     if (ui.view === 'company') return companyPanel(ctx);
     if (ui.view === 'research') return researchPanel(ctx);
     const sel = ui.selection;
+    const overviewPanel = () => (ui.map === 'galaxy' ? galaxyPanel(ctx) : systemPanel(ctx, ui.systemId, { overview: true }));
     if (!sel) return overviewPanel(ctx);
     if (sel.kind === 'station') return stationPanel(ctx, sel.id);
     if (sel.kind === 'field') return fieldPanel(ctx, sel.id);
     if (sel.kind === 'ship') return findShip(session.state, sel.id) ? shipPanel(ctx, sel.id) : overviewPanel(ctx);
     if (sel.kind === 'ships') return groupPanel(ctx, sel.ids);
     if (sel.kind === 'gate') return gatePanel(ctx, sel.id);
+    if (sel.kind === 'system') return systemPanel(ctx, sel.id);
     return overviewPanel(ctx);
   }
 
@@ -261,6 +309,7 @@ export function createApp(session, doc = document) {
       panelKey = key;
     }
     renderInto(els.underway, underwayCard(ctx));
+    renderPlace();
     renderMenu(ctx);
     renderGuide();
     map.redraw();
@@ -268,6 +317,30 @@ export function createApp(session, doc = document) {
     for (const btn of els.nav.querySelectorAll('button[data-view]')) {
       if (btn.dataset.view === ui.view) btn.setAttribute('aria-current', 'page');
       else btn.removeAttribute('aria-current');
+    }
+  }
+
+  // The top bar names the map shown, and the Galaxy tab unlocks with the
+  // warp drive.
+  function renderPlace() {
+    const state = session.state;
+    if (ui.map === 'galaxy') {
+      els.systemName.textContent = 'Galaxy';
+      const known = 1 + (state.surveyed ?? []).length;
+      els.systemSub.textContent = `${known} ${known === 1 ? 'system' : 'systems'} surveyed`;
+    } else {
+      const system = findSystem(ui.systemId) ?? HOME_SYSTEM;
+      els.systemName.textContent = `${system.name} system`;
+      const where = system.id === HOME_SYSTEM.id ? 'home' : `${system.depth} ${system.depth === 1 ? 'lane' : 'lanes'} from home`;
+      els.systemSub.textContent = `${findFaction(system.faction)?.name ?? ''} · ${isSurveyed(state, system.id) ? where : 'unsurveyed'}`;
+    }
+    const galaxyBtn = els.nav.querySelector('button[data-view="galaxy"]');
+    const open = canJump(state);
+    if (galaxyBtn && galaxyBtn.dataset.open !== String(open)) {
+      galaxyBtn.dataset.open = String(open);
+      galaxyBtn.toggleAttribute('aria-disabled', !open);
+      galaxyBtn.title = open ? 'Galaxy map' : 'Opens with the warp drive research';
+      galaxyBtn.querySelector('svg')?.toggleAttribute('hidden', open);
     }
   }
 
@@ -317,7 +390,7 @@ export function createApp(session, doc = document) {
     if (change.result && change.result.ok === false && change.result.error) toast(change.result.error, 'warning');
     for (const entry of change.log.filter((e) => TOAST_KINDS.has(e.kind)).slice(-3)) toast(entry.text, entry.kind);
     if (change.source === 'load') {
-      Object.assign(ui, { view: 'system', selection: null, trade: null, miner: null, overview: false, menu: null });
+      Object.assign(ui, { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, trade: null, miner: null, overview: false, menu: null });
       shownCredits = null;
     }
     render();
@@ -339,9 +412,10 @@ export function createApp(session, doc = document) {
 
   const map = createMapView(els.map, {
     getState: () => session.state,
-    getSelection: () => (ui.view === 'system' ? ui.selection : null),
+    getScene: () => (ui.map === 'galaxy' ? { kind: 'galaxy' } : { kind: 'system', id: ui.systemId }),
+    getSelection: () => (isMapView(ui.view) ? ui.selection : null),
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
-    getGuideTarget: () => (ui.view === 'system' || !isPhone() ? (ui.guide?.map ?? null) : null),
+    getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
     onSelect(target, mods = {}) {
       if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);
       else if (target) select(target.kind, target.id);
@@ -417,7 +491,7 @@ export function createApp(session, doc = document) {
       return;
     }
     if (e.target.closest?.('textarea, input')) return;
-    if (ui.selection || ui.view !== 'system' || ui.overview) close();
+    if (ui.selection || !isMapView(ui.view) || ui.overview) close();
   });
   phoneQuery.addEventListener('change', render);
   doc.addEventListener('pointerdown', (e) => {
@@ -433,7 +507,6 @@ export function createApp(session, doc = document) {
   };
   doc.addEventListener('pointerup', endDrag);
   doc.addEventListener('pointercancel', endDrag);
-  els.systemName.textContent = `${HOME_SYSTEM.name} system`;
 
   render();
 

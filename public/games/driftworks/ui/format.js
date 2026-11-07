@@ -59,3 +59,12 @@ export function timing({ queued, flight = 0, work = 0 }, job) {
 export function plural(count, word, many = `${word}s`) {
   return `${formatNumber(count)} ${count === 1 ? word : many}`;
 }
+
+/**
+ * A route through the gates: "2 jumps · 24 min · 900 cr fees". A route
+ * inside one system is just its time.
+ */
+export function routeText({ jumps = 0, time = 0, fees = 0 }) {
+  if (!jumps) return span(time);
+  return `${plural(jumps, 'jump')} · ${span(time)} · ${formatCredits(fees)} fees`;
+}

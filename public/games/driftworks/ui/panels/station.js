@@ -1,11 +1,10 @@
 // A station: its market (or ships for sale), the ships docked there, and
 // ships elsewhere that could come over.
 
-import { FACTIONS, STATION_TYPES } from '../../content/stations.js';
+import { STATION_TYPES } from '../../content/stations.js';
 import { HULLS, HOLD_CLASS_MAX_TIER, MODULES } from '../../content/ships.js';
 import { GOODS, goodName } from '../../content/goods.js';
-import { HOME_SYSTEM } from '../../content/homeSystem.js';
-import { findPlace, findStation } from '../../content/galaxy.js';
+import { findFaction, findPlace, findStation } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { buyCargo, cargoTotal, sellCargo } from '../../systems/cargo.js';
 import { contractFor, premiumText } from '../../systems/contracts.js';
@@ -19,7 +18,7 @@ import { bestTradeQty, buyersOf, maxPurchase, saleHere, tradePlan } from '../../
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, contractTag, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { formatPrice, minusCredits, plural, plusCredits, tonnes, trip } from '../format.js';
+import { formatPrice, minusCredits, plural, plusCredits, routeText, tonnes, trip } from '../format.js';
 
 const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
 const isMiner = (ship) => HULLS[ship.hull].role === 'miner';
@@ -36,7 +35,7 @@ export function stationPanel(ctx, stationId) {
     h(
       'div',
       { class: 'dw-chips' },
-      chip(FACTIONS[station.faction].name),
+      chip(findFaction(station.faction)?.name ?? 'Unclaimed'),
       chip(type.label),
       docked.length ? chip(`${plural(docked.length, 'ship')} docked`, 'aqua') : null,
       incoming.length ? chip(`${incoming.length} on the way`) : null,
@@ -45,7 +44,7 @@ export function stationPanel(ctx, stationId) {
     // open a station.
     dockedSection(ctx, station, docked),
     contractsHere(ctx, station),
-    station.type === 'shipyard' ? [refitSection(ctx), shipyardSection(ctx, station)] : marketSection(ctx, station, docked),
+    station.type === 'shipyard' ? [refitSection(ctx, station), shipyardSection(ctx, station)] : marketSection(ctx, station, docked),
     elsewhereSection(ctx, station),
   ];
 }
@@ -149,9 +148,9 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note is-warn' }, reason));
   }
 
-  const buyers = buyersOf(state, good, now).filter(({ station: s }) => s.id !== station.id);
+  const buyers = buyersOf(state, good, now).filter(({ station: s }) => s.id !== station.id && tradePlan(state, hauler, good, 1, s.id, now).reachable);
   if (!buyers.length) {
-    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note' }, `Nobody else in ${HOME_SYSTEM.name} buys ${goodName(good).toLowerCase()} yet.`));
+    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note' }, `Nobody else you know of buys ${goodName(good).toLowerCase()} yet.`));
   }
 
   // Default destination: the best profit at the best quantity.
@@ -186,7 +185,7 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
           onClick: () => ctx.update({ trade: { ...trade, dest: dest.id } }),
         },
         h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name, contractTag(contractFor(state, dest.id, good, now))), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, profitText(p.profit))),
-        h('span', null, `${trip(p.travel)} away · sells for about ${formatCredits(p.sell.total)}`),
+        h('span', null, `${p.jumps ? routeText({ jumps: p.jumps, time: p.travel, fees: p.fees }) : `${trip(p.travel)} away`} · sells for about ${formatCredits(p.sell.total)}`),
       );
     }),
   );
@@ -223,6 +222,7 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     destChoices,
     line(`Buy ${tonnes(plan.qty, good)} here`, minusCredits(plan.buy.total)),
     line([`Sell at ${chosen.dest.name}`, contractTag(contractFor(state, chosen.dest.id, good, now))], `about ${plusCredits(plan.sell.total)}`),
+    plan.fees ? line(`Jump fees · ${plural(plan.jumps, 'jump')}`, minusCredits(plan.fees)) : null,
     line('Expected profit', profitText(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`),
     plan.profit <= 0 ? h('p', { class: 'dw-note is-warn' }, 'Prices here and there are too close right now. They drift back over a few hours.') : null,
     h(
@@ -281,7 +281,7 @@ function shipyardSection(ctx, station) {
   );
 }
 
-function refitSection(ctx) {
+function refitSection(ctx, station) {
   const { state } = ctx;
   const behind = state.ships.map((ship) => ({ ship, offer: refitOffer(state, ship) })).filter((r) => r.offer);
   if (!behind.length) return null;
@@ -298,7 +298,7 @@ function refitSection(ctx) {
         disabled: state.credits < offer.cost,
         label: `Refit ${ship.name} for ${formatCredits(offer.cost)}`,
         onClick: () => {
-          const result = ctx.act((s) => orderRefit(s, findShip(s, ship.id)));
+          const result = ctx.act((s) => orderRefit(s, findShip(s, ship.id), station.id));
           if (result?.ok) orderToast(ctx, ship, result);
         },
       }),
@@ -316,7 +316,7 @@ function refitSection(ctx) {
           key: 'refit-all',
           disabled: state.credits < behind[0].offer.cost,
           onClick: () => {
-            const result = ctx.act((s) => refitAll(s));
+            const result = ctx.act((s) => refitAll(s, station.id));
             if (result?.ok) ctx.toast(`${plural(result.count, 'ship')} booked for a refit: −${formatCredits(result.cost)}`, 'purchase');
           },
         })

@@ -96,8 +96,8 @@ export function gateIcon() {
 }
 
 export function shipGlyph(hullId) {
-  const role = HULLS[hullId]?.role === 'hauler' ? 'hauler' : 'miner';
-  return h('span', { class: `dw-ship-icon${role === 'hauler' ? ' is-hauler' : ''}`, 'aria-hidden': 'true' }, art(`ship-${role}`, 30, 18));
+  const role = HULLS[hullId]?.role ?? 'miner';
+  return h('span', { class: `dw-ship-icon${role !== 'miner' ? ` is-${role}` : ''}`, 'aria-hidden': 'true' }, art(`ship-${role}`, 30, 18));
 }
 
 /** A "label ··· value" line for summaries. */

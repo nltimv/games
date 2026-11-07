@@ -7,12 +7,13 @@
 // gradients, no blur.
 
 import { HOME_SYSTEM } from '../content/homeSystem.js';
-import { findPlace, findStation } from '../content/galaxy.js';
+import { findPlace, findStation, findSystem, laneBetween, systemOf } from '../content/galaxy.js';
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { createRng, hashString } from '../core/rng.js';
 import { SECOND, timeLeft } from '../core/time.js';
-import { shipPosition } from '../systems/travel.js';
+import { isSurveyed } from '../systems/explore.js';
+import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { orderPhase, projectShip } from '../systems/orders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
@@ -23,20 +24,23 @@ const SIZE = { field: 58, station: 44, gate: 30, ship: 32, parkedShip: 28 };
 // Gap between a place's art and the ships waiting around it.
 const PARK_GAP = 17;
 
-// Seeded belt rocks, built once so the belt looks the same on every visit.
-// Grouped by brightness so each group is one fill.
-const BELT = (() => {
-  const rng = createRng(hashString(`${HOME_SYSTEM.id}:decor`));
+// Seeded belt rocks, built once per system so a belt looks the same on
+// every visit. Grouped by brightness so each group is one fill.
+const belts = new Map();
+function beltFor(system) {
+  if (belts.has(system.id)) return belts.get(system.id);
+  const rng = createRng(hashString(`${system.id}:decor`));
   const groups = [0.22, 0.32, 0.42, 0.52].map((alpha) => ({ alpha, rocks: [] }));
   for (let i = 0; i < 180; i += 1) {
     const angle = rng() * Math.PI * 2;
-    const r = HOME_SYSTEM.belt.radius + (rng() - 0.5) * HOME_SYSTEM.belt.width * 1.2;
+    const r = system.belt.radius + (rng() - 0.5) * system.belt.width * 1.2;
     const size = 0.6 + rng() * 1.3;
     const group = groups[Math.floor(rng() * groups.length)];
     group.rocks.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r, size });
   }
+  belts.set(system.id, groups);
   return groups;
-})();
+}
 
 /** Pre-renders the sky (gradient wash and stars) for a canvas size. */
 export function renderBackground(width, height, dpr) {
@@ -126,13 +130,23 @@ function parkingSpots(cam, state, now, u, parked) {
   return spots;
 }
 
+/** What a gate's second label line says: locked, unsurveyed, a hazard or the jump time. */
+function gateNote(state, system, gate) {
+  const far = findSystem(gate.to);
+  if (!canJump(state)) return 'locked';
+  if (far?.hazard) return far.hazard;
+  if (!isSurveyed(state, gate.to)) return 'unsurveyed';
+  const lane = laneBetween(system.id, gate.to);
+  return lane ? `${Math.round(jumpTime(state, lane) / 60000)} min jump` : '';
+}
+
 /**
- * Draws the system. `view` has { selection, hover, target } as { kind, id }
- * or null, and the canvas `dpr`. Returns hit targets: [{ kind, id, x, y, r }]
- * in screen pixels.
+ * Draws the system `view.systemId` (Aurel by default). `view` has
+ * { selection, hover, target } as { kind, id } or null, and the canvas
+ * `dpr`. Returns hit targets: [{ kind, id, x, y, r }] in screen pixels.
  */
 export function drawSystem(ctx, cam, state, now, view) {
-  const system = HOME_SYSTEM;
+  const system = findSystem(view.systemId) ?? HOME_SYSTEM;
   const dpr = view.dpr ?? 1;
   const s = scaleOf(cam);
   const u = iconScale(cam);
@@ -163,7 +177,7 @@ export function drawSystem(ctx, cam, state, now, view) {
   ctx.stroke();
   ctx.fillStyle = '#9fb6d6';
   const rockScale = Math.min(1.5, Math.max(0.85, Math.sqrt(cam.zoom)));
-  for (const group of BELT) {
+  for (const group of beltFor(system)) {
     ctx.globalAlpha = group.alpha;
     ctx.beginPath();
     for (const rock of group.rocks) {
@@ -189,14 +203,15 @@ export function drawSystem(ctx, cam, state, now, view) {
     if (!compact) drawLabel(ctx, planet.name, p.x, p.y + r + 11, dpr, { weight: 600, color: 'rgba(220, 236, 255, 0.7)' });
   }
 
-  // Gates (locked in act 1)
+  // Gates: locked until the warp drive, then the way to the next system.
+  const open = canJump(state);
   for (const gate of system.gates) {
     const p = toScreen(cam, gate.x, gate.y);
     const w = SIZE.gate * u;
     const half = (w * 64) / 48 / 2;
-    if (!drawAsset(ctx, 'gate', p.x, p.y, w, dpr)) dot(ctx, p.x, p.y, 6 * u, 'rgba(180, 215, 255, 0.4)');
-    drawLabel(ctx, compact ? gate.short : gate.name, p.x, p.y + half + 6, dpr, { size: 11, color: 'rgba(200, 225, 255, 0.72)' });
-    if (!compact) drawLabel(ctx, 'locked', p.x, p.y + half + 20, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.45)' });
+    if (!drawAsset(ctx, 'gate', p.x, p.y, w, dpr, { alpha: open ? 1 : 0.7 })) dot(ctx, p.x, p.y, 6 * u, 'rgba(180, 215, 255, 0.4)');
+    drawLabel(ctx, compact ? gate.short : gate.name, p.x, p.y + half + 6, dpr, { size: 11, color: open ? 'rgba(220, 238, 255, 0.9)' : 'rgba(200, 225, 255, 0.72)' });
+    if (!compact) drawLabel(ctx, gateNote(state, system, gate), p.x, p.y + half + 20, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.5)' });
     targets.push({ kind: 'gate', id: gate.id, x: p.x, y: p.y, r: Math.max(16, half) });
   }
 
@@ -231,7 +246,7 @@ export function drawSystem(ctx, cam, state, now, view) {
   }
 
   // The routes the ships picked in the order menu would fly.
-  const routes = routePreviews(cam, state, view);
+  const routes = routePreviews(cam, state, view, system.id);
   if (routes.length) {
     ctx.strokeStyle = 'rgba(255, 211, 110, 0.6)';
     ctx.lineWidth = 1.4;
@@ -245,13 +260,15 @@ export function drawSystem(ctx, cam, state, now, view) {
     ctx.setLineDash([]);
   }
 
-  // Ships. Ships at a place sit on a ring around it (see parkingSpots).
-  const positions = state.ships.map((ship, index) => ({ ship, index, pos: shipPosition(ship, now, index) }));
+  // Ships in this system. Ships at a place sit on a ring around it (see
+  // parkingSpots); ships in a jump show on the galaxy map instead.
+  const positions = state.ships.map((ship, index) => ({ ship, index, pos: shipPosition(ship, now, index) })).filter(({ pos }) => pos.system === system.id);
   const spots = parkingSpots(cam, state, now, u, positions.filter((p) => p.pos.place).map((p) => ({ ship: p.ship, place: p.pos.place })));
   positions.forEach(({ ship, index, pos }) => {
     const spot = spots.get(ship.id);
     const p = spot ?? toScreen(cam, pos.x, pos.y);
     const role = HULLS[ship.hull].role;
+    const art = `ship-${role}`;
 
     if (pos.moving && pos.to) {
       const place = findPlace(pos.to);
@@ -270,7 +287,7 @@ export function drawSystem(ctx, cam, state, now, view) {
     const heading = spot ? spot.heading : Math.atan2(ahead.y - pos.y, ahead.x - pos.x);
     const w = (pos.moving ? SIZE.ship : SIZE.parkedShip) * u;
     const rotate = Number.isFinite(heading) ? heading : 0;
-    if (!drawAsset(ctx, `ship-${role}`, p.x, p.y, w, dpr, { rotate })) dot(ctx, p.x, p.y, 3, '#d9fff8');
+    if (!drawAsset(ctx, art, p.x, p.y, w, dpr, { rotate })) dot(ctx, p.x, p.y, 3, '#d9fff8');
 
     if (ship.order) {
       // The time left of what it does now: the flight, or the job.
@@ -303,16 +320,18 @@ export function drawSystem(ctx, cam, state, now, view) {
   return targets;
 }
 
-function routePreviews(cam, state, view) {
+function routePreviews(cam, state, view, systemId) {
   const target = view.target;
-  if (!target || target.kind === 'ship') return [];
+  if (!target || target.kind === 'ship' || systemOf(target.id) !== systemId) return [];
   const to = findPlace(target.id);
   const ids = target.shipIds ?? (target.shipId ? [target.shipId] : []);
   const starts = new Set();
   for (const id of ids) {
     const ship = state.ships.find((s) => s.id === id);
     // A busy ship's new order starts where its last one ends.
-    const from = ship ? findPlace(projectShip(state, ship).at) : null;
+    const at = ship ? projectShip(state, ship).at : null;
+    // Ships coming from another system enter through a gate; no line for them.
+    const from = at && systemOf(at) === systemId ? findPlace(at) : null;
     if (from && to && from !== to) starts.add(from);
   }
   return [...starts].map((from) => ({ from: toScreen(cam, from.x, from.y), to: toScreen(cam, to.x, to.y) }));
@@ -325,7 +344,7 @@ const RINGS = {
   guide: { color: 'rgba(255, 211, 110, 0.95)', gap: 9, width: 2.5, dash: [6, 5] },
 };
 
-function drawRing(ctx, targets, ref, style) {
+export function drawRing(ctx, targets, ref, style) {
   if (!ref) return;
   const target = targets.find((t) => t.kind === ref.kind && t.id === ref.id);
   if (!target) return;
@@ -354,7 +373,7 @@ function drawRing(ctx, targets, ref, style) {
  * size, wins; ships win a tie.
  */
 export function hitTest(targets, x, y) {
-  const order = { ship: 0, station: 1, field: 2, gate: 3 };
+  const order = { ship: 0, station: 1, system: 1, field: 2, gate: 3 };
   let best = null;
   for (const t of targets) {
     const d = Math.hypot(t.x - x, t.y - y);

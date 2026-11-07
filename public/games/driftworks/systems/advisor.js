@@ -3,14 +3,14 @@
 // None of these change the state.
 
 import { HULLS } from '../content/ships.js';
-import { systemOf } from '../content/galaxy.js';
+import { findGate, findStation, findSystem, gateTo, systemOf } from '../content/galaxy.js';
 import { affordableQty, findEntry, marketEntries, marketView, quote } from './market.js';
 import { canCarry, cargoTotal, freeHold } from './cargo.js';
 import { contractBonus, contractForSale } from './contracts.js';
 import { holdOf } from './modules.js';
-import { buildOrder, freeSlots, orderTimes, projectShip, refitOffer, SHIPYARD_ID } from './orders.js';
-import { knownStations } from './explore.js';
-import { travelTime } from './travel.js';
+import { buildOrder, freeSlots, orderTimes, projectShip, refitOffer } from './orders.js';
+import { isSurveyed, knownStations, surveyable } from './explore.js';
+import { canJump, plotCourse, travelTime } from './travel.js';
 
 /** What selling `qty` of `good` at a station pays, contract premium included. */
 export function saleValue(state, stationId, good, qty, at = state.now) {
@@ -92,16 +92,25 @@ export function maxPurchase(state, ship, good, at = state.now) {
   return affordableQty(state, ship.at, good, state.credits, freeHold(ship), at);
 }
 
-/** Buy `qty` at `fromId` and sell it at `destId`: the expected money and time. */
+/**
+ * Buy `qty` at `fromId` and sell it at `destId`: the expected money and
+ * time. Jump fees come off the profit; `reachable` is false when no known
+ * route leads there.
+ */
 export function tradePlan(state, ship, good, qty, destId, at = state.now, fromId = ship.at) {
   const buy = quote(state, fromId, good, qty, at);
   const sell = saleValue(state, destId, good, buy.qty, at);
+  const course = plotCourse(state, ship, fromId, destId);
+  const fees = course.ok ? course.fees : 0;
   return {
     qty: buy.qty,
     buy,
     sell,
-    profit: sell.total - buy.total,
-    travel: travelTime(state, ship, fromId, destId),
+    fees,
+    jumps: course.ok ? course.jumps : 0,
+    profit: sell.total - buy.total - fees,
+    travel: course.ok ? course.time : Infinity,
+    reachable: course.ok,
   };
 }
 
@@ -139,8 +148,10 @@ function slotNote(free, needed) {
  *   trade        { fromId, stationId, good, qty, cost, profit,   haulers: buy where it
  *                  contract }
  *                                                                is, sell here
- *   refit        { cost, modules, endsAt }                       at the shipyard
- *   fly          { stationId, endsAt }
+ *   refit        { stationId, cost, modules, endsAt }            at a shipyard
+ *   fly          { stationId, endsAt }                           any place in its system
+ *   jump         { systemId, stationId, endsAt, jumps, fees }    to another system's gate
+ *   survey       { systemId, endsAt, fees }                      scouts
  * plus `queued` (it waits for other orders) and `disabled` with a `note`.
  * Options with an `endsAt` also have `flight` and `work`: how long the ship
  * flies and how long the job itself takes, in ms.
@@ -155,8 +166,18 @@ export function orderOptions(state, ship, target, at = state.now) {
   // When the order would end, and how long it flies and works.
   const timesOf = (spec) => {
     const built = buildOrder(state, view, spec, view.time);
-    return built.ok ? { endsAt: built.order.endsAt, ...orderTimes(built.order) } : { endsAt: null };
+    if (!built.ok) return { endsAt: null, error: built.error };
+    return { endsAt: built.order.endsAt, ...orderTimes(built.order), fees: built.order.fees ?? 0, jumps: built.order.jumps ?? 0 };
   };
+  // Disabled, with the reason, when the ship has no room or cannot get there.
+  const gated = (option, slots = 1) => {
+    const blocked = slotNote(free, slots) ?? option.error ?? null;
+    const rest = { ...option };
+    delete rest.error;
+    return { ...rest, queued, disabled: Boolean(blocked) || Boolean(rest.disabled), note: blocked ?? rest.note ?? null };
+  };
+
+  if (target.kind === 'gate' || target.kind === 'system') return travelOptions(state, view, target, timesOf, gated);
 
   if (target.kind === 'field') {
     if (role !== 'miner') return [];
@@ -188,16 +209,16 @@ export function orderOptions(state, ship, target, at = state.now) {
   if (goods.length) {
     const total = goods.reduce((sum, g) => sum + saleValue(state, stationId, g, view.cargo[g], at).total, 0);
     const now = !queued && ship.at === stationId;
-    const blocked = now ? null : slotNote(free, 1);
-        const times = now ? { endsAt: at } : timesOf({ type: 'sell', stationId });
+    const times = now ? { endsAt: at } : timesOf({ type: 'sell', stationId });
     const contract = contractForSale(state, stationId, goods, times.endsAt ?? at);
-    options.push({ kind: 'sell', stationId, goods, total, ...times, now, contract, queued, disabled: Boolean(blocked), note: blocked });
+    const option = { kind: 'sell', stationId, goods, total, ...times, now, contract };
+    options.push(now ? { ...option, queued, disabled: false, note: null } : gated(option));
   }
 
   if (role === 'hauler') {
     const viewFree = Math.max(0, holdOf(view) - cargoTotal(view));
     // Buy where it is (or will be) and bring it here.
-    if (view.at && view.at !== stationId) {
+    if (view.at && view.at !== stationId && plotCourse(state, view, view.at, stationId).ok) {
       const trades = [];
       for (const entry of marketEntries(view.at)) {
         if (entry.side !== 'sells' || findEntry(stationId, entry.good)?.side !== 'buys' || !canCarry(view, entry.good)) continue;
@@ -207,13 +228,10 @@ export function orderOptions(state, ship, target, at = state.now) {
         if (best.qty <= 0 || best.profit <= 0) continue;
         const plan = tradePlan(state, view, entry.good, best.qty, stationId, at, view.at);
         const contract = contractForSale(state, stationId, [entry.good], at);
-        trades.push({ kind: 'trade', fromId: view.at, stationId, good: entry.good, qty: plan.qty, cost: plan.buy.total, profit: plan.profit, contract, queued });
+        trades.push({ kind: 'trade', fromId: view.at, stationId, good: entry.good, qty: plan.qty, cost: plan.buy.total, profit: plan.profit, fees: plan.fees, jumps: plan.jumps, contract });
       }
       trades.sort((a, b) => b.profit - a.profit);
-      for (const trade of trades.slice(0, MAX_TRADES)) {
-        const blocked = slotNote(free, 2);
-        options.push({ ...trade, disabled: Boolean(blocked), note: blocked });
-      }
+      for (const trade of trades.slice(0, MAX_TRADES)) options.push(gated(trade, 2));
     }
     // Buy here, to sell somewhere else later.
     const buys = [];
@@ -224,32 +242,62 @@ export function orderOptions(state, ship, target, at = state.now) {
       const cost = quote(state, stationId, entry.good, qty, at).total;
       const resale = bestBuyer(state, entry.good, qty, at);
       const margin = (resale?.sale.total ?? 0) - cost;
-      buys.push({ kind: 'buy', stationId, good: entry.good, qty, cost, margin, ...timesOf({ type: 'buy', stationId, good: entry.good, qty }), queued });
+      buys.push({ kind: 'buy', stationId, good: entry.good, qty, cost, margin, ...timesOf({ type: 'buy', stationId, good: entry.good, qty }) });
     }
     buys.sort((a, b) => b.margin - a.margin);
-    for (const buy of buys.slice(0, MAX_TRADES)) {
-      const blocked = slotNote(free, 1);
-      options.push({ ...buy, disabled: Boolean(blocked), note: blocked });
-    }
+    for (const buy of buys.slice(0, MAX_TRADES)) options.push(gated(buy));
   }
 
-  if (stationId === SHIPYARD_ID) {
+  if (findStation(stationId)?.type === 'shipyard') {
     const offer = refitOffer(state, ship);
     if (offer) {
-      const blocked = slotNote(free, 1) ?? (state.credits < offer.cost ? 'Not enough credits' : null);
-      options.push({ kind: 'refit', cost: offer.cost, modules: offer.modules, ...timesOf({ type: 'refit', modules: offer.modules }), queued, disabled: Boolean(blocked), note: blocked });
+      const poor = state.credits < offer.cost ? 'Not enough credits' : null;
+      const times = timesOf({ type: 'refit', modules: offer.modules, stationId });
+      options.push(gated({ kind: 'refit', stationId, cost: offer.cost, modules: offer.modules, ...times, disabled: Boolean(poor), note: poor }));
     }
   }
 
-  if (view.at !== stationId) {
-    const blocked = slotNote(free, 1);
-    options.push({ kind: 'fly', stationId, ...timesOf({ type: 'fly', stationId }), queued, disabled: Boolean(blocked), note: blocked });
-  }
+  if (view.at !== stationId) options.push(gated({ kind: 'fly', stationId, ...timesOf({ type: 'fly', stationId }) }));
   return options;
 }
 
+/**
+ * Orders at a warp gate (in the System view) or a whole system (on the
+ * galaxy map): jump there, survey it (scouts), or fly to the gate itself.
+ * A system with no way in gives no jump; the menu says why.
+ */
+function travelOptions(state, view, target, timesOf, gated) {
+  const options = [];
+  const gate = target.kind === 'gate' ? findGate(target.id) : null;
+  const systemId = gate ? gate.to : target.id;
+  const system = findSystem(systemId);
+  if (!system) return options;
+  const here = systemOf(view.at);
+  if (canJump(state) && systemId !== here) {
+    if (HULLS[view.hull].role === 'scout' && surveyable(state, systemId)) {
+      options.push(gated({ kind: 'survey', systemId, ...timesOf({ type: 'survey', systemId }) }));
+    }
+    if (isSurveyed(state, systemId) && !system.hazard) {
+      const arrival = gate && systemOf(gate.id) === here ? gateTo(systemId, here)?.id : nearestGate(state, view, system);
+      if (arrival) options.push(gated({ kind: 'jump', systemId, stationId: arrival, ...timesOf({ type: 'fly', stationId: arrival }) }));
+    }
+  }
+  if (gate && view.at !== gate.id) options.push(gated({ kind: 'fly', stationId: gate.id, ...timesOf({ type: 'fly', stationId: gate.id }) }));
+  return options;
+}
+
+/** The gate of `system` the ship reaches first, or null when none can be reached. */
+function nearestGate(state, view, system) {
+  let best = null;
+  for (const gate of system.gates) {
+    const time = travelTime(state, view, view.at, gate.id);
+    if (time < (best?.time ?? Infinity)) best = { id: gate.id, time };
+  }
+  return best?.id ?? null;
+}
+
 // Orders that make sense for a whole group of ships at once, in menu order.
-const GROUP_KINDS = ['mine', 'sell', 'trade', 'buy', 'refit', 'fly'];
+const GROUP_KINDS = ['mine', 'sell', 'trade', 'buy', 'refit', 'jump', 'fly'];
 
 // Buys are merged per good, trades per good and place to buy, the rest per kind.
 function groupKey(option) {
@@ -287,7 +335,8 @@ function sharePurchase(state, ships, group, at) {
     return { ...group, members, qty, cost, margin: (resale?.sale.total ?? 0) - cost };
   }
   const sale = saleValue(state, stationId, good, qty, at);
-  return { ...group, members, qty, cost, profit: sale.total - cost, contract: contractForSale(state, stationId, [good], at) };
+  const fees = members.reduce((sum, member) => sum + (member.option.fees ?? 0), 0);
+  return { ...group, members, qty, cost, profit: sale.total - cost - fees, contract: contractForSale(state, stationId, [good], at) };
 }
 
 /**
@@ -308,8 +357,8 @@ export function groupOrderOptions(state, ships, target, at = state.now) {
       if (!GROUP_KINDS.includes(option.kind)) continue;
       const key = groupKey(option);
       if (!groups.has(key)) {
-        const { kind, good, fromId, stationId } = option;
-        groups.set(key, { kind, good, fromId, stationId, members: [], notes: [], goods: new Set(), value: 0, total: 0, cost: 0, contract: null });
+        const { kind, good, fromId, stationId, systemId } = option;
+        groups.set(key, { kind, good, fromId, stationId, systemId, members: [], notes: [], goods: new Set(), value: 0, total: 0, cost: 0, contract: null });
       }
       const group = groups.get(key);
       if (option.disabled) {

@@ -38,9 +38,12 @@ export function carryOut(state, shipId, option) {
         { type: 'sell', stationId: option.stationId, good: option.good },
       ]);
     case 'refit':
-      return orderRefit(state, ship);
+      return orderRefit(state, ship, option.stationId);
     case 'fly':
+    case 'jump':
       return giveOrder(state, ship, { type: 'fly', stationId: option.stationId });
+    case 'survey':
+      return giveOrder(state, ship, { type: 'survey', systemId: option.systemId });
     default:
       return fail('Unknown order.');
   }

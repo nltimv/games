@@ -9,13 +9,14 @@
 // pixel or two a second, so when nothing else happens the map redraws a few
 // times a second at most, instead of every frame.
 
-import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { findSystem } from '../content/galaxy.js';
 import { HULLS, MODULES } from '../content/ships.js';
 import { shipPosition } from '../systems/travel.js';
 import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, zoomAt } from './camera.js';
 import { loadAssets } from './assets.js';
 import { clearLabels } from './labels.js';
 import { drawSystem, hitTest, renderBackground, shipsInBox } from './systemMap.js';
+import { drawGalaxy, galaxyExtent } from './galaxyMap.js';
 
 const DRAG_THRESHOLD = 6;
 const LONG_PRESS_MS = 480;
@@ -30,6 +31,7 @@ const IDLE_MAX_MS = 1000;
 /**
  * options:
  *   getState()               the game state to draw
+ *   getScene()               { kind: 'system', id } or { kind: 'galaxy' }
  *   getSelection()           { kind, id } or null
  *   getMenuTarget()          { kind, id } the order menu is open for, or null
  *   getGuideTarget()         { kind, id } the tutorial points at, or null
@@ -44,7 +46,8 @@ const IDLE_MAX_MS = 1000;
 export function createMapView(canvas, options) {
   const ctx = canvas.getContext('2d', { alpha: false });
   const cam = createCamera();
-  const extent = HOME_SYSTEM.extent;
+  let extent = 480;
+  let sceneKey = null;
   let width = 0;
   let height = 0;
   let dpr = 1;
@@ -72,18 +75,32 @@ export function createMapView(canvas, options) {
   /** Draws one frame. Returns true while the camera is still gliding. */
   function draw(snap = false) {
     if (!sky) return false;
+    const state = options.getState();
+    const scene = options.getScene?.() ?? { kind: 'system', id: 'aurel' };
+    const galaxy = scene.kind === 'galaxy';
+    extent = galaxy ? galaxyExtent(state) : (findSystem(scene.id)?.extent ?? 480);
+    // A different map starts from its whole view.
+    const key = galaxy ? 'galaxy' : `system:${scene.id}`;
+    if (key !== sceneKey) {
+      if (sceneKey) resetView(cam);
+      sceneKey = key;
+      hover = null;
+      snap = true;
+    }
     const fitting = fitCamera(cam, options.getSafeArea(width, height), extent, snap ? 1 : 0.2);
     const panning = easePan(cam, extent);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.drawImage(sky, 0, 0, width, height);
-    targets = drawSystem(ctx, cam, options.getState(), Date.now(), {
+    const view = {
+      systemId: scene.id,
       selection: options.getSelection(),
       target: options.getMenuTarget?.() ?? null,
       guide: options.getGuideTarget?.() ?? null,
       hover,
       boxed: box ? shipsInBox(targets, box.a, box.b) : null,
       dpr,
-    });
+    };
+    targets = galaxy ? drawGalaxy(ctx, cam, state, Date.now(), view) : drawSystem(ctx, cam, state, Date.now(), view);
     if (box) drawBox(box);
     return fitting || panning;
   }

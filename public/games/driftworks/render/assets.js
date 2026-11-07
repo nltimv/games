@@ -16,6 +16,8 @@ export const ASSETS = {
   'field-carbon-ore': { file: 'field-carbon.svg' },
   'field-silicate-rock': { file: 'field-silicate.svg' },
   'field-ice': { file: 'field-ice.svg' },
+  'field-titanium-ore': { file: 'field-titanium.svg' },
+  'field-crystal-ore': { file: 'field-crystal.svg' },
   'station-refinery': { file: 'station-refinery.svg' },
   'station-foundry': { file: 'station-foundry.svg' },
   'station-tradingPost': { file: 'station-post.svg' },
@@ -23,6 +25,7 @@ export const ASSETS = {
   gate: { file: 'gate.svg' },
   'ship-miner': { file: 'ship-miner.svg' },
   'ship-hauler': { file: 'ship-hauler.svg' },
+  'ship-scout': { file: 'ship-scout.svg' },
 };
 
 const MAX_PX = 1024;
