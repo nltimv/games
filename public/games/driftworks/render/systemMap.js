@@ -20,6 +20,7 @@ import { orderPhase, projectShip } from '../systems/orders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
+import { createLabelSpace, drawCount, flock, flockName } from './flocks.js';
 
 // Sizes of map art in CSS pixels at an icon scale of 1.
 const SIZE = { field: 58, station: 44, gate: 30, ship: 32, parkedShip: 28 };
@@ -263,15 +264,32 @@ export function drawSystem(ctx, cam, state, now, view) {
   }
 
   // Ships in this system. Ships at a place sit on a ring around it (see
-  // parkingSpots); ships in a jump show on the galaxy map instead.
+  // parkingSpots); ships in a jump show on the galaxy map instead. Ships
+  // flying close together are drawn as one flock (see flocks.js).
+  const label = createLabelSpace(ctx, dpr);
   const positions = state.ships.map((ship, index) => ({ ship, index, pos: shipPosition(ship, now, index) })).filter(({ pos }) => pos.system === system.id);
   const spots = parkingSpots(cam, state, now, u, positions.filter((p) => p.pos.place).map((p) => ({ ship: p.ship, place: p.pos.place })));
-  positions.forEach(({ ship, index, pos }) => {
+  const flying = [];
+  // The time left of what a ship does now: the flight, or the job.
+  const leftOf = (ship) => orderPhase(ship.order, now).end - now;
+  // Labels go on the side facing away from the star, where there is more room.
+  const shipLabel = (text, p) => {
+    const outward = p.x >= sun.x;
+    label(text, p.x + (outward ? 10 : -10), p.y - 12, { size: 11, align: outward ? 'left' : 'right', color: 'rgba(230, 242, 255, 0.85)' });
+  };
+  const drawShip = ({ ship, index, pos }, p, spot) => {
+    const ahead = shipPosition(ship, now + 2 * SECOND, index);
+    const heading = spot ? spot.heading : Math.atan2(ahead.y - pos.y, ahead.x - pos.x);
+    const w = (pos.moving ? SIZE.ship : SIZE.parkedShip) * u;
+    const rotate = Number.isFinite(heading) ? heading : 0;
+    if (!drawAsset(ctx, `ship-${HULLS[ship.hull].role}`, p.x, p.y, w, dpr, { rotate })) dot(ctx, p.x, p.y, 3, '#d9fff8');
+    return w;
+  };
+
+  for (const entry of positions) {
+    const { ship, pos } = entry;
     const spot = spots.get(ship.id);
     const p = spot ?? toScreen(cam, pos.x, pos.y);
-    const role = HULLS[ship.hull].role;
-    const art = `ship-${role}`;
-
     if (pos.moving && pos.to) {
       const place = findPlace(pos.to);
       const dest = toScreen(cam, place?.x ?? 0, place?.y ?? 0);
@@ -284,28 +302,37 @@ export function drawSystem(ctx, cam, state, now, view) {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-
-    const ahead = shipPosition(ship, now + 2 * SECOND, index);
-    const heading = spot ? spot.heading : Math.atan2(ahead.y - pos.y, ahead.x - pos.x);
-    const w = (pos.moving ? SIZE.ship : SIZE.parkedShip) * u;
-    const rotate = Number.isFinite(heading) ? heading : 0;
-    if (!drawAsset(ctx, art, p.x, p.y, w, dpr, { rotate })) dot(ctx, p.x, p.y, 3, '#d9fff8');
-
-    if (ship.order) {
-      // The time left of what it does now: the flight, or the job.
-      const left = timeLeft(orderPhase(ship.order, now).end - now);
-      const verb = ship.order.type === 'mine' && !pos.moving ? ' mining' : '';
-      // Put the label on the side facing away from the star, where there
-      // is more room.
-      const outward = p.x >= sun.x;
-      drawLabel(ctx, `${ship.name}${verb} · ${left}`, p.x + (outward ? 10 : -10), p.y - 12, dpr, {
-        size: 11,
-        align: outward ? 'left' : 'right',
-        color: 'rgba(230, 242, 255, 0.85)',
-      });
+    if (!spot) {
+      flying.push({ ...entry, p });
+      continue;
     }
+    const w = drawShip(entry, p, spot);
+    if (ship.order) shipLabel(`${ship.name}${ship.order.type === 'mine' && !pos.moving ? ' mining' : ''} · ${timeLeft(leftOf(ship))}`, p);
     targets.push({ kind: 'ship', id: ship.id, x: p.x, y: p.y, r: Math.max(12, w * 0.6) });
-  });
+  }
+
+  for (const group of flock(flying, SIZE.ship * 0.8 * u)) {
+    const [lead] = group.members;
+    if (group.members.length === 1) {
+      const w = drawShip(lead, lead.p, null);
+      if (lead.ship.order) shipLabel(`${lead.ship.name} · ${timeLeft(leftOf(lead.ship))}`, lead.p);
+      targets.push({ kind: 'ship', id: lead.ship.id, x: lead.p.x, y: lead.p.y, r: Math.max(12, w * 0.6) });
+      continue;
+    }
+    const p = { x: group.x, y: group.y };
+    const w = drawShip(lead, p, null);
+    drawCount(ctx, p.x + w * 0.42, p.y - w * 0.36, group.members.length, dpr, u);
+    const times = group.members.filter((m) => m.ship.order).map((m) => leftOf(m.ship));
+    const soon = Math.min(...times);
+    const late = Math.max(...times);
+    const when = !times.length ? '' : timeLeft(soon) === timeLeft(late) ? ` · ${timeLeft(soon)}` : ` · ${timeLeft(soon)} to ${timeLeft(late)}`;
+    shipLabel(`${flockName(group.members)}${when}`, { x: p.x + w * 0.25, y: p.y });
+    const ids = group.members.map((m) => m.ship.id);
+    targets.push({ kind: 'flock', id: lead.ship.id, ids, x: p.x, y: p.y, r: Math.max(14, w * 0.7) });
+    // Each ship keeps a target on the flock (too small to click), so box
+    // selection and the selection rings still work per ship.
+    for (const id of ids) targets.push({ kind: 'ship', id, x: p.x, y: p.y, r: 0, ring: Math.max(12, w * 0.6) });
+  }
 
   // Hover, menu target, selection and tutorial rings. A group selection
   // (box select) rings every ship in it; ships inside a box being dragged
@@ -377,7 +404,7 @@ export function drawRing(ctx, targets, ref, style) {
  * size, wins; ships win a tie.
  */
 export function hitTest(targets, x, y) {
-  const order = { ship: 0, 'ships-at': 0, station: 1, system: 1, field: 2, gate: 3 };
+  const order = { ship: 0, flock: 0, 'ships-at': 0, station: 1, system: 1, field: 2, gate: 3 };
   let best = null;
   for (const t of targets) {
     const d = Math.hypot(t.x - x, t.y - y);
@@ -386,7 +413,8 @@ export function hitTest(targets, x, y) {
     const rank = order[t.kind] ?? 9;
     if (!best || score < best.score - 0.05 || (Math.abs(score - best.score) <= 0.05 && rank < best.rank)) best = { ...t, score, rank };
   }
-  return best ? { kind: best.kind, id: best.id } : null;
+  if (!best) return null;
+  return best.ids ? { kind: best.kind, id: best.id, ids: best.ids } : { kind: best.kind, id: best.id };
 }
 
 /** The ships whose middles lie inside the screen rectangle from a to b. */

@@ -226,6 +226,10 @@ export function createApp(session, doc = document) {
       select('ship', target.id);
       return;
     }
+    if (target.kind === 'flock') {
+      selectShips(target.ids);
+      return;
+    }
     const ships = selectedShips();
     if (!ships.length) return;
     const who = ships.length === 1 ? { shipId: ships[0].id } : { shipIds: ships.map((ship) => ship.id) };
@@ -452,6 +456,7 @@ export function createApp(session, doc = document) {
       const again = target && ui.selection?.kind === target.kind && ui.selection.id === target.id;
       if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);
       else if (target?.kind === 'ships-at') pickBadge(target.id, mods);
+      else if (target?.kind === 'flock') selectShips(target.ids, mods);
       // A second click on a surveyed system opens its map.
       else if (again && target.kind === 'system' && isSurveyed(session.state, target.id)) openSystem(target.id);
       else if (target) select(target.kind, target.id);

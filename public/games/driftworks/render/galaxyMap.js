@@ -13,6 +13,7 @@ import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
+import { createLabelSpace, drawCount, flock, flockName } from './flocks.js';
 import { drawRing, iconScale } from './systemMap.js';
 
 const WASH_RADIUS = 120;
@@ -234,12 +235,24 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   // Badges go after the systems, so they win where they overlap a node.
   targets.push(...badges);
 
-  for (const { ship, pos } of jumping) {
-    const p = toScreen(cam, pos.x, pos.y);
-    const w = 26 * u;
-    drawAsset(ctx, roleArt(ship), p.x, p.y, w, dpr, { rotate: pos.heading });
-    drawLabel(ctx, ship.name, p.x + 10, p.y - 12, dpr, { size: 11, align: 'left', color: 'rgba(230, 242, 255, 0.85)' });
-    targets.push({ kind: 'ship', id: ship.id, x: p.x, y: p.y, r: Math.max(12, w * 0.6) });
+  // Ships in a jump, on their lane. Ships close together fly as one flock.
+  const label = createLabelSpace(ctx, dpr);
+  const w = 26 * u;
+  const onLanes = jumping.map((entry) => ({ ...entry, p: toScreen(cam, entry.pos.x, entry.pos.y) }));
+  for (const group of flock(onLanes, w * 0.8)) {
+    const [lead] = group.members;
+    const p = group.members.length === 1 ? lead.p : { x: group.x, y: group.y };
+    drawAsset(ctx, roleArt(lead.ship), p.x, p.y, w, dpr, { rotate: lead.pos.heading });
+    if (group.members.length === 1) {
+      label(lead.ship.name, p.x + 10, p.y - 12, { size: 11, align: 'left', color: 'rgba(230, 242, 255, 0.85)' });
+      targets.push({ kind: 'ship', id: lead.ship.id, x: p.x, y: p.y, r: Math.max(12, w * 0.6) });
+      continue;
+    }
+    drawCount(ctx, p.x + w * 0.42, p.y - w * 0.36, group.members.length, dpr, u);
+    label(flockName(group.members), p.x + w * 0.42 + 10, p.y - 12, { size: 11, align: 'left', color: 'rgba(230, 242, 255, 0.85)' });
+    const ids = group.members.map((m) => m.ship.id);
+    targets.push({ kind: 'flock', id: lead.ship.id, ids, x: p.x, y: p.y, r: Math.max(14, w * 0.7) });
+    for (const id of ids) targets.push({ kind: 'ship', id, x: p.x, y: p.y, r: 0, ring: Math.max(12, w * 0.6) });
   }
 
   drawRing(ctx, targets, view.hover, 'hover');
