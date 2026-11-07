@@ -5,7 +5,7 @@
 
 import { goodName } from '../content/goods.js';
 import { stationTint } from '../content/scenery.js';
-import { HULLS, MODULES } from '../content/ships.js';
+import { HOLD_CLASS_NAMES, HULLS, MODULES } from '../content/ships.js';
 import { STATION_TYPES } from '../content/stations.js';
 import { findFaction, findField, findGate, findPlace, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { formatCredits } from '../../../shared/js/format.js';
@@ -17,6 +17,7 @@ import { isSurveyed } from '../systems/explore.js';
 import { freeSlots, giveOrder, lowerFirst, orderTimes } from '../systems/orders.js';
 import { orderSlots } from '../systems/research.js';
 import { canJump } from '../systems/travel.js';
+import { hazardNote, isShielded } from '../systems/shielding.js';
 import { h } from './dom.js';
 import { fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
@@ -42,7 +43,8 @@ function headIcon(target, size = 34) {
 function closedNote(state, systemId) {
   const system = findSystem(systemId);
   if (!canJump(state)) return 'Gates open with the warp drive.';
-  if (system?.hazard) return `${system.name} has ${system.hazard}. Ships need shielding to go there.`;
+  const blocked = hazardNote(state, system);
+  if (blocked) return blocked;
   if (!isSurveyed(state, systemId)) return `${system?.name ?? 'That system'} has not been surveyed yet.`;
   return null;
 }
@@ -137,6 +139,7 @@ export function modulesText(modules) {
   if (modules.hold != null) parts.push(`hold ${MODULES.hold.levels[modules.hold]} t (Mule)`);
   if (modules.laser != null && modules.laser > 0) parts.push(`laser ${MODULES.laser.levels[modules.laser]} t/min`);
   if (modules.engine != null && modules.engine > 0) parts.push(`engines ${MODULES.engine.levels[modules.engine]} u/min`);
+  if (modules.seal != null && modules.seal > 0) parts.push(HOLD_CLASS_NAMES[MODULES.seal.levels[modules.seal]].toLowerCase());
   const text = parts.join(', ');
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -250,7 +253,7 @@ export function orderMenu(ctx, menu) {
  */
 function placeItems(ctx, menu, ships) {
   const system = findSystem(menu.target.id);
-  if (!system || system.hazard || !canJump(ctx.state) || !isSurveyed(ctx.state, system.id)) return null;
+  if (!isShielded(ctx.state, system) || !canJump(ctx.state) || !isSurveyed(ctx.state, system.id)) return null;
   const roles = new Set(ships.map((ship) => HULLS[ship.hull].role));
   const places = [
     ...(roles.has('miner') ? system.fields.map((field) => ({ kind: 'field', place: field, note: `${goodName(field.good)} · ${richnessLabel(field.richness).toLowerCase()}` })) : []),

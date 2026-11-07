@@ -1,7 +1,7 @@
 // A ship's numbers, from its hull and fitted modules, and what a refit to
 // the newest modules would change and cost.
 
-import { HULLS, MODULES } from '../content/ships.js';
+import { HOLD_CLASS_MAX_TIER, HULLS, MODULES } from '../content/ships.js';
 import { bestModules } from './research.js';
 
 /** Tonnes the ship can carry. */
@@ -19,10 +19,24 @@ export function speedOf(ship) {
   return MODULES.engine.levels[ship.modules.engine] * HULLS[ship.hull].speedScale;
 }
 
-/** The module lines a hull uses: only miners have a mining laser, and scouts have no hold. */
+/** The ship's hold class: haulers get sealed holds from a refit, other hulls keep their own. */
+export function holdClassOf(ship) {
+  return linesFor(ship.hull).includes('seal') ? MODULES.seal.levels[ship.modules.seal ?? 0] : HULLS[ship.hull].holdClass;
+}
+
+/** The highest goods tier the ship's hold carries. */
+export function maxTierOf(ship) {
+  return HOLD_CLASS_MAX_TIER[holdClassOf(ship)];
+}
+
+/**
+ * The module lines a hull uses: only miners have a mining laser, scouts
+ * have no hold, and only haulers take a sealed hold.
+ */
 export function linesFor(hullId) {
   const hull = HULLS[hullId];
-  return Object.keys(MODULES).filter((line) => (line !== 'laser' || hull.role === 'miner') && (line !== 'hold' || hull.holdScale > 0));
+  const uses = { laser: hull.role === 'miner', hold: hull.holdScale > 0, seal: hull.role === 'hauler' };
+  return Object.keys(MODULES).filter((line) => uses[line] ?? true);
 }
 
 /**
@@ -36,9 +50,9 @@ export function refitTarget(state, ship) {
   for (const spec of [ship.order?.spec, ...ship.queue]) {
     if (spec?.type === 'refit') Object.assign(have, spec.modules);
   }
-  const lines = linesFor(ship.hull).filter((line) => best[line] > have[line]);
+  const lines = linesFor(ship.hull).filter((line) => best[line] > (have[line] ?? 0));
   if (!lines.length) return null;
-  return Object.fromEntries(linesFor(ship.hull).map((line) => [line, Math.max(best[line], ship.modules[line])]));
+  return Object.fromEntries(linesFor(ship.hull).map((line) => [line, Math.max(best[line], ship.modules[line] ?? 0)]));
 }
 
 /**

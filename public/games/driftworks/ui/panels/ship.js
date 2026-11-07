@@ -9,7 +9,7 @@ import { cargoTotal } from '../../systems/cargo.js';
 import { contractFor, deliverCargo, stillNeeded } from '../../systems/contracts.js';
 import { sellAllHere } from '../../systems/commands.js';
 import { findShip } from '../../systems/fleet.js';
-import { holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
+import { holdClassOf, holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
 import {
   cancelOrder,
   canCopy,
@@ -392,8 +392,9 @@ function modulesSection(ctx, ship) {
   const { state } = ctx;
   const best = bestModules(state);
   const hull = HULLS[ship.hull];
-  const rows = linesFor(ship.hull).map((line) => {
-    const level = ship.modules[line];
+  const lines = linesFor(ship.hull);
+  const rows = lines.map((line) => {
+    const level = ship.modules[line] ?? 0;
     const value = (lvl) => moduleValue(ship, line, lvl);
     const newer = best[line] > level ? h('span', { class: 'dw-module-new' }, `newest ${value(best[line])}`) : null;
     return h('div', null, h('dt', null, `${MODULES[line].name}:`), h('dd', null, value(level), newer));
@@ -404,7 +405,13 @@ function modulesSection(ctx, ship) {
     'div',
     { class: 'dw-section' },
     sectionTitle('Modules'),
-    h('dl', { class: 'dw-specs is-stacked' }, rows, h('div', null, h('dt', null, 'Hold type:'), h('dd', null, HOLD_CLASS_NAMES[hull.holdClass]))),
+    h(
+      'dl',
+      { class: 'dw-specs is-stacked' },
+      rows,
+      // Hulls without a seal line keep the hold they are built with.
+      hull.holdScale > 0 && !lines.includes('seal') ? h('div', null, h('dt', null, 'Hold type:'), h('dd', null, HOLD_CLASS_NAMES[hull.holdClass])) : null,
+    ),
     offer
       ? button(short > 0 ? `Refit · need ${formatCredits(short)} more` : `Refit at the shipyard`, {
           block: true,
@@ -424,5 +431,6 @@ function moduleValue(ship, line, level) {
   const probe = { ...ship, modules: { ...ship.modules, [line]: level } };
   if (line === 'hold') return tonnes(holdOf(probe));
   if (line === 'laser') return `${laserOf(probe)} t/min`;
+  if (line === 'seal') return HOLD_CLASS_NAMES[holdClassOf(probe)];
   return `${Math.round(speedOf(probe))} u/min`;
 }

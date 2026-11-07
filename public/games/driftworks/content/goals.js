@@ -1,11 +1,14 @@
 // Company goals, done in order. The first ones are the tutorial (the guide
 // card in ui/tutorial.js explains each); the rest lead to the warp drive,
 // which ends act 1. Act 2's goals follow, its first three guided too, and
-// end with Station blueprints. Each goal checks the state and pays its
-// reward once. `progress` (optional) feeds the progress bar on the goal card.
+// end with the first hazard shielding. Each goal checks the state and pays
+// its reward once. `progress` (optional) feeds the progress bar on the goal
+// card.
 
 const mules = (s) => s.ships.filter((ship) => ship.hull === 'mule');
 const researched = (s, id) => s.research.done.includes(id);
+const SHIELDINGS = ['shield-debris', 'shield-ion', 'shield-radiation'];
+const tonnesSold = (s, tier) => s.stats.tierTonnes?.[tier] ?? 0;
 const hasOrders = (ship) => Boolean(ship.order) || ship.plan.length > 0;
 // Points for Friendly standing (see systems/standing.js), and the best
 // standing with any faction but Halcyon.
@@ -139,6 +142,14 @@ export const GOALS = [
     progress: (s) => ({ value: s.stats.earned, target: 2500000, unit: 'credits' }),
   },
   {
+    id: 'sell-processed',
+    title: 'Sell steel or glass',
+    reward: 50000,
+    act: 2,
+    // Any processed material counts.
+    done: (s) => tonnesSold(s, 3) > 0,
+  },
+  {
     id: 'fleet-12',
     title: 'Run a fleet of twelve ships',
     reward: 100000,
@@ -147,13 +158,17 @@ export const GOALS = [
     progress: (s) => ({ value: s.ships.length, target: 12, unit: 'ships' }),
   },
   {
-    id: 'station-blueprints',
-    title: 'Research Station blueprints',
+    id: 'first-shielding',
+    title: 'Research your first hazard shielding',
     reward: 0,
     act: 2,
-    done: (s) => researched(s, 'station-blueprints'),
+    done: (s) => SHIELDINGS.some((id) => researched(s, id)),
   },
 ];
 
-/** Shown once Station blueprints are done: what the next update brings. */
-export const NEXT_CHAPTER = 'Building your own stations comes with the next update.';
+/** Shown once every goal is done: where the game stands, and what the next update brings. */
+export const ENDING = {
+  eyebrow: 'Act 2 complete',
+  title: 'The deep galaxy is open',
+  note: 'Act 3 comes with the next update.',
+};

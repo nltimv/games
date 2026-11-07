@@ -42,12 +42,13 @@ import { findField, findPlace, findStation, findSystem, systemOf } from '../cont
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { MINUTE, SECOND } from '../core/time.js';
 import { findEntry } from './market.js';
-import { canCarry, cargoTotal } from './cargo.js';
+import { canCarry, cargoTotal, holdNote } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
 import { isResearched, orderSlots } from './research.js';
 import { plotCourse, travelTime } from './travel.js';
 import { isSurveyed, knownStations, surveyable, surveyorOf } from './explore.js';
+import { hazardNote } from './shielding.js';
 import { addLog } from './log.js';
 
 const fail = (error) => ({ ok: false, error });
@@ -159,7 +160,7 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
   const station = findStation(stationId);
   if (!station) return fail('No such station.');
   if (findEntry(stationId, good)?.side !== 'sells') return fail(`${station.name} does not sell ${lower(good)}.`);
-  if (!canCarry(view, good)) return fail(`${goodName(good)} needs a better hold.`);
+  if (!canCarry(view, good)) return fail(holdNote(good));
   const amount = Math.floor(Math.min(qty, freeIn(view)));
   if (amount < 1) return fail(`${view.name}'s hold is full.`);
   const course = stationLegs(state, view, stationId, start);
@@ -268,7 +269,7 @@ function buildSurvey(state, view, { systemId }, start) {
   const system = findSystem(systemId);
   if (!system) return fail('No such system.');
   if (isSurveyed(state, systemId)) return fail(`${system.name} is already surveyed.`);
-  if (!surveyable(state, systemId)) return fail(system.hazard ? `${system.name} has ${system.hazard}. Ships need shielding to go there.` : `${system.name} is too far out to survey yet.`);
+  if (!surveyable(state, systemId)) return fail(hazardNote(state, system) ?? `${system.name} is too far out to survey yet.`);
   const surveyor = surveyorOf(state, systemId);
   if (surveyor) return fail(`${surveyor.name} is already on its way to survey ${system.name}.`);
   // The scout surveys from the gate it arrives at.

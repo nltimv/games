@@ -12,6 +12,7 @@ import { MINUTE, SECOND } from '../core/time.js';
 import { isSurveyed } from './explore.js';
 import { speedOf } from './modules.js';
 import { isResearched } from './research.js';
+import { hazardNote, isShielded } from './shielding.js';
 
 export function distance(aId, bId) {
   const a = findPlace(aId);
@@ -46,12 +47,13 @@ export function canJump(state) {
 }
 
 /**
- * Whether a ship may fly into a system: it has been surveyed and has no
- * hazard. A scout may also enter the unsurveyed system it is sent to survey.
+ * Whether a ship may fly into a system: it has been surveyed, and its
+ * hazard (if any) is shielded. A scout may also enter the unsurveyed system
+ * it is sent to survey.
  */
 function mayEnter(state, systemId, { surveyTarget = null } = {}) {
   const system = findSystem(systemId);
-  if (!system || system.hazard) return false;
+  if (!isShielded(state, system)) return false;
   return isSurveyed(state, systemId) || systemId === surveyTarget;
 }
 
@@ -106,7 +108,8 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
   }
   if (!canJump(state)) return { ok: false, error: 'The gates open with the warp drive research.' };
   const target = findSystem(toSys);
-  if (target?.hazard) return { ok: false, error: `${target.name} has ${target.hazard}. Ships need shielding to go there.` };
+  const blocked = hazardNote(state, target);
+  if (blocked) return { ok: false, error: blocked };
   if (!mayEnter(state, toSys, options)) return { ok: false, error: `${target?.name ?? 'That system'} has not been surveyed yet.` };
   const path = systemPath(state, ship, fromSys, toSys, options);
   if (!path) return { ok: false, error: `No known route leads to ${target.name}.` };

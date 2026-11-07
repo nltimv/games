@@ -32,11 +32,11 @@ import { createGame } from '../../public/games/driftworks/core/state.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { HOUR, MINUTE, SECOND } from '../../public/games/driftworks/core/time.js';
 import { GOALS } from '../../public/games/driftworks/content/goals.js';
-import { RESEARCH } from '../../public/games/driftworks/content/research.js';
+import { RESEARCH, SHIELDINGS } from '../../public/games/driftworks/content/research.js';
 import { HULLS } from '../../public/games/driftworks/content/ships.js';
 import { GOODS } from '../../public/games/driftworks/content/goods.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
-import { allSystems, systemOf } from '../../public/games/driftworks/content/galaxy.js';
+import { allSystems, lanesFrom, systemOf } from '../../public/games/driftworks/content/galaxy.js';
 import { checkGoals } from '../../public/games/driftworks/systems/goals.js';
 import { buyShip, hullLock, missingLicence, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
 import { isSurveyed, knownStations, surveyable, surveyorOf } from '../../public/games/driftworks/systems/explore.js';
@@ -57,11 +57,12 @@ import {
   roomForRounds,
   runAgain,
 } from '../../public/games/driftworks/systems/orders.js';
-import { freeLab, orderSlots, researchStatus, startResearch } from '../../public/games/driftworks/systems/research.js';
+import { freeLab, orderSlots, researchCost, researchStatus, startResearch } from '../../public/games/driftworks/systems/research.js';
+import { SHIELDED_DEPTH, isShielded } from '../../public/games/driftworks/systems/shielding.js';
 import { bestBuyer, bestTradeQty, saleValue, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
 import { affordableQty, marketEntries, marketView, findEntry } from '../../public/games/driftworks/systems/market.js';
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
-import { cargoTotal } from '../../public/games/driftworks/systems/cargo.js';
+import { canCarry, cargoTotal } from '../../public/games/driftworks/systems/cargo.js';
 
 const PROFILES = {
   newcomer: { firstSession: 60, checks: () => [] },
@@ -169,7 +170,7 @@ function play(profileName, days) {
       const start = ship.at === from.id ? { ok: true, time: 0, fees: 0 } : plotCourse(state, ship, ship.at, from.id);
       if (!start.ok) continue;
       for (const entry of marketEntries(from.id)) {
-        if (entry.side !== 'sells') continue;
+        if (entry.side !== 'sells' || !canCarry(ship, entry.good)) continue;
         const max = affordableQty(state, from.id, entry.good, cash() * 0.8, room, now);
         if (max <= 0) continue;
         const cost = marketView(state, from.id, entry.good, now).price;
@@ -295,7 +296,7 @@ function play(profileName, days) {
   function supplyRun(ship, now, contract, needed) {
     let best = null;
     const need = Math.min(needed, holdOf(ship) - cargoTotal(ship));
-    if (need < 1) return null;
+    if (need < 1 || !canCarry(ship, contract.good)) return null;
     for (const from of knownStations(state)) {
       if (findEntry(from.id, contract.good)?.side !== 'sells') continue;
       const qty = affordableQty(state, from.id, contract.good, cash() * 0.8, need, now);
@@ -335,12 +336,12 @@ function play(profileName, days) {
 
   // ---------- Scouts ----------
 
-  /** Sends an idle scout to survey the nearest system it can (act 2 plays out to depth 4). */
+  /** Sends an idle scout to survey the nearest system it can. */
   function keepSurveying(scout) {
     if (scout.order || !scout.at) return;
     let best = null;
     for (const system of allSystems()) {
-      if (system.depth > 4 || !surveyable(state, system.id) || surveyorOf(state, system.id)) continue;
+      if (!surveyable(state, system.id) || surveyorOf(state, system.id)) continue;
       const course = plotCourse(state, scout, scout.at, system.gates[0]?.id, { surveyTarget: system.id });
       if (course.ok && (!best || course.time < best.time)) best = { id: system.id, time: course.time };
     }
@@ -349,24 +350,47 @@ function play(profileName, days) {
 
   // ---------- Research ----------
 
-  // The research that ends each act: the bot saves for it once it is the goal.
-  const ACT_ENDS = ['warp-drive', 'station-blueprints'];
+  /** How many systems ships could enter with one more shielding: the bot picks the one that opens most. */
+  function openedBy(research) {
+    const open = (system) => isShielded(state, system) || (system.hazard === research.hazard && system.depth <= SHIELDED_DEPTH);
+    const seen = new Set([HOME_SYSTEM.id]);
+    const queue = [HOME_SYSTEM.id];
+    while (queue.length) {
+      const id = queue.shift();
+      for (const { to } of lanesFrom(id)) {
+        if (seen.has(to) || !open(allSystems().find((s) => s.id === to))) continue;
+        seen.add(to);
+        queue.push(to);
+      }
+    }
+    return seen.size;
+  }
+  const bestShielding = () =>
+    SHIELDINGS.filter((r) => researchStatus(state, r) === 'open')
+      .map((r) => ({ r, opens: openedBy(r) }))
+      .sort((a, b) => b.opens - a.opens)[0]?.r ?? null;
+
+  // The goal that ends each act, and the research it needs: the bot saves for it once it is the goal.
+  const ACT_ENDS = { 'warp-drive': () => RESEARCH.find((r) => r.id === 'warp-drive'), 'first-shielding': bestShielding };
   const currentGoalId = () => GOALS.find((g) => !state.goals.includes(g.id))?.id;
   const actEnd = () => {
-    const id = currentGoalId();
-    return ACT_ENDS.includes(id) && researchStatus(state, RESEARCH.find((r) => r.id === id)) === 'open' ? RESEARCH.find((r) => r.id === id) : null;
+    const research = ACT_ENDS[currentGoalId()]?.();
+    return research && researchStatus(state, research) === 'open' ? research : null;
   };
   const goingForWarp = () => Boolean(actEnd());
+  const costOf = (research) => researchCost(state, research);
 
   /**
    * Research in the list's order, but the act's last one first once it is
    * the goal, and scouts right after the warp drive. Market charts only
    * change what the galaxy map shows, and the bot reads every price anyway.
+   * Of the hazard shieldings it takes the one that opens the most systems.
    */
   function nextResearch() {
     const scouts = RESEARCH.find((r) => r.id === 'scout-licence');
     if (researchStatus(state, scouts) === 'open') return scouts;
-    return actEnd() ?? RESEARCH.find((r) => r.id !== 'market-charts' && researchStatus(state, r) === 'open');
+    const next = actEnd() ?? RESEARCH.find((r) => r.id !== 'market-charts' && researchStatus(state, r) === 'open');
+    return next?.hazard ? bestShielding() : next;
   }
 
   // ---------- One look at the game ----------
@@ -379,7 +403,7 @@ function play(profileName, days) {
     // Once the warp drive is the current goal, the bot saves for it.
     while (freeLab(state)) {
       const next = nextResearch();
-      if (!next || cash() < next.cost || !startResearch(state, next.id, now).ok) break;
+      if (!next || cash() < costOf(next) || !startResearch(state, next.id, now).ok) break;
       click();
       report.research.push({ id: next.id, at: now });
     }
@@ -395,7 +419,7 @@ function play(profileName, days) {
       const hauler = !hullLock(state, 'heron', 'halcyon-shipyard') ? 'heron' : 'kite';
       const hull = !missingLicence(state, 'lark') && scouts < 1 ? 'lark' : !missingLicence(state, 'kite') && haulers < wantHaulers ? hauler : 'mule';
       const next = nextResearch();
-      const reserve = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? next.cost : Math.min(next.cost, shipPrice(state));
+      const reserve = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? costOf(next) : Math.min(costOf(next), shipPrice(state));
       const price = shipPrice(state);
       if (cash() < price + reserve) break;
       const bought = buyShip(state, hull, 'halcyon-shipyard');
@@ -570,6 +594,8 @@ function play(profileName, days) {
       credits: Math.round(state.credits),
       contracts: contractsDone - doneBefore,
       contractPay: Math.round(contractPay - payBefore),
+      surveyed: (state.surveyed?.length ?? 0) + 1,
+      enterable: allSystems().filter((system) => isShielded(state, system)).length,
     });
   }
   report.T0 = T0;
@@ -614,7 +640,7 @@ function print(report) {
     const spans = report.spans.filter((x) => x.day === d.day).map((x) => x.minutes);
     const idle = report.idleAfter[d.day - 1];
     console.log(
-      `  day ${d.day}: earned ${String(d.earned).padStart(8)} cr, ${String(d.ships).padStart(2)} ships, ${clicks} clicks a look, miner queues ${median(spans)?.toFixed(0) ?? '-'} min, fleet busy ${idle?.toFixed(0) ?? '-'} min after the last look, ${d.contracts} contracts paid ${d.contractPay} cr`,
+      `  day ${d.day}: earned ${String(d.earned).padStart(8)} cr, ${String(d.ships).padStart(2)} ships, ${clicks} clicks a look, miner queues ${median(spans)?.toFixed(0) ?? '-'} min, fleet busy ${idle?.toFixed(0) ?? '-'} min after the last look, ${d.contracts} contracts paid ${d.contractPay} cr, ${d.surveyed}/${d.enterable} systems surveyed/open`,
     );
   }
   console.log('  goals:');
@@ -632,13 +658,16 @@ function print(report) {
   if (warp) {
     const stats = state.stats;
     const ratio = median(report.tradeRates);
-    const blueprints = report.goals['station-blueprints'];
+    const shielded = report.goals['first-shielding'];
     console.log(`  act 2: ${state.surveyed.length} systems surveyed, ${stats.jumps} jumps, ${stats.farSales} sales in other systems`);
     const traded = stats.tradeProfit + report.contractMargin;
     console.log(`    jump fees ${Math.round(stats.jumpFees)} cr, ${((stats.jumpFees / Math.max(1, traded + stats.jumpFees)) * 100).toFixed(0)}% of trade profit before fees (contracts for bought goods count as trade)`);
     console.log(`    routes between systems pay ${ratio ? ratio.toFixed(2) : '-'}x the best home trade (median of ${report.tradeRates.length} picks)`);
     console.log(`    standing: ${Object.entries(state.standing).map(([id, p]) => `${id} ${Math.floor(p)}`).join(', ')}`);
-    console.log(`    station blueprints ${blueprints ? `${((blueprints - warp.at) / (24 * HOUR)).toFixed(1)} days after starting the warp drive` : 'not reached'}`);
+    console.log(`    first hazard shielding ${shielded ? `${((shielded - warp.at) / (24 * HOUR)).toFixed(1)} days after starting the warp drive` : 'not reached'}`);
+    const tiers = Object.entries(stats.tierProfit ?? {});
+    const profit = tiers.reduce((sum, [, p]) => sum + Math.max(0, p), 0);
+    console.log(`    sales profit by tier: ${tiers.map(([tier, p]) => `tier ${tier} ${((Math.max(0, p) / Math.max(1, profit)) * 100).toFixed(0)}%`).join(', ')}`);
   }
 }
 

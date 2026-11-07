@@ -62,11 +62,13 @@ export const HULLS = {
  *   hold    tonnes of cargo on a Mule (a Kite carries holdScale times more)
  *   laser   tonnes mined per minute at a field of richness 1
  *   engine  map units per minute
+ *   seal    the hold class of a hauler (see HOLD_CLASS_MAX_TIER)
  */
 export const MODULES = {
   hold: { name: 'Cargo racks', levels: [10, 25, 60, 150, 350, 800, 1800] },
   laser: { name: 'Mining laser', levels: [10, 12, 15, 18, 22] },
   engine: { name: 'Engines', levels: [400, 480, 580] },
+  seal: { name: 'Hold type', levels: [1, 2] },
 };
 
 export const MODULE_LINES = Object.keys(MODULES);

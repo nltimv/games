@@ -12,6 +12,7 @@
 
 import { GOODS, goodName } from '../content/goods.js';
 import { HOLD_CLASS_MAX_TIER, HULLS, MODULES } from '../content/ships.js';
+import { TIER_STORAGE } from '../content/stations.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { allSystems, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
@@ -51,8 +52,10 @@ export const CONTRACT_RULES = {
   baseHours: [2.5, 4.5],
 };
 
-// Offers can be for goods up to the tier a standard hold carries.
-const MAX_TIER = HOLD_CLASS_MAX_TIER[1];
+/** Offers are for goods up to the tier a hold carries: a standard one, or a sealed one once researched. */
+function maxTier(state) {
+  return HOLD_CLASS_MAX_TIER[isResearched(state, 'sealed-holds') ? 2 : 1];
+}
 // Offers older than this are gone anyway, so a long absence only rolls the last stretch.
 const LONGEST_OFFER = CONTRACT_RULES.offerHours[1] * HOUR;
 
@@ -102,7 +105,7 @@ function wantedAt(state, station, goods) {
   const { offers, active } = state.contracts;
   const taken = new Set([...offers, ...active].filter((c) => c.stationId === station.id).map((c) => c.good));
   return marketEntries(station.id)
-    .filter((entry) => entry.side === 'buys' && GOODS[entry.good].tier <= MAX_TIER && goods.has(entry.good) && !taken.has(entry.good))
+    .filter((entry) => entry.side === 'buys' && GOODS[entry.good].tier <= maxTier(state) && goods.has(entry.good) && !taken.has(entry.good))
     .map((entry) => entry.good);
 }
 
@@ -122,7 +125,9 @@ function makeOffer(state, station, goods, at, { size = null, holdLevel = null } 
   const s = size ?? roll('size');
   const muleHold = MODULES.hold.levels[holdLevel ?? researchLevel(state, 'hold')];
   const ore = GOODS[good].tier === 1;
-  const qty = nice(ore ? muleHold * lerp(CONTRACT_RULES.oreHolds, s) : muleHold * HULLS.kite.holdScale * lerp(CONTRACT_RULES.refinedHolds, s));
+  // Higher tiers come in smaller amounts, as stations keep less of them.
+  const storage = TIER_STORAGE[GOODS[good].tier] ?? 1;
+  const qty = nice(ore ? muleHold * lerp(CONTRACT_RULES.oreHolds, s) : muleHold * HULLS.kite.holdScale * storage * lerp(CONTRACT_RULES.refinedHolds, s));
   const reward = nice(qty * GOODS[good].value * lerp(CONTRACT_RULES.pay, roll('pay')));
   // Mining takes a Mule this long; buying takes no time at all.
   const miningMinutes = ore ? qty / MODULES.laser.levels[researchLevel(state, 'laser')] : 0;

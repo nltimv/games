@@ -2,16 +2,21 @@
 // what is done.
 
 import { HULLS, MODULES, ORDER_SLOTS } from '../../content/ships.js';
-import { RESEARCH, findResearch, prerequisites } from '../../content/research.js';
+import { RESEARCH, findResearch } from '../../content/research.js';
 import { formatCredits, formatDuration } from '../../../../shared/js/format.js';
-import { LAB_SLOTS, freeLab, labCount, researchStatus, startResearch } from '../../systems/research.js';
+import { LAB_SLOTS, freeLab, labCount, requirementText, researchCost, researchMinutes, researchStatus, shieldingsDone, startResearch } from '../../systems/research.js';
+import { SHIELDED_DEPTH } from '../../systems/shielding.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, panelHead, sectionTitle } from '../components.js';
 import { at } from '../format.js';
 
-/** What a research does, in one line. */
-export function researchEffect(research) {
+/** What a research does, in one line. `state` adds what depends on the company (which shielding ends act 2). */
+export function researchEffect(research, state = null) {
   if (research.effect) return research.effect;
+  if (research.hazard) {
+    const first = state && shieldingsDone(state) === 0 && !state.research.done.includes(research.id);
+    return `Every ship can enter systems with ${research.hazard}, out to ${SHIELDED_DEPTH} lanes from home.${first ? ' The first shielding ends act 2.' : ''}`;
+  }
   const level = research.level;
   switch (research.line) {
     case 'hold': {
@@ -26,6 +31,8 @@ export function researchEffect(research) {
     }
     case 'queue':
       return `Every ship holds ${ORDER_SLOTS[level]} orders.`;
+    case 'seal':
+      return 'Haulers carry processed materials. Fitted at the shipyard.';
     default:
       return '';
   }
@@ -36,7 +43,7 @@ export function researchPanel(ctx) {
   const labs = LAB_SLOTS.slice(0, labCount(state));
   const busy = !freeLab(state);
   const byStatus = (status) => RESEARCH.filter((r) => researchStatus(state, r) === status);
-  const open = byStatus('open').sort((a, b) => a.cost - b.cost);
+  const open = byStatus('open').sort((a, b) => researchCost(state, a) - researchCost(state, b));
   const locked = byStatus('locked');
   const done = byStatus('done');
 
@@ -51,18 +58,19 @@ export function researchPanel(ctx) {
       h('span', { class: 'dw-eyebrow' }, eyebrow),
       h('div', { class: 'dw-card-head' }, h('strong', null, research.name), countdown(project.endsAt)),
       bar({ start: project.startedAt, end: project.endsAt }),
-      h('p', { class: 'dw-note' }, `${researchEffect(research)} Done at ${at(project.endsAt)}.`),
+      h('p', { class: 'dw-note' }, `${researchEffect(research, state)} Done at ${at(project.endsAt)}.`),
     );
   });
 
   const openCards = open.map((research) => {
-    const short = research.cost - state.credits;
+    const cost = researchCost(state, research);
+    const short = cost - state.credits;
     return h(
       'div',
       { class: 'dw-card dw-research' },
-      h('div', { class: 'dw-card-head' }, h('strong', null, research.name), h('span', null, formatDuration(research.minutes * 60_000))),
-      h('p', { class: 'dw-note' }, researchEffect(research)),
-      button(busy ? `Lab busy · ${formatCredits(research.cost)}` : short > 0 ? `Need ${formatCredits(short)} more` : `Start for ${formatCredits(research.cost)}`, {
+      h('div', { class: 'dw-card-head' }, h('strong', null, research.name), h('span', null, formatDuration(researchMinutes(state, research) * 60_000))),
+      h('p', { class: 'dw-note' }, researchEffect(research, state)),
+      button(busy ? `Lab busy · ${formatCredits(cost)}` : short > 0 ? `Need ${formatCredits(short)} more` : `Start for ${formatCredits(cost)}`, {
         variant: busy ? null : 'primary',
         disabled: busy || short > 0,
         key: `research-${research.id}`,
@@ -75,8 +83,8 @@ export function researchPanel(ctx) {
     h(
       'li',
       { class: 'dw-research-row' },
-      h('span', { class: 'dw-grow' }, h('strong', null, research.name), h('small', null, `After ${prerequisites(research).map((id) => findResearch(id).name).join(' and ')}`)),
-      h('span', { class: 'dw-research-cost' }, formatCredits(research.cost)),
+      h('span', { class: 'dw-grow' }, h('strong', null, research.name), h('small', null, `After ${requirementText(research)}`)),
+      h('span', { class: 'dw-research-cost' }, formatCredits(researchCost(state, research))),
     ),
   );
 

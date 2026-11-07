@@ -1,5 +1,5 @@
-// The research tree for acts 1 and 2. The lab works on one research at a time and
-// keeps going while the game is closed.
+// The research tree. The lab works on one research at a time and keeps
+// going while the game is closed.
 //
 // Module lines (hold, laser, engine) raise the level of a module; ships get
 // it from a refit at the shipyard, and new ships come with it. The queue
@@ -41,19 +41,48 @@ export const RESEARCH = [
   { id: 'scanners', name: 'Long-range scanners', needs: ['scout-licence'], cost: 600000, minutes: 240, effect: 'Surveys take half as long, and systems next to your ships show live prices.' },
   { id: 'hold-6', name: 'Cargo racks VI', line: 'hold', level: 6, needs: ['hold-5', 'warp-drive'], cost: 900000, minutes: 360 },
   { id: 'second-lab', name: 'Second lab', needs: ['warp-drive'], cost: 1000000, minutes: 360, effect: 'Two researches can run at once.' },
+  { id: 'sealed-holds', name: 'Sealed holds', line: 'seal', level: 1, needs: ['warp-drive'], cost: 1200000, minutes: 360 },
   { id: 'jump-2', name: 'Jump drive II', needs: ['jump-1'], cost: 1500000, minutes: 480, effect: 'Jumps take 40% less time than without a jump drive.' },
+  // Hazard shielding: one research per hazard, in the order the player
+  // picks. Each one costs more than the one before (SHIELDING_STEPS), and
+  // the first ends act 2.
+  { id: 'shield-debris', name: 'Debris shielding', hazard: 'dense debris', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
+  { id: 'shield-ion', name: 'Ion shielding', hazard: 'ion storms', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
+  { id: 'shield-radiation', name: 'Radiation shielding', hazard: 'radiation', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
+  // Act 3: Pathfinder.
   {
     id: 'station-blueprints',
     name: 'Station blueprints',
-    needs: ['lane-charts', 'jump-1'],
-    cost: 3000000,
-    minutes: 720,
-    effect: 'Plans for your own stations. This ends act 2.',
+    shields: 3,
+    cost: 7000000,
+    minutes: 1440,
+    effect: 'Plans for your own stations.',
   },
 ];
 
+/**
+ * What each hazard shielding costs, by how many the company already has (or
+ * has in the lab): the second costs more than the first, whichever it is.
+ */
+export const SHIELDING_STEPS = [
+  { cost: 2500000, minutes: 600 },
+  { cost: 3500000, minutes: 720 },
+  { cost: 5000000, minutes: 840 },
+];
+
+/** Hazard shieldings get their own names in requirement lines. */
+export const SHIELDING_COUNT_NAMES = { 1: 'a hazard shielding', 2: 'two hazard shieldings', 3: 'all three hazard shieldings' };
+
 export function findResearch(id) {
   return RESEARCH.find((r) => r.id === id) ?? null;
+}
+
+/** The hazard shielding researches. */
+export const SHIELDINGS = RESEARCH.filter((r) => r.hazard);
+
+/** The shielding research for a hazard. */
+export function shieldingFor(hazard) {
+  return SHIELDINGS.find((r) => r.hazard === hazard) ?? null;
 }
 
 /** What a research needs first: its own `needs`, or the level below it. */

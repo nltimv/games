@@ -16,6 +16,7 @@ import { systemMarket } from '../systems/advisor.js';
 import { contractMarks } from '../systems/contracts.js';
 import { chartedSystems } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
+import { shieldingNeeded } from '../systems/shielding.js';
 import { shipRoute } from '../systems/orders.js';
 import { scaleOf, toScreen, toWorld } from './camera.js';
 import { drawAsset } from './assets.js';
@@ -522,7 +523,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
       ctx.stroke();
     } else {
       ctx.fillStyle = 'rgba(150, 180, 220, 0.18)';
-      ctx.strokeStyle = system.hazard ? 'rgba(255, 170, 120, 0.7)' : 'rgba(190, 215, 255, 0.5)';
+      const blocked = Boolean(shieldingNeeded(state, system));
+      ctx.strokeStyle = blocked ? 'rgba(255, 170, 120, 0.7)' : 'rgba(190, 215, 255, 0.5)';
       ctx.lineWidth = 1.4;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
@@ -534,8 +536,9 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     }
     const labelled = !crowded || named.has(system.id);
     if (labelled) drawLabel(ctx, system.name, p.x, p.y + below, dpr, { size: 12, weight: 800, color: isKnown ? '#ffffff' : 'rgba(220, 236, 255, 0.7)' });
+    const hazardBlocks = Boolean(system.hazard) && Boolean(shieldingNeeded(state, system));
     const sub = system.hazard ? system.hazard : !isKnown ? 'unsurveyed' : system.id === 'aurel' ? 'home' : null;
-    if (sub && labelled) drawLabel(ctx, sub, p.x, p.y + below + 14, dpr, { size: 10, weight: 600, color: system.hazard ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
+    if (sub && labelled) drawLabel(ctx, sub, p.x, p.y + below + 14, dpr, { size: 10, weight: 600, color: hazardBlocks ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
     const market = markets.get(system.id);
     if (market) {
       const y = p.y + below + (sub ? 28 : 14);

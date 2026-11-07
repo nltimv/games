@@ -44,5 +44,5 @@ test("goal ids are unique, each act's tutorial comes first, and only each act's 
     assert.equal(goals.at(-1).reward, 0);
   }
   assert.equal(GOALS.find((g) => !g.act && g.reward === 0).id, 'warp-drive');
-  assert.equal(GOALS.at(-1).id, 'station-blueprints');
+  assert.equal(GOALS.filter((g) => g.act === 2).at(-1).id, 'first-shielding');
 });

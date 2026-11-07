@@ -90,6 +90,20 @@ export const GOODS = {
     value: 30,
     look: { shape: 'square', light: '#b8fff2', mid: '#7fe9de', dark: '#3fcdbf' },
   },
+  // Titanium and iron, smelted at foundries from two lanes out.
+  'titanium-alloy': {
+    name: 'Titanium alloy',
+    tier: 3,
+    value: 56,
+    look: { shape: 'square', light: '#f1edff', mid: '#ada2e4', dark: '#6457a8' },
+  },
+  // Crystal and silicon, made at foundries from three lanes out.
+  optics: {
+    name: 'Optics',
+    tier: 3,
+    value: 60,
+    look: { shape: 'square', light: '#fff4fc', mid: '#f3b0e0', dark: '#a8549a' },
+  },
 };
 
 export const TIER_NAMES = {

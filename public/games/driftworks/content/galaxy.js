@@ -302,13 +302,16 @@ function stationTrade(type, depthOf) {
   if (type === 'refinery') return { buys: ores, sells: ores.map((ore) => REFINES[ore]) };
   if (type === 'tradingPost') {
     const extra = ores.filter((g) => g === 'titanium-ore' || g === 'crystal-ore');
-    return { buys: ['ferrite-ore', 'silicate-rock', 'carbon-ore', ...extra, 'iron', 'silicon', 'graphite'], sells: ['ice', 'water'] };
+    const processed = ['steel', 'glass', ...(depthOf >= 3 ? ['optics'] : [])];
+    return { buys: ['ferrite-ore', 'silicate-rock', 'carbon-ore', ...extra, 'iron', 'silicon', 'graphite', ...processed], sells: ['ice', 'water'] };
   }
   if (type === 'foundry') {
     const extra = depthOf >= 2 ? ['titanium'] : [];
     if (depthOf >= 3) extra.push('crystal');
-    return { buys: ['iron', 'graphite', 'silicon', ...extra], sells: ['steel', 'glass'] };
+    const made = [...(depthOf >= 2 ? ['titanium-alloy'] : []), ...(depthOf >= 3 ? ['optics'] : [])];
+    return { buys: ['iron', 'graphite', 'silicon', ...extra], sells: ['steel', 'glass', ...made] };
   }
+  if (type === 'shipyard') return { buys: ['steel', 'titanium-alloy'], sells: [] };
   return { buys: [], sells: [] };
 }
 

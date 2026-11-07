@@ -17,6 +17,13 @@ export const CURVES = {
   postSells: { high: 1.45, low: 1.05, cap: 1500, target: 0.55 },
 };
 
+/**
+ * Stations keep less of the higher tiers: a tier 3 good's storage is half
+ * the curve's cap. Each tonne pays more, so a full hold is not the only
+ * good answer.
+ */
+export const TIER_STORAGE = { 3: 0.5, 4: 0.25 };
+
 export const STATION_TYPES = {
   refinery: {
     label: 'Refinery',
@@ -28,7 +35,7 @@ export const STATION_TYPES = {
   },
   foundry: {
     label: 'Foundry',
-    description: 'Smelts refined goods into steel and glass.',
+    description: 'Smelts refined goods into processed materials.',
     buys: ['iron', 'graphite', 'silicon'],
     sells: ['steel', 'glass'],
     buyCurve: 'input',
@@ -37,16 +44,17 @@ export const STATION_TYPES = {
   tradingPost: {
     label: 'Trading post',
     description: 'Buys most goods at thin margins and sells a few staples.',
-    buys: ['ferrite-ore', 'silicate-rock', 'carbon-ore', 'iron', 'silicon', 'graphite'],
+    buys: ['ferrite-ore', 'silicate-rock', 'carbon-ore', 'iron', 'silicon', 'graphite', 'steel', 'glass'],
     sells: ['ice', 'water'],
     buyCurve: 'postBuys',
     sellCurve: 'postSells',
   },
   shipyard: {
     label: 'Shipyard',
-    description: 'Sells ships and fits new modules.',
-    buys: [],
+    description: 'Sells ships, fits new modules and buys hull materials.',
+    buys: ['steel', 'titanium-alloy'],
     sells: [],
+    buyCurve: 'input',
     hulls: ['mule', 'kite', 'lark', 'heron'],
   },
 };

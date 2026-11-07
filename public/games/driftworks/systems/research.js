@@ -4,7 +4,7 @@
 // research.second.
 
 import { MODULE_LINES, ORDER_SLOTS } from '../content/ships.js';
-import { RESEARCH, findResearch, prerequisites } from '../content/research.js';
+import { RESEARCH, SHIELDINGS, SHIELDING_COUNT_NAMES, SHIELDING_STEPS, findResearch, prerequisites } from '../content/research.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { MINUTE } from '../core/time.js';
 import { addLog } from './log.js';
@@ -52,11 +52,43 @@ export function freeLab(state) {
   return LAB_SLOTS.slice(0, labCount(state)).find((slot) => !state.research[slot]) ?? null;
 }
 
+/** How many hazard shieldings the company has. */
+export function shieldingsDone(state) {
+  return SHIELDINGS.filter((r) => isResearched(state, r.id)).length;
+}
+
+/**
+ * What a research costs now. A hazard shielding costs more for each one the
+ * company has or has in the lab, whichever hazard it is for.
+ */
+export function researchCost(state, research) {
+  return shieldingStep(state, research)?.cost ?? research.cost;
+}
+
+/** How many minutes a research takes, as researchCost. */
+export function researchMinutes(state, research) {
+  return shieldingStep(state, research)?.minutes ?? research.minutes;
+}
+
+function shieldingStep(state, research) {
+  if (!research.hazard) return null;
+  const others = SHIELDINGS.filter((r) => r.id !== research.id && (isResearched(state, r.id) || runningResearch(state).some((p) => p.id === r.id))).length;
+  return SHIELDING_STEPS[Math.min(others, SHIELDING_STEPS.length - 1)];
+}
+
+/** What a research waits for, as names: "Lane charts and Jump drive I". */
+export function requirementText(research) {
+  const names = prerequisites(research).map((id) => findResearch(id).name);
+  if (research.shields) names.push(SHIELDING_COUNT_NAMES[research.shields]);
+  return names.join(' and ');
+}
+
 /** 'done', 'active', 'open' (can start when the lab is free) or 'locked'. */
 export function researchStatus(state, research) {
   if (isResearched(state, research.id)) return 'done';
   if (runningResearch(state).some((project) => project.id === research.id)) return 'active';
-  return prerequisites(research).every((id) => isResearched(state, id)) ? 'open' : 'locked';
+  const met = prerequisites(research).every((id) => isResearched(state, id)) && shieldingsDone(state) >= (research.shields ?? 0);
+  return met ? 'open' : 'locked';
 }
 
 export function canStartResearch(state, id) {
@@ -64,24 +96,25 @@ export function canStartResearch(state, id) {
   if (!research) return fail('No such research.');
   const status = researchStatus(state, research);
   if (status === 'done') return fail(`${research.name} is already done.`);
-  if (status === 'locked') return fail(`${research.name} needs ${prerequisites(research).map((p) => findResearch(p).name).join(' and ')} first.`);
+  if (status === 'locked') return fail(`${research.name} needs ${requirementText(research)} first.`);
   if (!freeLab(state)) {
     const busy = runningResearch(state).map((project) => findResearch(project.id).name).join(' and ');
     return fail(labCount(state) > 1 ? `Both labs are busy, with ${busy}.` : `The lab is busy with ${busy}.`);
   }
-  if (state.credits < research.cost) return fail(`You need ${formatCredits(research.cost - state.credits)} more.`);
-  return { ok: true, research };
+  const cost = researchCost(state, research);
+  if (state.credits < cost) return fail(`You need ${formatCredits(cost - state.credits)} more.`);
+  return { ok: true, research, cost, minutes: researchMinutes(state, research) };
 }
 
 export function startResearch(state, id, at = state.now) {
   const check = canStartResearch(state, id);
   if (!check.ok) return check;
-  const { research } = check;
-  state.credits -= research.cost;
-  state.research[freeLab(state)] = { id, startedAt: at, endsAt: at + research.minutes * MINUTE };
+  const { research, cost, minutes } = check;
+  state.credits -= cost;
+  state.research[freeLab(state)] = { id, startedAt: at, endsAt: at + minutes * MINUTE };
   state.stats.research += 1;
-  addLog(state, at, `Research started: ${research.name}`, 'research', -research.cost);
-  return { ok: true, research };
+  addLog(state, at, `Research started: ${research.name}`, 'research', -cost);
+  return { ok: true, research, cost };
 }
 
 /** Called by the simulation when a lab's research time is up (the first lab by default). */
@@ -97,5 +130,5 @@ export function finishResearch(state, at, slot = 'active') {
 
 /** Researches the lab could start next, cheapest first. */
 export function openResearch(state) {
-  return RESEARCH.filter((r) => researchStatus(state, r) === 'open').sort((a, b) => a.cost - b.cost);
+  return RESEARCH.filter((r) => researchStatus(state, r) === 'open').sort((a, b) => researchCost(state, a) - researchCost(state, b));
 }

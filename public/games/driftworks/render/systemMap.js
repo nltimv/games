@@ -17,6 +17,7 @@ import { SECOND, timeLeft } from '../core/time.js';
 import { contractMarks } from '../systems/contracts.js';
 import { isSurveyed } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
+import { shieldingNeeded } from '../systems/shielding.js';
 import { orderPhase, projectShip } from '../systems/orders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
@@ -138,7 +139,7 @@ function parkingSpots(cam, state, now, u, parked) {
 function gateNote(state, system, gate) {
   const far = findSystem(gate.to);
   if (!canJump(state)) return 'locked';
-  if (far?.hazard) return far.hazard;
+  if (shieldingNeeded(state, far)) return far.hazard;
   if (!isSurveyed(state, gate.to)) return 'unsurveyed';
   const lane = laneBetween(system.id, gate.to);
   return lane ? `${Math.round(jumpTime(state, lane) / 60000)} min jump` : '';

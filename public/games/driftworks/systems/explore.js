@@ -8,6 +8,7 @@
 import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { allStations, findSystem, lanesFrom, systemOf } from '../content/galaxy.js';
 import { addLog } from './log.js';
+import { isShielded } from './shielding.js';
 
 export function isSurveyed(state, systemId) {
   return systemId === HOME_SYSTEM.id || (state.surveyed ?? []).includes(systemId);
@@ -24,10 +25,10 @@ export function isCharted(state, systemId) {
   return chartedSystems(state).has(systemId);
 }
 
-/** Systems a scout could survey next: charted, not surveyed, no hazard. */
+/** Systems a scout could survey next: charted, not surveyed, and no hazard the company has no shielding for. */
 export function surveyable(state, systemId) {
   const system = findSystem(systemId);
-  return Boolean(system) && !system.hazard && !isSurveyed(state, systemId) && isCharted(state, systemId);
+  return isShielded(state, system) && !isSurveyed(state, systemId) && isCharted(state, systemId);
 }
 
 /** The ship with an order (now or queued) to survey a system, or null. */

@@ -12,6 +12,7 @@ import { buildOrder, freeSlots, orderTimes, projectShip, refitOffer } from './or
 import { isSurveyed, knownStations, surveyable } from './explore.js';
 import { knownAt } from './knowledge.js';
 import { canJump, plotCourse, travelTime } from './travel.js';
+import { isShielded } from './shielding.js';
 
 /** What selling `qty` of `good` at a station pays, at the prices known there. */
 export function saleValue(state, stationId, good, qty, at = state.now) {
@@ -354,7 +355,7 @@ function travelOptions(state, view, target, timesOf, gated) {
     if (HULLS[view.hull].role === 'scout' && surveyable(state, systemId)) {
       options.push(gated({ kind: 'survey', systemId, ...timesOf({ type: 'survey', systemId }) }));
     }
-    if (isSurveyed(state, systemId) && !system.hazard) {
+    if (isSurveyed(state, systemId) && isShielded(state, system)) {
       const arrival = gate && systemOf(gate.id) === here ? gateTo(systemId, here)?.id : nearestGate(state, view, system);
       if (arrival) options.push(gated({ kind: 'jump', systemId, stationId: arrival, ...timesOf({ type: 'fly', stationId: arrival }) }));
     }

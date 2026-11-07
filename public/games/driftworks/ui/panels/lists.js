@@ -1,7 +1,7 @@
 // List panels: the fleet, several selected ships, and the company (goals,
 // stats and log). Systems and gates are in system.js.
 
-import { GOALS, NEXT_CHAPTER } from '../../content/goals.js';
+import { ENDING, GOALS } from '../../content/goals.js';
 import { HULLS } from '../../content/ships.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
 import { allFactions, allSystems } from '../../content/galaxy.js';
@@ -133,7 +133,7 @@ export function companyPanel(ctx) {
         h('div', { class: 'dw-card-head' }, h('strong', null, goal.title), rewardText(goal)),
         goal.progress ? goalProgress(goal.progress(state)) : null,
       )
-    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, 'Act 2 complete'), h('strong', null, 'Station blueprints are ready'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));
+    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, ENDING.eyebrow), h('strong', null, ENDING.title), h('p', { class: 'dw-note' }, ENDING.note));
 
   const goals = GOALS.map((g) => {
     const done = state.goals.includes(g.id);
@@ -186,7 +186,7 @@ function goalProgress({ value, target, unit }) {
 }
 
 function rewardText(goal) {
-  return h('span', { class: 'dw-goal-reward' }, goal.reward ? `+${formatCredits(goal.reward)}` : 'Ends act 1');
+  return h('span', { class: 'dw-goal-reward' }, goal.reward ? `+${formatCredits(goal.reward)}` : `Ends act ${goal.act ?? 1}`);
 }
 
 // ---------- Contracts ----------
