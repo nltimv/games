@@ -207,28 +207,28 @@ test('the order menu offers Deliver apart from Sell, and ships share what is lef
   assert.equal(state.credits, credits);
 });
 
-test('a hauler can buy goods for a contract and deliver them', () => {
+test('a hauler buys what a contract needs, then delivers it: one order each', () => {
   const state = withBrokerage();
   state.credits = 50000;
   state.research.done.push('hold-1');
-  const kite = createShip(state, 'kite', 'halcyon-refinery');
+  const kite = createShip(state, 'kite', 'halcyon-shipyard');
   state.contracts.active.push({ id: 99, stationId: 'halcyon-foundry', good: 'iron', qty: 60, delivered: 0, basis: 0, reward: 2000, acceptedAt: T0, deadline: T0 + 4 * HOUR });
-  // Bring it from where the Kite is, to the contract's station...
-  const bring = orderOptions(state, kite, { kind: 'station', id: 'halcyon-foundry' }).find((o) => o.kind === 'supply');
-  assert.equal(bring.fromId, 'halcyon-refinery');
-  assert.equal(bring.qty, 60);
-  assert.ok(bring.completes && bring.profit < 2000);
-  // ...or pick it up from the seller's menu.
-  kite.at = 'halcyon-shipyard';
-  const take = orderOptions(state, kite, { kind: 'station', id: 'halcyon-refinery' }).find((o) => o.kind === 'supply');
-  assert.ok(take.outbound);
-  assert.equal(take.stationId, 'halcyon-foundry');
-  const result = carryOut(state, kite.id, take);
-  assert.ok(result.ok, result.error);
+  // The refinery's iron is offered for the contract, sized to what it needs.
+  const buy = orderOptions(state, kite, { kind: 'station', id: 'halcyon-refinery' }).find((o) => o.kind === 'buy' && o.good === 'iron');
+  assert.equal(buy.contract.id, 99);
+  assert.equal(buy.destId, 'halcyon-foundry');
+  assert.equal(buy.qty, 60);
+  assert.ok(buy.completes);
   const credits = state.credits;
+  assert.ok(carryOut(state, kite.id, buy).ok);
+  // The foundry then offers to deliver the iron the Kite will carry.
+  const deliver = orderOptions(state, kite, { kind: 'station', id: 'halcyon-foundry' }).find((o) => o.kind === 'deliver');
+  assert.equal(deliver.qty, 60);
+  assert.ok(deliver.completes && !deliver.now);
+  assert.ok(carryOut(state, kite.id, deliver).ok);
   advance(state, T0 + HOUR);
   assert.equal(state.stats.contracts, 1);
-  assert.ok(state.credits > credits + 1000);
+  assert.ok(Math.abs(state.credits - (credits - buy.cost + 2000)) < buy.cost * 0.02, 'paid for the iron, then the contract');
 });
 
 test('the maps mark stations and systems with offers and running contracts', () => {

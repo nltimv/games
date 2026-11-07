@@ -21,6 +21,7 @@ import { chartedSystems, isSurveyed, markSurveyed } from '../../public/games/dri
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { cancelOrder, giveOrder } from '../../public/games/driftworks/systems/orders.js';
 import { orderOptions } from '../../public/games/driftworks/systems/advisor.js';
+import { findEntry } from '../../public/games/driftworks/systems/market.js';
 import { carryOut } from '../../public/games/driftworks/systems/commands.js';
 import { flightTime, plotCourse, shipPosition } from '../../public/games/driftworks/systems/travel.js';
 import { MINUTE, firstShip, newGame } from './helpers.mjs';
@@ -184,7 +185,7 @@ test('hazard systems cannot be entered or surveyed', () => {
   assert.match(result.error, new RegExp(deep.hazard));
 });
 
-test('the order menu jumps, surveys and trades across systems', () => {
+test('the order menu jumps, surveys, buys and sells across systems', () => {
   const state = newGame({ credits: 100_000 });
   // By act 2 the haulers carry hundreds of tonnes, which is what makes a jump fee pay.
   state.research.done.push('warp-drive', 'scout-licence', 'kite-licence', 'hold-2', 'hold-3', 'hold-4');
@@ -211,17 +212,21 @@ test('the order menu jumps, surveys and trades across systems', () => {
   assert.deepEqual(viaGate.map((o) => o.kind), ['jump', 'fly']);
   assert.equal(viaGate[0].stationId, gateTo('brennan', 'aurel').id);
 
-  // A trade into a neighbour's foundry pays its jump fee out of the profit.
+  // Goods bought here sell at a neighbour's foundry: one order each, and the
+  // sale's order shows the jump and its fee.
   const station = ['brennan', 'dace', 'elm', 'fenn'].flatMap((id) => findSystem(id).stations).find((s) => s.type === 'foundry');
   markSurveyed(state, systemOf(station.id), state.now);
-  const trade = orderOptions(state, kite, { kind: 'station', id: station.id }).find((o) => o.kind === 'trade');
-  assert.ok(trade, `${station.name} buys what the refinery sells`);
-  assert.equal(trade.jumps, 1);
-  const credits = state.credits;
-  assert.ok(carryOut(state, kite.id, trade).ok);
+  const buy = orderOptions(state, kite, { kind: 'station', id: kite.at }).find((o) => o.kind === 'buy' && findEntry(station.id, o.good)?.side === 'buys');
+  assert.ok(buy, `${station.name} buys what the refinery sells`);
+  assert.ok(carryOut(state, kite.id, buy).ok);
+  const sell = orderOptions(state, kite, { kind: 'station', id: station.id }).find((o) => o.kind === 'sell');
+  assert.ok(sell.goods.includes(buy.good));
+  assert.equal(sell.jumps, 1);
+  assert.ok(sell.fees > 0);
+  assert.ok(carryOut(state, kite.id, sell).ok);
   advance(state, state.now + 60 * MINUTE);
   assert.equal(kite.at, station.id);
-  assert.ok(Math.abs(state.credits - credits - trade.profit) < trade.profit * 0.2 + 50, `${state.credits - credits} vs ${trade.profit}`);
+  assert.deepEqual(kite.cargo, {});
 });
 
 test('an act 1 save upgrades with its company intact', () => {

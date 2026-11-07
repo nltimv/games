@@ -11,7 +11,7 @@ import { currentGoal } from '../../systems/goals.js';
 import { isSurveyed } from '../../systems/explore.js';
 import { canJump } from '../../systems/travel.js';
 import { findShip } from '../../systems/fleet.js';
-import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, rerunnable, runAgain, runAllAgain, shipStatus } from '../../systems/orders.js';
+import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, runAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { plural, tonnes } from '../format.js';
@@ -24,10 +24,8 @@ export function fleetPanel(ctx) {
   const ships = [...state.ships].sort((a, b) => (a.order?.endsAt ?? 0) - (b.order?.endsAt ?? 0));
   const idle = ships.filter((s) => !s.order).length;
   const rows = ships.map((ship) => shipRow(ctx, ship));
-  const again = rerunnable(state);
   return [
     panelHead({ title: 'Fleet', subtitle: `${plural(ships.length, 'ship')} · ${idle} waiting for orders`, onClose: ctx.close }),
-    again.length ? runAllButton(ctx, again.length) : null,
     h('ul', { class: 'dw-list' }, rows),
     button('Buy ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
   ];
@@ -189,20 +187,6 @@ function goalProgress({ value, target, unit }) {
 
 function rewardText(goal) {
   return h('span', { class: 'dw-goal-reward' }, goal.reward ? `+${formatCredits(goal.reward)}` : 'Ends act 1');
-}
-
-/** One button that repeats every idle ship's last orders. */
-export function runAllButton(ctx, count) {
-  return button(`Run all again`, {
-    variant: 'primary',
-    block: true,
-    sub: plural(count, 'ship'),
-    key: 'run-all-again',
-    onClick: () => {
-      const result = ctx.act((s) => runAllAgain(s));
-      if (result?.ok) ctx.toast(`${plural(result.count, 'ship')} running their last orders again`, 'order');
-    },
-  });
 }
 
 // ---------- Contracts ----------

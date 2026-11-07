@@ -7,6 +7,7 @@
 // Returns the clickable things, like drawSystem.
 
 import { allSystems, findFaction, findSystem, lanesFrom } from '../content/galaxy.js';
+import { createRng, hashString } from '../core/rng.js';
 import { HULLS } from '../content/ships.js';
 import { systemMarket } from '../systems/advisor.js';
 import { contractMarks } from '../systems/contracts.js';
@@ -45,6 +46,65 @@ function blob(color, px) {
 function withAlpha(hex, alpha) {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+// The galaxy's own sky, so it never looks like a system map: near black
+// with a violet tint, the pale band of the galaxy's disc running corner to
+// corner, darker dust along its middle, and fine star dust packed into it.
+const BAND_GLOWS = ['rgba(120, 150, 255, 0.11)', 'rgba(165, 120, 255, 0.09)', 'rgba(110, 230, 220, 0.07)', 'rgba(255, 214, 236, 0.06)'];
+const STAR_TINTS = ['#ffffff', '#ffffff', '#dfe8ff', '#ffe9d6', '#d8fff8'];
+
+export function renderGalaxyBackground(width, height, dpr) {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  const ctx = canvas.getContext('2d', { alpha: false });
+  ctx.scale(dpr, dpr);
+  const rng = createRng(hashString('galaxy-sky'));
+  const big = Math.max(width, height);
+
+  const base = ctx.createRadialGradient(width * 0.5, height * 0.5, 0, width * 0.5, height * 0.5, big * 0.75);
+  base.addColorStop(0, '#0d0a26');
+  base.addColorStop(1, '#030210');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, width, height);
+
+  // The band runs from lower left to upper right, a little wavy.
+  const along = (t) => ({ x: -0.1 * width + t * 1.2 * width, y: height * (0.86 - 0.72 * t + 0.05 * Math.sin(t * 7)) });
+  const spread = () => (rng() + rng() + rng() - 1.5) * 0.16 * big;
+  const soft = (x, y, r, color) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, color);
+    g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  };
+  for (let i = 0; i < 46; i += 1) {
+    const p = along(rng());
+    soft(p.x + spread() * 0.6, p.y + spread() * 0.6, big * (0.07 + rng() * 0.13), BAND_GLOWS[i % BAND_GLOWS.length]);
+  }
+  for (let i = 0; i < 18; i += 1) {
+    const p = along(rng());
+    soft(p.x + spread() * 0.25, p.y + spread() * 0.25, big * (0.03 + rng() * 0.05), 'rgba(3, 2, 14, 0.4)');
+  }
+
+  const dust = (count, near) => {
+    for (let i = 0; i < count; i += 1) {
+      const p = near ? along(rng()) : { x: rng() * width, y: rng() * height };
+      const x = near ? p.x + spread() * 0.7 : p.x;
+      const y = near ? p.y + spread() * 0.7 : p.y;
+      ctx.globalAlpha = 0.15 + rng() * 0.55;
+      ctx.fillStyle = STAR_TINTS[Math.floor(rng() * STAR_TINTS.length)];
+      ctx.beginPath();
+      ctx.arc(x, y, 0.3 + rng() * (near ? 0.6 : 0.9), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+  const area = (width * height) / 5200;
+  dust(Math.round(area * 0.7), false);
+  dust(Math.round(area * 2.4), true);
+  ctx.globalAlpha = 1;
+  return canvas;
 }
 
 /** How far out the charted part of the galaxy reaches from Aurel, for framing. */
@@ -232,7 +292,7 @@ export function drawGalaxy(ctx, cam, state, now, view) {
         drawAsset(ctx, `ship-${role}`, bx, by, Math.max(15, 18 * u), dpr);
         drawLabel(ctx, count, bx + 10 * u, by, dpr, { size: 11, weight: 800, align: 'left' });
         const width = 10 * u + count.length * 7;
-        badges.push({ kind: 'ships-at', id: `${system.id}|${role}`, x: bx + width / 2 - 4, y: by, r: Math.max(10, 9 * u + count.length * 2) });
+        badges.push({ kind: 'ships-at', id: `${system.id}|${role}`, ids, x: bx + width / 2 - 4, y: by, r: Math.max(10, 9 * u + count.length * 2) });
         for (const id of ids) badges.push({ kind: 'ship', id, x: bx, y: by, r: 0, ring: 9 * u });
         bx += width + 14 * u;
       }

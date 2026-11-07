@@ -3,10 +3,11 @@
 // lives here; game state lives in the session and only changes through
 // session.act().
 
+import { MAX_ZOOM } from '../render/camera.js';
 import { createMapView } from '../render/mapView.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { HULLS } from '../content/ships.js';
-import { findFaction, findPlace, findSystem, systemOf } from '../content/galaxy.js';
+import { findFaction, findGate, findPlace, findSystem, systemOf } from '../content/galaxy.js';
 import { galaxyPosition } from '../render/galaxyMap.js';
 import { isSurveyed } from '../systems/explore.js';
 import { skipGuide } from '../systems/goals.js';
@@ -31,6 +32,8 @@ const TOAST_MS = 4200;
 const MAP_VIEWS = new Set(['system', 'galaxy']);
 const isMapView = (view) => MAP_VIEWS.has(view);
 const PLACE_KINDS = new Set(['station', 'field', 'gate']);
+// One step of the zoom buttons in from the whole system.
+const SYSTEM_START_ZOOM = 1.3;
 
 export function createApp(session, doc = document) {
   const $ = (id) => doc.getElementById(id);
@@ -105,10 +108,10 @@ export function createApp(session, doc = document) {
     render();
     focusPanelIfNeeded();
     // On phones the sheet covers the lower half: slide the pick into view.
-    if (isPhone()) {
-      const point = mapPoint(kind, id);
-      if (point) map.focusOn(point.x, point.y);
-    }
+    // Elsewhere, only a pick out of view (from a list) slides in.
+    const point = mapPoint(kind, id);
+    if (point && isPhone()) map.focusOn(point.x, point.y);
+    else if (point) map.reveal(point.x, point.y);
   }
 
   /** Where a selection sits on the map shown now. */
@@ -344,7 +347,11 @@ export function createApp(session, doc = document) {
       if (key !== panelKey) els.panel.scrollTop = 0;
       panelKey = key;
     }
+    // The ship list scrolls on its own; a refresh keeps its place.
+    const runsScroll = els.underway.querySelector('.dw-runs')?.scrollTop ?? 0;
     renderInto(els.underway, underwayCard(ctx));
+    const runs = els.underway.querySelector('.dw-runs');
+    if (runs) runs.scrollTop = runsScroll;
     renderPlace();
     renderMenu(ctx);
     renderGuide();
@@ -445,6 +452,17 @@ export function createApp(session, doc = document) {
 
   // ---------- Map ----------
 
+  // The galaxy opens fully zoomed in on the selected ship, or on the system
+  // last shown; a system map opens one zoom step in. The fit button (and the
+  // 0 key) still shows the whole map.
+  function startViewFor(scene) {
+    if (scene.kind !== 'galaxy') return { zoom: SYSTEM_START_ZOOM };
+    const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
+    const point = ship ? galaxyPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : null;
+    const system = findSystem(ui.systemId);
+    return { zoom: MAX_ZOOM, x: point?.x ?? system?.gx ?? 0, y: point?.y ?? system?.gy ?? 0 };
+  }
+
   const map = createMapView(els.map, {
     getState: () => session.state,
     getScene: () => (ui.map === 'galaxy' ? { kind: 'galaxy' } : { kind: 'system', id: ui.systemId }),
@@ -452,6 +470,7 @@ export function createApp(session, doc = document) {
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
     getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
     getMarketGood: () => (isResearched(session.state, 'market-charts') ? ui.marketGood : null),
+    getStartView: startViewFor,
     onSelect(target, mods = {}) {
       const again = target && ui.selection?.kind === target.kind && ui.selection.id === target.id;
       if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);
@@ -462,6 +481,13 @@ export function createApp(session, doc = document) {
       else if (target) select(target.kind, target.id);
       else if (ui.menu) closeMenu();
       else if (ui.selection) close();
+    },
+    // A double click on a warp gate opens the system it leads to.
+    onDoubleClick(target) {
+      const gate = target.kind === 'gate' ? findGate(target.id) : null;
+      if (!gate || !canJump(session.state)) return;
+      if (isSurveyed(session.state, gate.to)) openSystem(gate.to);
+      else select('system', gate.to);
     },
     onBoxSelect: (ids, mods) => selectShips(ids, mods),
     onContextMenu: openMenu,

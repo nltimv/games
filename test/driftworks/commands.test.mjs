@@ -60,54 +60,46 @@ test('a docked, idle miner sells on the spot', () => {
   assert.equal(mule.order, null);
 });
 
-test('a hauler is offered trades from where it is, best first, as two orders', () => {
+test('a hauler elsewhere is offered one order per good the station sells, sized for the best buyer', () => {
   const state = newGame({ credits: 100_000 });
-  const kite = createShip(state, 'kite', 'halcyon-refinery');
-  const options = orderOptions(state, kite, station('halcyon-foundry'));
-  const trades = options.filter((o) => o.kind === 'trade');
-  assert.ok(trades.length >= 1 && trades.length <= 3);
-  for (let i = 1; i < trades.length; i += 1) assert.ok(trades[i - 1].profit >= trades[i].profit);
-  assert.equal(options.at(-1).kind, 'fly');
+  const kite = createShip(state, 'kite', 'halcyon-foundry');
+  const options = orderOptions(state, kite, station('halcyon-refinery'));
+  const buys = options.filter((o) => o.kind === 'buy');
+  assert.ok(buys.length >= 2);
+  assert.deepEqual(kinds(options), [...buys.map(() => 'buy'), 'fly'], 'no two-order trades');
+  // Buys with a buyer first, the best paying first.
+  const rank = (o) => (o.destId ? 1 : 0);
+  for (let i = 1; i < buys.length; i += 1) {
+    assert.ok(rank(buys[i - 1]) >= rank(buys[i]));
+    if (rank(buys[i - 1]) === rank(buys[i]) && buys[i].destId) assert.ok(buys[i - 1].profit >= buys[i].profit);
+  }
+  const [best] = buys;
+  assert.ok(best.destId && best.profit > 0);
 
-  const result = carryOut(state, kite.id, trades[0]);
-  assert.equal(result.given, 2);
+  // One order: it buys. Selling is the next pick, at the buyer.
+  const result = carryOut(state, kite.id, best);
+  assert.ok(result.ok && result.order);
   assert.equal(kite.order.type, 'buy');
-  assert.equal(kite.queue[0].type, 'sell');
+  assert.equal(kite.queue.length, 0);
+  const sell = orderOptions(state, kite, station(best.destId)).find((o) => o.kind === 'sell');
+  assert.ok(sell.goods.includes(best.good));
+  assert.ok(carryOut(state, kite.id, sell).ok);
   advance(state, state.now + 60 * 60_000);
-  assert.equal(kite.at, 'halcyon-foundry');
+  assert.equal(kite.at, best.destId);
   assert.deepEqual(kite.cargo, {});
-  assert.ok(state.stats.tradeProfit > 0);
+  assert.ok(Math.abs(state.stats.tradeProfit - best.profit) < 1, 'the trade pays what the menu said');
 });
 
-test('at a station that sells, a hauler is offered to take a paying amount to the best buyer', () => {
+test('a buy is sized to what still pays at the best buyer, not to the hold', () => {
   const state = newGame({ credits: 1_000_000 });
   const kite = createShip(state, 'heron', 'halcyon-foundry');
   // A big hold: all the silicon the refinery has would sink the foundry's price below what it cost.
   kite.modules.hold = 4;
   const all = affordableQty(state, 'halcyon-refinery', 'silicon', state.credits, holdOf(kite));
   assert.ok(tradePlan(state, kite, 'silicon', all, 'halcyon-foundry', state.now, 'halcyon-refinery').profit < 0);
-
-  const options = orderOptions(state, kite, station('halcyon-refinery'));
-  const takes = options.filter((o) => o.kind === 'trade' && o.outbound);
-  assert.ok(takes.length >= 1 && takes.length <= 3);
-  for (const take of takes) {
-    assert.equal(take.fromId, 'halcyon-refinery');
-    assert.equal(take.stationId, 'halcyon-foundry');
-    assert.ok(take.qty > 0 && take.profit > 0);
-  }
-  assert.ok(takes.find((take) => take.good === 'silicon').qty < all);
-  for (let i = 1; i < takes.length; i += 1) assert.ok(takes[i - 1].profit >= takes[i].profit);
-  // Goods with a paying trade are not also offered as a plain full-hold buy.
-  const buys = options.filter((o) => o.kind === 'buy');
-  for (const buy of buys) assert.ok(!takes.some((take) => take.good === buy.good));
-
-  const [take] = takes;
-  assert.equal(carryOut(state, kite.id, take).given, 2);
-  assert.equal(kite.order.type, 'buy');
-  assert.equal(kite.queue[0].type, 'sell');
-  advance(state, state.now + 60 * 60_000);
-  assert.deepEqual(kite.cargo, {});
-  assert.ok(Math.abs(state.stats.tradeProfit - take.profit) < 1, 'the trade pays what the menu said');
+  const buy = orderOptions(state, kite, station('halcyon-refinery')).find((o) => o.kind === 'buy' && o.good === 'silicon');
+  assert.equal(buy.destId, 'halcyon-foundry');
+  assert.ok(buy.qty > 0 && buy.qty < all && buy.profit > 0);
 });
 
 test('a hauler can buy at a station to sell later', () => {
@@ -173,19 +165,18 @@ test('several haulers buy a good together, sharing the credits and the stock', (
   const mule = firstShip(state);
   const options = groupOrderOptions(state, [...kites, mule], station('halcyon-refinery'));
   const buys = options.filter((o) => o.kind === 'buy');
-  assert.ok(buys.length >= 1 && buys.length <= 3);
-  for (let i = 1; i < buys.length; i += 1) assert.ok(buys[i - 1].margin >= buys[i].margin);
-  const [buy] = buys;
+  assert.ok(buys.length >= 2);
+  const buy = buys.find((o) => !o.destId) ?? buys.at(-1);
   assert.equal(buy.members.length, 3, 'the Mule cannot buy');
   assert.equal(buy.of, 4);
   const own = orderOptions(state, kites[0], station('halcyon-refinery')).find((o) => o.kind === 'buy' && o.good === buy.good);
-  assert.equal(buy.qty, own.qty * 3);
-  assert.ok(buy.cost > own.cost * 3, 'each tonne raises the price of the next');
+  assert.ok(buy.qty <= own.qty * 3);
+  assert.equal(buy.members.reduce((sum, m) => sum + m.option.qty, 0), buy.qty);
 
   const result = carryOutGroup(state, buy);
-  assert.deepEqual(result, { ok: true, count: 3, error: null });
+  assert.deepEqual(result, { ok: true, count: buy.members.length, error: null });
   advance(state, state.now + 60 * 60_000);
-  for (const kite of kites) assert.equal(kite.cargo[buy.good], own.qty);
+  for (const { shipId, option } of buy.members) assert.equal(state.ships.find((s) => s.id === shipId).cargo[buy.good], option.qty);
 });
 
 test('a group buy never asks for more than the credits pay for', () => {
@@ -204,39 +195,18 @@ test('a group buy never asks for more than the credits pay for', () => {
   assert.equal(buy.members.reduce((sum, m) => sum + m.option.qty, 0), buy.qty);
 });
 
-test('haulers docked together can bring a good to another station', () => {
-  const state = newGame({ credits: 100_000 });
-  const kites = [1, 2].map(() => createShip(state, 'kite', 'halcyon-refinery'));
-  const trades = groupOrderOptions(state, kites, station('halcyon-foundry')).filter((o) => o.kind === 'trade');
-  assert.ok(trades.length >= 1);
-  const [trade] = trades;
-  assert.equal(trade.fromId, 'halcyon-refinery');
-  assert.ok(trade.profit > 0 && trade.members.length >= 1);
-  assert.equal(trade.members.reduce((sum, m) => sum + m.option.qty, 0), trade.qty);
-  assert.equal(carryOutGroup(state, trade).count, trade.members.length);
-  for (const { shipId } of trade.members) {
-    const kite = state.ships.find((s) => s.id === shipId);
-    assert.equal(kite.order.type, 'buy');
-    assert.equal(kite.queue[0].type, 'sell');
-  }
-});
-
-test('haulers elsewhere can take a good from a station to its best buyer together', () => {
+test('haulers buying together for one buyer stop at what still pays there', () => {
   const state = newGame({ credits: 100_000 });
   const kites = [1, 2].map(() => createShip(state, 'kite', 'halcyon-foundry'));
-  const takes = groupOrderOptions(state, kites, station('halcyon-refinery')).filter((o) => o.kind === 'trade');
-  assert.ok(takes.length >= 1);
-  const [take] = takes;
-  assert.ok(take.outbound);
-  assert.equal(take.fromId, 'halcyon-refinery');
-  assert.equal(take.stationId, 'halcyon-foundry');
-  assert.ok(take.profit > 0);
-  assert.equal(take.members.reduce((sum, m) => sum + m.option.qty, 0), take.qty);
-  assert.equal(carryOutGroup(state, take).count, take.members.length);
-  for (const { shipId } of take.members) {
+  const buy = groupOrderOptions(state, kites, station('halcyon-refinery')).find((o) => o.kind === 'buy' && o.destId);
+  assert.ok(buy, 'a buy with a buyer');
+  assert.equal(buy.destId, 'halcyon-foundry');
+  assert.ok(buy.profit > 0);
+  assert.equal(buy.members.reduce((sum, m) => sum + m.option.qty, 0), buy.qty);
+  assert.equal(carryOutGroup(state, buy).count, buy.members.length);
+  for (const { shipId } of buy.members) {
     const kite = state.ships.find((s) => s.id === shipId);
     assert.equal(kite.order.type, 'buy');
-    assert.equal(kite.queue[0].type, 'sell');
-    assert.equal(kite.queue[0].stationId, 'halcyon-foundry');
+    assert.equal(kite.queue.length, 0);
   }
 });

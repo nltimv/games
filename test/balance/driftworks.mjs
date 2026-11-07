@@ -26,7 +26,7 @@
 // paid until the last tonne.
 //
 // The bot counts one click per thing it does: a menu pick, a button.
-// "Run all again" is one click for every idle ship that repeats its route.
+// Re-running several ships' routes is two clicks: select them, then Run again.
 
 import { createGame } from '../../public/games/driftworks/core/state.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
@@ -426,7 +426,7 @@ function play(profileName, days) {
     }
     if (rerun.length) {
       for (const ship of rerun) runAgain(state, ship);
-      click();
+      click(2);
     }
     // Between work blocks, fill every queue that has room for more rounds.
     if (!active) {

@@ -672,24 +672,6 @@ export function runAgain(state, ship) {
   return giveOrders(state, ship, ship.plan.slice(0, MAX_PLAN));
 }
 
-/** Ships that are idle and could run their last orders again. */
-export function rerunnable(state) {
-  return state.ships.filter((ship) => canRunAgain(state, ship));
-}
-
-/** "Run all again": every idle ship repeats its last orders. */
-export function runAllAgain(state) {
-  let count = 0;
-  let error = null;
-  for (const ship of rerunnable(state)) {
-    const result = runAgain(state, ship);
-    if (result.ok) count += 1;
-    else error ??= `${ship.name}: ${result.error}`;
-  }
-  if (!count) return fail(error ?? 'No ship has orders to run again.');
-  return { ok: true, count };
-}
-
 /**
  * Whether `to` can fly `from`'s plan: the hull suits it (miners mine, haulers
  * buy) and every order that fits in `to`'s slots would work from where it is.

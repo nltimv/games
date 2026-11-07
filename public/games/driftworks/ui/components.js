@@ -94,9 +94,10 @@ export function gateIcon() {
   return art('gate', 30, 40);
 }
 
-export function shipGlyph(hullId) {
+export function shipGlyph(hullId, { small = false } = {}) {
   const role = HULLS[hullId]?.role ?? 'miner';
-  return h('span', { class: `dw-ship-icon${role !== 'miner' ? ` is-${role}` : ''}`, 'aria-hidden': 'true' }, art(`ship-${role}`, 30, 18));
+  const classes = ['dw-ship-icon', role !== 'miner' ? `is-${role}` : '', small ? 'is-small' : ''].filter(Boolean).join(' ');
+  return h('span', { class: classes, 'aria-hidden': 'true' }, small ? art(`ship-${role}`, 20, 12) : art(`ship-${role}`, 30, 18));
 }
 
 /** A "label ··· value" line for summaries. */

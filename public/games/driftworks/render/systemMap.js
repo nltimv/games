@@ -403,23 +403,56 @@ export function drawRing(ctx, targets, ref, style) {
   }
 }
 
+const HIT_RANK = { ship: 0, flock: 0, 'ships-at': 0, station: 1, system: 1, field: 2, gate: 3 };
+
 /**
- * The target under (x, y). Where hit areas overlap (a ship docked next to
- * its station), the one whose middle is closest, measured against its
- * size, wins; ships win a tie.
+ * Everything under (x, y), the one on top first: where hit areas overlap (a
+ * ship docked next to its station), the one whose middle is closest,
+ * measured against its size, wins; ships win a tie. The rest follow in the
+ * same way, so clicking again can pick the one behind.
  */
-export function hitTest(targets, x, y) {
-  const order = { ship: 0, flock: 0, 'ships-at': 0, station: 1, system: 1, field: 2, gate: 3 };
+export function hitsAt(targets, x, y) {
+  const hits = [];
+  const seen = new Set();
   let best = null;
   for (const t of targets) {
     const d = Math.hypot(t.x - x, t.y - y);
     if (!t.r || d > t.r) continue;
-    const score = d / t.r;
-    const rank = order[t.kind] ?? 9;
-    if (!best || score < best.score - 0.05 || (Math.abs(score - best.score) <= 0.05 && rank < best.rank)) best = { ...t, score, rank };
+    const key = `${t.kind}:${t.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const hit = { ...t, score: d / t.r, rank: HIT_RANK[t.kind] ?? 9 };
+    hits.push(hit);
+    if (!best || hit.score < best.score - 0.05 || (Math.abs(hit.score - best.score) <= 0.05 && hit.rank < best.rank)) best = hit;
   }
-  if (!best) return null;
-  return best.ids ? { kind: best.kind, id: best.id, ids: best.ids } : { kind: best.kind, id: best.id };
+  const rest = hits.filter((hit) => hit !== best).sort((a, b) => (Math.abs(a.score - b.score) > 0.05 ? a.score - b.score : a.rank - b.rank));
+  return (best ? [best, ...rest] : []).map((hit) => (hit.ids ? { kind: hit.kind, id: hit.id, ids: hit.ids } : { kind: hit.kind, id: hit.id }));
+}
+
+/** Whether a click target is what is selected (a flock or badge: the same ships). */
+export function isPicked(hit, selection) {
+  if (hit.kind === selection.kind && hit.id === selection.id) return true;
+  if (!hit.ids) return false;
+  const ids = selection.kind === 'ships' ? selection.ids : selection.kind === 'ship' ? [selection.id] : [];
+  return ids.length === hit.ids.length && hit.ids.every((id) => ids.includes(id));
+}
+
+/**
+ * What a click picks from `hits` (see hitsAt). Clicking again on the one
+ * selected picks the next one behind it, and after the last, the first
+ * again. A system last in line is picked again instead, so a second click
+ * on it still opens its map.
+ */
+export function pickNext(hits, selection) {
+  const index = hits.length > 1 && selection ? hits.findIndex((hit) => isPicked(hit, selection)) : -1;
+  if (index < 0) return hits[0] ?? null;
+  if (index === hits.length - 1 && hits[index].kind === 'system') return hits[index];
+  return hits[(index + 1) % hits.length];
+}
+
+/** The target under (x, y): the one on top (see hitsAt). */
+export function hitTest(targets, x, y) {
+  return hitsAt(targets, x, y)[0] ?? null;
 }
 
 /** The ships whose middles lie inside the screen rectangle from a to b. */

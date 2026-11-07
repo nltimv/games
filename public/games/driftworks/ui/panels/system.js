@@ -14,13 +14,14 @@ import { contractMarks } from '../../systems/contracts.js';
 import { chartedSystems, isSurveyed, surveyable, surveyorOf } from '../../systems/explore.js';
 import { marketEntries } from '../../systems/market.js';
 import { isResearched } from '../../systems/research.js';
+import { seenAt } from '../../systems/knowledge.js';
 import { findShip } from '../../systems/fleet.js';
 import { giveOrder } from '../../systems/orders.js';
 import { canJump, jumpFee, jumpTime, shipSystem } from '../../systems/travel.js';
 import { h } from '../dom.js';
 import { button, contractMark, fieldIcon, gateIcon, panelHead, sectionTitle, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { formatPrice, plural, span } from '../format.js';
+import { ago, formatPrice, plural, span } from '../format.js';
 
 const lowerFirst = (text) => text.charAt(0).toLowerCase() + text.slice(1);
 import { richnessLabel } from './field.js';
@@ -139,11 +140,54 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
     h('p', { class: 'dw-note' }, `${sceneryOf(system).star.name} · ${plural(system.planets.length, 'planet')}`),
     special ? h('p', { class: 'dw-note' }, `${faction.short}: ${lowerFirst(special)}.`) : null,
     open,
+    ctx.ui.view === 'galaxy' && isResearched(state, 'market-charts') ? pricesSection(ctx, system) : null,
     ships.length ? h('div', { class: 'dw-section' }, sectionTitle('Your ships here', String(ships.length), { numeric: true }), h('ul', { class: 'dw-list' }, ships.map((ship) => shipRow(ctx, ship)))) : null,
     system.stations.length ? h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)) : null,
     system.fields.length ? h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)) : null,
     h('div', { class: 'dw-section' }, sectionTitle('Warp gates'), h('div', { class: 'dw-list' }, gateRows)),
   ];
+}
+
+/**
+ * Market charts, for one system on the galaxy map: each good traded there,
+ * with the cheapest price a station sells it for and the best one pays.
+ * Picking a good shows it on the map.
+ */
+function pricesSection(ctx, system) {
+  const { state, now, ui } = ctx;
+  const traded = new Set(system.stations.flatMap((station) => marketEntries(station.id).map((entry) => entry.good)));
+  const goods = Object.keys(GOODS).filter((good) => traded.has(good));
+  if (!goods.length) return null;
+  const seen = seenAt(state, system.id, now);
+  const price = (value) => h('span', { class: `dw-price${value == null ? ' is-none' : ''}` }, value == null ? '–' : formatPrice(value));
+  const rows = goods.map((good) => {
+    const { sells, buys } = systemMarket(state, system.id, good, now);
+    return h(
+      'button',
+      {
+        type: 'button',
+        class: 'dw-price-row',
+        'aria-pressed': String(ui.marketGood === good),
+        dataset: { key: `prices-${good}` },
+        onClick: () => ctx.update({ marketGood: ui.marketGood === good ? null : good }),
+      },
+      swatch(good),
+      h('span', { class: 'dw-name' }, goodName(good)),
+      price(sells),
+      price(buys),
+    );
+  });
+  return h(
+    'div',
+    { class: 'dw-section' },
+    sectionTitle('Best prices', seen == null ? 'per tonne' : `seen ${ago(now - seen)}`),
+    h(
+      'div',
+      { class: 'dw-list dw-price-table' },
+      h('div', { class: 'dw-price-row is-head', 'aria-hidden': 'true' }, h('span'), h('span', { class: 'dw-name' }, 'Good'), h('span', null, 'Buy for'), h('span', null, 'Sell for')),
+      rows,
+    ),
+  );
 }
 
 /** A warp gate: where it leads, and what a jump costs. */

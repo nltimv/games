@@ -25,7 +25,8 @@ const SHIPYARD = 'halcyon-shipyard';
 
 const mules = (state) => state.ships.filter((ship) => ship.hull === 'mule');
 const isSelected = (ui, kind, id) => ui.view === 'system' && ui.selection?.kind === kind && ui.selection.id === id;
-const menuOn = (ui, id) => ui.menu?.target.id === id;
+// The place the order menu shows orders for (a station picked in a system's menu counts).
+const menuOn = (ui, id) => (ui.menu?.place ?? ui.menu?.target)?.id === id;
 const key = (k) => `[data-key="${k}"]`;
 
 // Queuing, copying and repeating are shortcuts, so the tutorial only
@@ -229,13 +230,25 @@ Object.assign(GUIDES, {
       if (inGalaxy(ui)) return pickOnGalaxy(state, ui, hauler, '');
       return { text: `Select ${hauler.name}: click it on the map.`, map: ui.systemId === systemOf(hauler.at) ? { kind: 'ship', id: hauler.id } : null, selector: ui.systemId === systemOf(hauler.at) ? null : '[data-view="galaxy"]' };
     }
-    if (ui.view === 'system' && ui.systemId === system.id) {
-      if (menuOn(ui, buyer.id)) return { text: `Pick a Bring or Sell order. ${hauler.name} buys where it is, jumps, and sells here.`, selector: '[data-key^="menu-trade-"], [data-key^="menu-sell-"]' };
-      return { text: `Right-click ${buyer.name} and pick a Bring or Sell order. The menu shows the jumps and fees on the way.`, map: { kind: 'station', id: buyer.id } };
+    // First something to sell: bought where the hauler is.
+    const cargo = projectShip(state, hauler).cargo;
+    const carries = Object.keys(cargo).some((good) => cargo[good] >= 1 && findEntry(buyer.id, good)?.side === 'buys');
+    if (!carries) {
+      const station = findStation(hauler.at);
+      const home = findSystem(systemOf(station.id));
+      if (menuOn(ui, station.id)) return { text: `Pick a Buy order. Its note says where the goods sell best.`, selector: '[data-key^="menu-buy-"]' };
+      if (inGalaxy(ui)) {
+        if (ui.menu?.target.kind === 'system' && ui.menu.target.id === home.id) return { text: `Pick ${station.name}.`, selector: key(`menu-place-${station.id}`) };
+        return { text: `First something to sell. Right-click ${home.name} and pick ${station.name}, where ${hauler.name} is.`, map: { kind: 'system', id: home.id } };
+      }
+      if (ui.systemId !== home.id) return OPEN_GALAXY;
+      return { text: `First something to sell. Right-click ${station.name}, where ${hauler.name} is, and pick a Buy order.`, map: { kind: 'station', id: station.id } };
     }
+    if (menuOn(ui, buyer.id)) return { text: `Pick Sell. ${hauler.name} jumps to ${system.name} and sells there. The menu shows the jumps and fees on the way.`, selector: '[data-key^="menu-sell-"]' };
+    if (ui.view === 'system' && ui.systemId === system.id) return { text: `Right-click ${buyer.name} and pick Sell.`, map: { kind: 'station', id: buyer.id } };
     if (!inGalaxy(ui)) return OPEN_GALAXY;
-    if (ui.menu?.target.kind === 'system' && ui.menu.target.id === system.id) return { text: `Pick Open the ${system.name} map. ${hauler.name} stays selected.`, selector: key('menu-open') };
-    return { text: `${system.name} is surveyed. Right-click it and pick Open the ${system.name} map.`, map: { kind: 'system', id: system.id } };
+    if (ui.menu?.target.kind === 'system' && ui.menu.target.id === system.id) return { text: `Pick ${buyer.name}.`, selector: key(`menu-place-${buyer.id}`) };
+    return { text: `${system.name} is surveyed. Right-click it and pick ${buyer.name} to sell there.`, map: { kind: 'system', id: system.id } };
   },
 });
 

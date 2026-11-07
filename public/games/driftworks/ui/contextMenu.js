@@ -11,6 +11,7 @@ import { findFaction, findField, findGate, findPlace, findStation, findSystem, s
 import { formatCredits } from '../../../shared/js/format.js';
 import { groupOrderOptions, orderOptions } from '../systems/advisor.js';
 import { carryOut, carryOutGroup } from '../systems/commands.js';
+import { marketEntries } from '../systems/market.js';
 import { findShip } from '../systems/fleet.js';
 import { isSurveyed } from '../systems/explore.js';
 import { freeSlots, giveOrder, lowerFirst, orderTimes } from '../systems/orders.js';
@@ -19,12 +20,16 @@ import { canJump } from '../systems/travel.js';
 import { h } from './dom.js';
 import { fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
+import { richnessLabel } from './panels/field.js';
 import { at, minusCredits, plural, plusCredits, routeText, signedCredits, span, timing, tonnes } from './format.js';
 
-function headIcon(target) {
+/** Note parts joined with dots, leaving out the empty ones. */
+const joinNote = (...parts) => parts.filter(Boolean).join(' · ');
+
+function headIcon(target, size = 34) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
-  if (target.kind === 'field') return wrap(fieldIcon(findField(target.id).good, 34));
-  if (target.kind === 'station') return wrap(stationIcon(findStation(target.id).type, { size: 34, tint: stationTint(findStation(target.id)) }));
+  if (target.kind === 'field') return wrap(fieldIcon(findField(target.id).good, size));
+  if (target.kind === 'station') return wrap(stationIcon(findStation(target.id).type, { size, tint: stationTint(findStation(target.id)) }));
   if (target.kind === 'gate') return wrap(gateIcon());
   if (target.kind === 'system') {
     const color = findFaction(findSystem(target.id)?.faction)?.color;
@@ -70,7 +75,7 @@ function describe(option) {
       return {
         label: 'Mine a full hold',
         value: blocked ?? `about ${formatCredits(option.value)}`,
-        note: blocked ? null : `${tonnes(option.qty)} · ${timing(option, 'mining')}`,
+        note: blocked ? null : joinNote(tonnes(option.qty), timing(option, 'mining')),
       };
     case 'mine-amount':
       return { label: 'Mine an amount', value: blocked ?? '›', note: `1 to ${tonnes(option.max)}` };
@@ -85,27 +90,13 @@ function describe(option) {
       return {
         label: `Deliver ${tonnes(option.qty, option.good)}`,
         value: blocked ?? contractValue(option),
-        note: `${option.now ? 'Right now' : timing(option)} · ${progressText(option.contract)}`,
-        good: option.good,
-      };
-    case 'supply':
-      return {
-        label: `${option.outbound ? 'Take' : 'Bring'} ${tonnes(option.qty, option.good)} for ${option.outbound ? 'a' : 'the'} contract`,
-        value: blocked ?? contractValue(option),
-        note: `${option.outbound ? `Delivered to ${placeName(option.stationId, option.fromId)} · bought` : `Bought at ${findStation(option.fromId).name}`} for ${formatCredits(option.cost)} · ${option.jumps ? `${plural(option.jumps, 'jump')}, ${formatCredits(option.fees)}` : '2 orders'}`,
+        note: joinNote(option.now ? 'Right now' : timing(option), progressText(option.contract)),
         good: option.good,
       };
     case 'buy':
-      return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: timing(option), good: option.good };
-    case 'trade':
-      return {
-        label: `${option.outbound ? 'Take' : 'Bring'} ${tonnes(option.qty, option.good)}`,
-        value: blocked ?? `about ${plusCredits(option.profit)}`,
-        note: `${option.outbound ? `Sold at ${placeName(option.stationId, option.fromId)}` : `Bought at ${findStation(option.fromId).name}`} for ${formatCredits(option.outbound ? option.cost + option.profit + option.fees : option.cost)} · ${option.jumps ? `${plural(option.jumps, 'jump')}, ${formatCredits(option.fees)}` : '2 orders'}`,
-        good: option.good,
-      };
+      return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: joinNote(buyUse(option), timing(option)), good: option.good };
     case 'refit':
-      return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost), note: `${modulesText(option.modules)} · ${timing(option, 'refit')}` };
+      return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost), note: joinNote(modulesText(option.modules), timing(option, 'refit')) };
     case 'fly':
       return { label: 'Fly here', value: blocked ?? `arrives ${at(option.endsAt)}`, note: timing(option) };
     case 'jump':
@@ -121,13 +112,16 @@ function describe(option) {
   }
 }
 
-/**
- * What a contract option is worth: the price when it delivers the last
- * tonnes (less what buying them costs, for a hauler), else what it works toward.
- */
+/** What a delivery is worth: the price when it brings the last tonnes, else what it works toward. */
 function contractValue(option) {
-  if (!option.completes) return `toward ${formatCredits(option.reward)}`;
-  return option.kind === 'supply' ? `about ${signedCredits(option.profit)}` : plusCredits(option.reward);
+  return option.completes ? plusCredits(option.reward) : `toward ${formatCredits(option.reward)}`;
+}
+
+/** Where a buy is headed: a contract, the best buyer known, or nowhere better yet. */
+function buyUse(option) {
+  if (option.contract) return `For the contract at ${placeName(option.destId, option.stationId)}${option.completes ? `, which pays ${formatCredits(option.reward)}` : ''}`;
+  if (option.destId) return `Sells for about ${signedCredits(option.profit)} at ${placeName(option.destId, option.stationId)}`;
+  return 'No known buyer pays more';
 }
 
 /** "40 t of 120 t delivered": how far a contract is. */
@@ -148,11 +142,10 @@ export function modulesText(modules) {
 }
 
 function optionKey(option) {
-  if (option.kind === 'supply') return `menu-supply-${option.good}-${option.stationId}`;
-  return `menu-${option.outbound ? 'take' : option.kind}-${option.good ?? ''}`;
+  return `menu-${option.kind}-${option.good ?? ''}`;
 }
 
-/** Where a trade sells: the station, and its system when that is another one and the name does not say. */
+/** Where goods go: the station, and its system when that is another one and the name does not say. */
 function placeName(stationId, fromId) {
   const station = findStation(stationId);
   const system = findSystem(systemOf(stationId));
@@ -180,10 +173,14 @@ function shipLine(state, ship) {
   return `${ship.name} is busy · ${free} of ${orderSlots(state)} orders free`;
 }
 
-/** The menu's content. `ctx` is the app context; `menu` is ui.menu. */
+/**
+ * The menu's content. `ctx` is the app context; `menu` is ui.menu. On the
+ * galaxy map a system's menu lists its stations and fields; picking one
+ * opens its orders as a sub-menu (`menu.place`), with a way back.
+ */
 export function orderMenu(ctx, menu) {
   const { state, now } = ctx;
-  const target = menu.target;
+  const target = menu.place ?? menu.target;
   const ship = findShip(state, menu.shipId);
   const { title, subtitle } = heading(state, target);
   const parts = [
@@ -194,7 +191,7 @@ export function orderMenu(ctx, menu) {
       h('span', { class: 'dw-grow' }, h('strong', { id: 'menu-title' }, title), h('small', null, subtitle)),
     ),
   ];
-  if (menu.shipIds) return parts.concat(groupItems(ctx, menu));
+  if (menu.shipIds) return parts.concat(groupItems(ctx, menu, target));
   if (!ship) return parts;
 
   if (menu.slider && target.kind === 'field') {
@@ -216,9 +213,10 @@ export function orderMenu(ctx, menu) {
   }
 
   const options = orderOptions(state, ship, target, now);
+  const places = target.kind === 'system' ? placeItems(ctx, menu, [ship]) : null;
+  if (options.length || places) parts.push(h('p', { class: 'dw-menu-note' }, shipLine(state, ship)));
   if (options.length) {
     parts.push(
-      h('p', { class: 'dw-menu-note' }, shipLine(state, ship)),
       h(
         'div',
         { class: 'dw-menu-items', role: 'group', 'aria-label': `Orders for ${ship.name}` },
@@ -239,17 +237,66 @@ export function orderMenu(ctx, menu) {
         }),
       ),
     );
-  } else {
+  } else if (!places) {
     parts.push(h('p', { class: 'dw-menu-note' }, emptyNote(state, ship, target)));
   }
-
-  parts.push(...menuLinks(ctx, target));
+  parts.push(places, ...menuLinks(ctx, menu, target));
   return parts;
 }
 
-/** Details, and for a surveyed system its map (the selected ships stay selected). */
-function menuLinks(ctx, target) {
+/**
+ * The stations and fields of a surveyed system the ships can work at, each
+ * opening its own orders. Fields only for miners, nothing for scouts.
+ */
+function placeItems(ctx, menu, ships) {
+  const system = findSystem(menu.target.id);
+  if (!system || system.hazard || !canJump(ctx.state) || !isSurveyed(ctx.state, system.id)) return null;
+  const roles = new Set(ships.map((ship) => HULLS[ship.hull].role));
+  const places = [
+    ...(roles.has('miner') ? system.fields.map((field) => ({ kind: 'field', place: field, note: `${goodName(field.good)} · ${richnessLabel(field.richness).toLowerCase()}` })) : []),
+    ...(roles.has('miner') || roles.has('hauler') ? system.stations.map((station) => ({ kind: 'station', place: station, note: stationNote(station) })) : []),
+  ];
+  if (!places.length) return null;
+  return h(
+    'div',
+    { class: 'dw-menu-items is-places', role: 'group', 'aria-label': `Places in ${system.name}` },
+    places.map(({ kind, place, note }) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'dw-menu-item is-place',
+          dataset: { key: `menu-place-${place.id}`, menuItem: '' },
+          onClick: () => {
+            ctx.update({ menu: { ...menu, place: { kind, id: place.id }, slider: null } });
+            requestAnimationFrame(() => document.querySelector('#menu [data-menu-item]:not(:disabled)')?.focus());
+          },
+        },
+        h('span', { class: 'dw-menu-row' }, headIcon({ kind, id: place.id }, 26), h('strong', { class: 'dw-grow' }, place.name), h('span', { class: 'dw-menu-value', 'aria-hidden': 'true' }, '›')),
+        h('small', null, note),
+      ),
+    ),
+  );
+}
+
+/** What a station trades, in a few words: "Buys 6 goods · sells iron, silicon". */
+function stationNote(station) {
+  const entries = marketEntries(station.id);
+  const sells = entries.filter((entry) => entry.side === 'sells').map((entry) => goodName(entry.good).toLowerCase());
+  const buys = entries.filter((entry) => entry.side === 'buys').length;
+  const parts = [STATION_TYPES[station.type].label];
+  if (buys) parts.push(`buys ${plural(buys, 'good')}`);
+  if (sells.length) parts.push(`sells ${sells.join(', ')}`);
+  return parts.join(' · ');
+}
+
+/**
+ * Back to the system (in a sub-menu), details, and for a surveyed system
+ * its map (the selected ships stay selected).
+ */
+function menuLinks(ctx, menu, target) {
   const links = [];
+  if (menu.place) links.push(menuButton(`Back to ${findSystem(menu.target.id)?.name ?? 'the system'}`, '‹', 'menu-back', () => ctx.update({ menu: { ...menu, place: null, slider: null } })));
   if (target.kind === 'system' && isSurveyed(ctx.state, target.id)) {
     links.push(menuButton(`Open the ${findSystem(target.id).name} map`, '›', 'menu-open', () => ctx.openSystem(target.id)));
   }
@@ -280,22 +327,8 @@ function describeGroup(option) {
       };
     case 'deliver':
       return { label: `Deliver ${tonnes(option.qty, option.good)}`, value: blocked ?? contractValue(option), note: progressText(option.contract), good: option.good };
-    case 'supply':
-      return {
-        label: `${option.outbound ? 'Take' : 'Bring'} ${tonnes(option.qty, option.good)} for ${option.outbound ? 'a' : 'the'} contract`,
-        value: blocked ?? contractValue(option),
-        note: option.outbound ? `to ${placeName(option.stationId, option.fromId)}` : `from ${findStation(option.fromId).name} for ${formatCredits(option.cost)}`,
-        good: option.good,
-      };
     case 'buy':
-      return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), good: option.good };
-    case 'trade':
-      return {
-        label: `${option.outbound ? 'Take' : 'Bring'} ${tonnes(option.qty, option.good)}`,
-        value: blocked ?? `about ${plusCredits(option.profit)}`,
-        note: option.outbound ? `to ${placeName(option.stationId, option.fromId)}` : `from ${findStation(option.fromId).name} for ${formatCredits(option.cost)}`,
-        good: option.good,
-      };
+      return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: option.disabled ? null : lowerFirst(buyUse(option)), good: option.good };
     case 'refit':
       return { label: 'Refit with the newest modules', value: blocked ?? minusCredits(option.cost) };
     case 'fly':
@@ -308,16 +341,15 @@ function describeGroup(option) {
 }
 
 function groupKey(option) {
-  if (option.kind === 'supply') return `menu-supply-${option.good}-${option.stationId}-${option.fromId}`;
-  if (option.outbound) return `menu-take-${option.good}-${option.stationId}`;
-  return `menu-${option.kind}-${option.good ?? ''}${option.kind === 'trade' ? `-${option.fromId}` : ''}`;
+  return `menu-${option.kind}-${option.good ?? ''}`;
 }
 
 /** The menu for several selected ships: each order goes to every ship that can take it. */
-function groupItems(ctx, menu) {
+function groupItems(ctx, menu, target) {
   const { state, now } = ctx;
   const ships = menu.shipIds.map((id) => findShip(state, id)).filter(Boolean);
-  const options = groupOrderOptions(state, ships, menu.target, now);
+  const options = groupOrderOptions(state, ships, target, now);
+  const places = target.kind === 'system' ? placeItems(ctx, menu, ships) : null;
   const parts = [h('p', { class: 'dw-menu-note' }, `${ships.length} ships selected`)];
   if (options.length) {
     parts.push(
@@ -335,10 +367,10 @@ function groupItems(ctx, menu) {
         }),
       ),
     );
-  } else {
+  } else if (!places) {
     parts.push(h('p', { class: 'dw-menu-note' }, 'None of these ships has anything to do here.'));
   }
-  parts.push(...menuLinks(ctx, menu.target));
+  parts.push(places, ...menuLinks(ctx, menu, target));
   return parts;
 }
 

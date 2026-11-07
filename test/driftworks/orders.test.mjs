@@ -22,7 +22,6 @@ import {
   repeatToFill,
   roomForRounds,
   runAgain,
-  runAllAgain,
   shipStatus,
 } from '../../public/games/driftworks/systems/orders.js';
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
@@ -231,21 +230,6 @@ test('run again and repeat are only offered when the orders would work', () => {
   ship.plan = [mine('carbon-drift'), sell()];
   assert.ok(canRunAgain(state, ship));
   assert.equal(canRepeat(state, ship), false, 'with 2 slots an idle ship fits one round: that is Run again');
-});
-
-test('run all again restarts every idle ship with a plan', () => {
-  const state = newGame();
-  const a = firstShip(state);
-  const b = createShip(state, 'mule', 'halcyon-refinery');
-  createShip(state, 'mule', 'halcyon-refinery'); // never had orders
-  for (const ship of [a, b]) {
-    giveOrder(state, ship, mine('kx14'));
-    giveOrder(state, ship, sell());
-  }
-  advance(state, T0 + 30 * MINUTE);
-  const result = runAllAgain(state);
-  assert.deepEqual(result, { ok: true, count: 2 });
-  assert.ok(a.order && b.order);
 });
 
 test('copy orders gives a ship another ship\'s plan, if its hull can fly it', () => {

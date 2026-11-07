@@ -97,6 +97,15 @@ export function resetView(cam) {
   cam.panTarget = null;
 }
 
+/** Starts a map at `zoom`, centred on world point (x, y), or on the whole map. */
+export function startView(cam, { zoom = 1, x = 0, y = 0 } = {}, extent = Infinity) {
+  resetView(cam);
+  cam.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+  cam.panX = x;
+  cam.panY = y;
+  clampPan(cam, extent);
+}
+
 /** Eases the pan toward cam.panTarget. Returns true while moving. */
 export function easePan(cam, extent, ease = 0.2) {
   const target = cam.panTarget;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hitTest, shipsInBox } from '../../public/games/driftworks/render/systemMap.js';
+import { hitsAt, hitTest, pickNext, shipsInBox } from '../../public/games/driftworks/render/systemMap.js';
 import { flock, flockName } from '../../public/games/driftworks/render/flocks.js';
 
 const station = { kind: 'station', id: 'halcyon-refinery', x: 100, y: 100, r: 21 };
@@ -41,4 +41,29 @@ test('a flock is clicked as one, and its ships are still box-selected one by one
   assert.deepEqual(hitTest(targets, 100, 100), { kind: 'flock', id: 'a', ids: ['a', 'b'] });
   assert.deepEqual(hitTest(targets, 205, 100), { kind: 'station', id: 's' });
   assert.deepEqual(shipsInBox(targets, { x: 80, y: 80 }, { x: 120, y: 120 }), ['a', 'b']);
+});
+
+test('clicking again where things overlap picks the one behind, then the first again', () => {
+  const targets = [station, docked];
+  const hits = hitsAt(targets, 117, 100);
+  assert.deepEqual(hits, [
+    { kind: 'ship', id: 'ship-1' },
+    { kind: 'station', id: 'halcyon-refinery' },
+  ]);
+  assert.deepEqual(pickNext(hits, null), { kind: 'ship', id: 'ship-1' });
+  assert.deepEqual(pickNext(hits, { kind: 'ship', id: 'ship-1' }), { kind: 'station', id: 'halcyon-refinery' });
+  assert.deepEqual(pickNext(hits, { kind: 'station', id: 'halcyon-refinery' }), { kind: 'ship', id: 'ship-1' });
+  assert.deepEqual(pickNext(hits, { kind: 'field', id: 'elsewhere' }), { kind: 'ship', id: 'ship-1' }, 'something else selected: the top one');
+  assert.deepEqual(pickNext(hitsAt(targets, 103, 98), { kind: 'station', id: 'halcyon-refinery' }), { kind: 'station', id: 'halcyon-refinery' }, 'nothing behind: the same one');
+});
+
+test('a flock of selected ships passing a system gives way to the system, and a second click there opens it', () => {
+  const targets = [
+    { kind: 'system', id: 'dace', x: 100, y: 100, r: 16 },
+    { kind: 'flock', id: 'a', ids: ['a', 'b'], x: 104, y: 100, r: 14 },
+  ];
+  const hits = hitsAt(targets, 103, 100);
+  assert.deepEqual(hits.map((hit) => hit.kind), ['flock', 'system']);
+  assert.deepEqual(pickNext(hits, { kind: 'ships', ids: ['b', 'a'] }), { kind: 'system', id: 'dace' });
+  assert.deepEqual(pickNext(hits, { kind: 'system', id: 'dace' }), { kind: 'system', id: 'dace' });
 });

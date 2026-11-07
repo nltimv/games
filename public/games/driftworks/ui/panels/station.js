@@ -210,19 +210,8 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     }),
   );
 
-  const send = () => {
-    const result = ctx.act((s) => {
-      const ship = findShip(s, hauler.id);
-      const bought = buyCargo(s, ship, good, qty);
-      if (!bought.ok) return bought;
-      return giveOrder(s, ship, { type: 'sell', stationId: chosen.dest.id, good });
-    });
-    if (result?.ok) {
-      ctx.update({ trade: null });
-      orderToast(ctx, hauler, result);
-    }
-  };
-  const buyOnly = () => {
+  // One order at a time: selling is the next one, given at the buyer.
+  const buy = () => {
     const result = ctx.act((s) => buyCargo(s, findShip(s, hauler.id), good, qty));
     if (result?.ok) ctx.update({ trade: null });
   };
@@ -248,8 +237,7 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     h(
       'div',
       { class: 'dw-row-actions' },
-      button(`Buy and send ${hauler.name}`, { variant: 'primary', onClick: send, key: 'trade-send' }),
-      button('Buy only', { onClick: buyOnly, key: 'trade-buy-only' }),
+      button(`Buy ${tonnes(plan.qty, good)}`, { variant: 'primary', onClick: buy, key: 'trade-buy', sub: minusCredits(plan.buy.total) }),
     ),
   );
 }

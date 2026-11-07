@@ -41,7 +41,7 @@ const NEBULAE = [
   'rgba(112, 40, 40, 0.55)',
 ];
 
-// Aurel's sky, also the galaxy map's.
+// Aurel's sky.
 export const HOME_SKY = {
   base: BASES[0],
   glows: [
