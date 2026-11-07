@@ -50,10 +50,11 @@ export const RESEARCH = [
   { id: 'shield-ion', name: 'Ion shielding', hazard: 'ion storms', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
   { id: 'shield-radiation', name: 'Radiation shielding', hazard: 'radiation', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
   // Act 3: Pathfinder.
+  { id: 'deep-shielding', name: 'Deep shielding', shields: 3, cost: 6000000, minutes: 960, effect: 'Every ship can enter the systems past 8 lanes from home, whatever their hazard.' },
   {
     id: 'station-blueprints',
     name: 'Station blueprints',
-    shields: 3,
+    needs: ['deep-shielding'],
     cost: 7000000,
     minutes: 1440,
     effect: 'Plans for your own stations.',

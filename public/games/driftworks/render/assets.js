@@ -41,6 +41,7 @@ export const ASSETS = {
   'station-foundry': { file: 'station-foundry.svg' },
   'station-tradingPost': { file: 'station-post.svg' },
   'station-shipyard': { file: 'station-shipyard.svg' },
+  'station-factory': { file: 'station-factory.svg' },
   gate: { file: 'gate.svg' },
   'ship-miner': { file: 'ship-miner.svg' },
   'ship-hauler': { file: 'ship-hauler.svg' },

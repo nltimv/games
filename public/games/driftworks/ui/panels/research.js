@@ -32,7 +32,7 @@ export function researchEffect(research, state = null) {
     case 'queue':
       return `Every ship holds ${ORDER_SLOTS[level]} orders.`;
     case 'seal':
-      return 'Haulers carry processed materials. Fitted at the shipyard.';
+      return 'Haulers carry processed materials and components. Fitted at the shipyard.';
     default:
       return '';
   }

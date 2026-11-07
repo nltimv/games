@@ -27,8 +27,17 @@
 //
 // The bot counts one click per thing it does: a menu pick, a button.
 // Re-running several ships' routes is two clicks: select them, then Run again.
+//
+// Starting from a save: act 3 takes weeks of game time, so a run can save
+// the game when it reaches a goal and later runs can start from there:
+//   npm run balance -- worker 16 --save-at=first-shielding:/tmp/act3.json
+//   npm run balance -- worker 8 --from=/tmp/act3.json
+// A run from a save starts the next morning, with no first session.
+// --save-at=day5:/tmp/day5.json saves at the end of a day instead.
 
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createGame } from '../../public/games/driftworks/core/state.js';
+import { deserialize, serialize } from '../../public/games/driftworks/core/save.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { HOUR, MINUTE, SECOND } from '../../public/games/driftworks/core/time.js';
 import { GOALS } from '../../public/games/driftworks/content/goals.js';
@@ -36,7 +45,7 @@ import { RESEARCH, SHIELDINGS } from '../../public/games/driftworks/content/rese
 import { HULLS } from '../../public/games/driftworks/content/ships.js';
 import { GOODS } from '../../public/games/driftworks/content/goods.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
-import { allSystems, lanesFrom, systemOf } from '../../public/games/driftworks/content/galaxy.js';
+import { allSystems, lanesFrom, systemOf, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
 import { checkGoals } from '../../public/games/driftworks/systems/goals.js';
 import { buyShip, hullLock, missingLicence, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
 import { isSurveyed, knownStations, surveyable, surveyorOf } from '../../public/games/driftworks/systems/explore.js';
@@ -55,9 +64,10 @@ import {
   refitOffer,
   repeatToFill,
   roomForRounds,
+  canRunAgain,
   runAgain,
 } from '../../public/games/driftworks/systems/orders.js';
-import { freeLab, orderSlots, researchCost, researchStatus, startResearch } from '../../public/games/driftworks/systems/research.js';
+import { freeLab, orderSlots, researchCost, researchStatus, shieldingsDone, startResearch } from '../../public/games/driftworks/systems/research.js';
 import { SHIELDED_DEPTH, isShielded } from '../../public/games/driftworks/systems/shielding.js';
 import { bestBuyer, bestTradeQty, saleValue, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
 import { affordableQty, marketEntries, marketView, findEntry } from '../../public/games/driftworks/systems/market.js';
@@ -79,11 +89,17 @@ const RERUN_AT = 0.6;
 // A trade must make at least this much to be worth a hauler's trip.
 const MIN_TRADE = 20;
 
-function play(profileName, days) {
+function play(profileName, days, { from = null, saveAt = {} } = {}) {
   const profile = PROFILES[profileName];
-  const T0 = Date.UTC(2026, 10, 2, 9, 0, 0);
-  const state = createGame({ now: T0, seed: 20261106 });
-  const report = { profileName, days, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [], contracts: [] };
+  const DAY = 24 * HOUR;
+  const state = from ? deserialize(readFileSync(from, 'utf8')) : createGame({ now: Date.UTC(2026, 10, 2, 9, 0, 0), seed: 20261106 });
+  if (!state) throw new Error(`Could not load ${from}`);
+  useGalaxy(state.seed);
+  // A run from a save starts at 9:00 on the morning after it.
+  const T0 = from ? Math.floor(state.now / DAY) * DAY + DAY + 9 * HOUR : state.now;
+  const report = { profileName, days, from, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [], contracts: [] };
+  for (const id of state.goals) report.goals[id] = -Infinity;
+  report.startStats = structuredClone(state.stats);
   let clicks = 0;
 
   const click = (n = 1) => {
@@ -162,7 +178,7 @@ function play(profileName, days) {
    * start included. `homeOnly` keeps it in Aurel (to compare routes between
    * systems with home trade).
    */
-  function bestTrade(ship, now, homeOnly = false) {
+  function bestTrade(ship, now, homeOnly = false, minTier = 0) {
     let best = null;
     const stations = homeOnly ? HOME_SYSTEM.stations : knownStations(state);
     const room = holdOf(ship) - cargoTotal(ship);
@@ -170,7 +186,7 @@ function play(profileName, days) {
       const start = ship.at === from.id ? { ok: true, time: 0, fees: 0 } : plotCourse(state, ship, ship.at, from.id);
       if (!start.ok) continue;
       for (const entry of marketEntries(from.id)) {
-        if (entry.side !== 'sells' || !canCarry(ship, entry.good)) continue;
+        if (entry.side !== 'sells' || !canCarry(ship, entry.good) || GOODS[entry.good].tier < minTier) continue;
         const max = affordableQty(state, from.id, entry.good, cash() * 0.8, room, now);
         if (max <= 0) continue;
         const cost = marketView(state, from.id, entry.good, now).price;
@@ -370,8 +386,9 @@ function play(profileName, days) {
       .map((r) => ({ r, opens: openedBy(r) }))
       .sort((a, b) => b.opens - a.opens)[0]?.r ?? null;
 
-  // The goal that ends each act, and the research it needs: the bot saves for it once it is the goal.
-  const ACT_ENDS = { 'warp-drive': () => RESEARCH.find((r) => r.id === 'warp-drive'), 'first-shielding': bestShielding };
+  // Goals that need a research, such as the one that ends each act: the bot saves for it once it is the goal.
+  const byId = (id) => () => RESEARCH.find((r) => r.id === id);
+  const ACT_ENDS = { 'warp-drive': byId('warp-drive'), 'sell-processed': byId('sealed-holds'), 'first-shielding': bestShielding };
   const currentGoalId = () => GOALS.find((g) => !state.goals.includes(g.id))?.id;
   const actEnd = () => {
     const research = ACT_ENDS[currentGoalId()]?.();
@@ -395,9 +412,14 @@ function play(profileName, days) {
 
   // ---------- One look at the game ----------
 
+  let lastDay = null;
+  let freshDay = false;
   function check(now, active) {
     step(now);
     const before = clicks;
+    const today = Math.floor(now / (24 * HOUR));
+    freshDay = today !== lastDay;
+    lastDay = today;
 
     // Research: the lab never waits if the next project is affordable.
     // Once the warp drive is the current goal, the bot saves for it.
@@ -417,7 +439,9 @@ function play(profileName, days) {
       const wantHaulers = (mules >= 2 ? 1 : 0) + (mules >= 5 ? 1 : 0) + (mules >= 9 ? 1 : 0) + (canJump(state) ? Math.floor(mules / 2) : 0);
       const scouts = state.ships.filter((s) => role(s) === 'scout').length;
       const hauler = !hullLock(state, 'heron', 'halcyon-shipyard') ? 'heron' : 'kite';
-      const hull = !missingLicence(state, 'lark') && scouts < 1 ? 'lark' : !missingLicence(state, 'kite') && haulers < wantHaulers ? hauler : 'mule';
+      // One scout in act 2; three once shielding opens the deep galaxy.
+      const wantScouts = shieldingsDone(state) > 0 ? 3 : 1;
+      const hull = !missingLicence(state, 'lark') && scouts < wantScouts ? 'lark' : !missingLicence(state, 'kite') && haulers < wantHaulers ? hauler : 'mule';
       const next = nextResearch();
       const reserve = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? costOf(next) : Math.min(costOf(next), shipPrice(state));
       const price = shipPrice(state);
@@ -464,11 +488,21 @@ function play(profileName, days) {
     }
 
     checkGoals(state, now);
-    for (const id of state.goals) report.goals[id] ??= now;
+    for (const id of state.goals) {
+      report.goals[id] ??= now;
+      if (saveAt[id]) {
+        writeFileSync(saveAt[id], serialize(state));
+        delete saveAt[id];
+      }
+    }
     return clicks - before;
   }
 
   function keepPlan(ship, now) {
+    // Run again is greyed out when the plan's first order cannot start.
+    if (!canRunAgain(state, ship)) return false;
+    // Once a day the bot looks for a better route for each hauler.
+    if (role(ship) === 'hauler' && freshDay) return false;
     // A contract run goes on while its contract still needs more.
     const delivery = ship.plan.find((s) => s.type === 'deliver');
     if (delivery) {
@@ -525,8 +559,10 @@ function play(profileName, days) {
         click(given.given ?? 0);
       }
     } else {
-      const trade = bestTrade(ship, now);
-      const supply = bestSupply(ship, now);
+      // A player after "Sell steel or glass" sends a hauler on a tier 3 run, even if another route pays more.
+      const forGoal = currentGoalId() === 'sell-processed' && canCarry(ship, 'steel') ? bestTrade(ship, now, false, 3) : null;
+      const trade = forGoal ?? bestTrade(ship, now);
+      const supply = forGoal ? null : bestSupply(ship, now);
       if (supply && supply.rate > (trade?.rate ?? 0)) {
         const given = giveOrders(state, ship, [
           { type: 'buy', stationId: supply.from, good: supply.contract.good, qty: supply.qty },
@@ -557,8 +593,8 @@ function play(profileName, days) {
   // ---------- The schedule ----------
 
   const STEP = 20 * SECOND;
-  let t = T0;
-  for (; t < T0 + profile.firstSession * MINUTE; t += STEP) {
+  let t = from ? state.now : T0;
+  for (; !from && t < T0 + profile.firstSession * MINUTE; t += STEP) {
     const n = check(t, true);
     if (n) report.session.push({ at: (t - T0) / MINUTE, n });
   }
@@ -587,6 +623,8 @@ function play(profileName, days) {
       report.idleAfter.push((busyUntil - last) / MINUTE);
     }
     step(dayStart + 33 * HOUR);
+    // --save-at=day5:path saves at the end of day 5.
+    if (saveAt[`day${day + 1}`]) writeFileSync(saveAt[`day${day + 1}`], serialize(state));
     report.perDay.push({
       day: day + 1,
       earned: Math.round(state.stats.earned - earnedBefore),
@@ -619,9 +657,9 @@ function clock(report, at) {
 
 function print(report) {
   const { state } = report;
-  const firstSession = PROFILES[report.profileName].firstSession;
+  const firstSession = report.from ? 0 : PROFILES[report.profileName].firstSession;
   const looks = report.breaks.length ? `, then ${report.days} days` : '';
-  console.log(`\n== ${report.profileName}: ${firstSession} min first session${looks}`);
+  console.log(`\n== ${report.profileName}: ${report.from ? `from ${report.from}` : `${firstSession} min first session`}${looks}`);
   for (const [a, b] of [[0, 5], [5, 15], [15, 30], [30, 60]].filter(([a]) => a < firstSession)) {
     const inWindow = report.session.filter((s) => s.at >= a && s.at < b);
     const times = [a, ...inWindow.map((s) => s.at)];
@@ -646,7 +684,7 @@ function print(report) {
   console.log('  goals:');
   for (const goal of GOALS) {
     const at = report.goals[goal.id];
-    console.log(`    ${goal.title.padEnd(42)} ${at == null ? 'not reached' : clock(report, at)}`);
+    console.log(`    ${goal.title.padEnd(42)} ${at == null ? 'not reached' : at === -Infinity ? 'before the save' : clock(report, at)}`);
   }
   console.log(`  total clicks ${report.clicks}, credits ${Math.round(state.credits)}, earned ${Math.round(state.stats.earned)}, research ${state.research.done.length}/${RESEARCH.length}`);
   const share = (report.contractPay / Math.max(1, state.stats.earned)) * 100;
@@ -655,26 +693,32 @@ function print(report) {
     `  contracts: ${state.stats.contractsAccepted} accepted, ${state.stats.contracts} complete, ${Math.round(report.contractPay)} cr paid (${share.toFixed(0)}% of earnings); first accepted ${first ? clock(report, first.at) : 'never'}`,
   );
   const warp = report.research.find((r) => r.id === 'warp-drive');
-  if (warp) {
-    const stats = state.stats;
+  if (canJump(state)) {
+    // This run's share of the counts, for runs from a save.
+    const stats = Object.fromEntries(Object.entries(state.stats).map(([key, value]) => [key, typeof value === 'number' ? value - (report.startStats[key] ?? 0) : value]));
+    stats.tierProfit = Object.fromEntries(Object.entries(state.stats.tierProfit ?? {}).map(([tier, p]) => [tier, p - (report.startStats.tierProfit?.[tier] ?? 0)]));
     const ratio = median(report.tradeRates);
     const shielded = report.goals['first-shielding'];
-    console.log(`  act 2: ${state.surveyed.length} systems surveyed, ${stats.jumps} jumps, ${stats.farSales} sales in other systems`);
+    console.log(`  galaxy: ${state.surveyed.length} systems surveyed, ${stats.jumps} jumps, ${stats.farSales} sales in other systems, ${Math.round(stats.chartPay ?? 0)} cr for charts`);
     const traded = stats.tradeProfit + report.contractMargin;
     console.log(`    jump fees ${Math.round(stats.jumpFees)} cr, ${((stats.jumpFees / Math.max(1, traded + stats.jumpFees)) * 100).toFixed(0)}% of trade profit before fees (contracts for bought goods count as trade)`);
     console.log(`    routes between systems pay ${ratio ? ratio.toFixed(2) : '-'}x the best home trade (median of ${report.tradeRates.length} picks)`);
     console.log(`    standing: ${Object.entries(state.standing).map(([id, p]) => `${id} ${Math.floor(p)}`).join(', ')}`);
-    console.log(`    first hazard shielding ${shielded ? `${((shielded - warp.at) / (24 * HOUR)).toFixed(1)} days after starting the warp drive` : 'not reached'}`);
+    if (warp) console.log(`    first hazard shielding ${shielded ? `${((shielded - warp.at) / (24 * HOUR)).toFixed(1)} days after starting the warp drive` : 'not reached'}`);
     const tiers = Object.entries(stats.tierProfit ?? {});
     const profit = tiers.reduce((sum, [, p]) => sum + Math.max(0, p), 0);
     console.log(`    sales profit by tier: ${tiers.map(([tier, p]) => `tier ${tier} ${((Math.max(0, p) / Math.max(1, profit)) * 100).toFixed(0)}%`).join(', ')}`);
   }
 }
 
-const [first = 'worker', second] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const flag = (name) => args.filter((a) => a.startsWith(`--${name}=`)).map((a) => a.slice(name.length + 3));
+const [first = 'worker', second] = args.filter((a) => !a.startsWith('--'));
 const names = first === 'all' ? Object.keys(PROFILES) : [first];
 const days = Number(second ?? 6);
+const from = flag('from')[0] ?? null;
+const saveAt = Object.fromEntries(flag('save-at').map((s) => [s.slice(0, s.indexOf(':')), s.slice(s.indexOf(':') + 1)]));
 for (const name of names) {
   if (!PROFILES[name]) throw new Error(`Unknown profile "${name}". Try: ${Object.keys(PROFILES).join(', ')}, all`);
-  print(play(name, days));
+  print(play(name, days, { from, saveAt: { ...saveAt } }));
 }

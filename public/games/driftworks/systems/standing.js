@@ -60,7 +60,11 @@ export function openStanding(state) {
 
 /** Adds standing for a trade of `credits` at a station, and logs a new level. */
 export function earnStanding(state, stationId, credits, at = state.now) {
-  const factionId = findStation(stationId)?.faction;
+  earnFactionStanding(state, findStation(stationId)?.faction, credits, at);
+}
+
+/** Adds standing with a faction for `credits` of business with it. */
+export function earnFactionStanding(state, factionId, credits, at = state.now) {
   if (!factionId || credits <= 0 || !counts(state)) return;
   const before = standingLevel(state, factionId);
   state.standing ??= {};

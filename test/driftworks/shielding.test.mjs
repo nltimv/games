@@ -74,9 +74,9 @@ test('each hazard shielding costs more than the one before, whichever hazard it 
   state.research.active = null;
   state.research.done.push('shield-ion', 'shield-radiation');
   assert.equal(researchCost(state, debris), 5_000_000);
-  assert.equal(canStartResearch(state, 'station-blueprints').ok, false);
+  assert.equal(canStartResearch(state, 'deep-shielding').ok, false);
   state.research.done.push('shield-debris');
-  assert.equal(researchStatus(state, findResearch('station-blueprints')), 'open');
+  assert.equal(researchStatus(state, findResearch('deep-shielding')), 'open');
 });
 
 test('sealed holds let refitted haulers carry processed materials; Mules keep standard holds', () => {
@@ -122,4 +122,41 @@ test('a version 4 save gets standard holds on every ship', () => {
   assert.equal(loaded.version, SAVE_VERSION);
   assert.equal(loaded.ships[0].modules.seal, 0);
   assert.deepEqual(loaded.stats.tierTonnes, {});
+});
+
+test('factories stand only in the deep galaxy and make components from processed materials', () => {
+  newGame();
+  const factories = allSystems().flatMap((s) => s.stations.filter((st) => st.type === 'factory').map((st) => ({ st, s })));
+  assert.ok(factories.length > 30);
+  for (const { st, s } of factories) {
+    assert.ok(s.depth >= 5 && s.hazard, s.id);
+    const sells = marketEntries(st.id).filter((e) => e.side === 'sells');
+    assert.equal(sells.length, 2);
+    for (const e of sells) {
+      assert.equal(e.curve.cap, findEntry('halcyon-refinery', 'iron').curve.cap / 4, 'components keep a quarter of the storage');
+    }
+  }
+  assert.equal(findEntry('halcyon-shipyard', 'sensor-arrays').side, 'buys');
+  assert.equal(findEntry('aurel-post', 'circuits').side, 'buys');
+});
+
+test('the first survey of a system pays its faction 1,000 cr per lane from home, and counts toward standing', () => {
+  const state = lateAct2();
+  const credits = state.credits;
+  const target = hazardAtEdge(state);
+  assert.ok(markSurveyed(state, target.id, state.now));
+  assert.equal(state.credits - credits, target.depth * 1000);
+  assert.ok(state.standing[target.faction] >= target.depth);
+  assert.equal(markSurveyed(state, target.id, state.now), false, 'only the first survey pays');
+});
+
+test('deep shielding opens the systems past depth 8 once all three hazards are shielded', () => {
+  const state = lateAct2();
+  const deep = allSystems().find((s) => s.depth > SHIELDED_DEPTH);
+  state.research.done.push('shield-debris', 'shield-ion', 'shield-radiation');
+  assert.equal(isShielded(state, deep), false);
+  assert.equal(researchStatus(state, findResearch('deep-shielding')), 'open');
+  state.research.done.push('deep-shielding');
+  assert.ok(isShielded(state, deep));
+  assert.ok(allSystems().every((s) => isShielded(state, s)));
 });
