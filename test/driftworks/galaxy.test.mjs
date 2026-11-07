@@ -16,6 +16,8 @@ import { deserialize, serialize } from '../../public/games/driftworks/core/save.
 import { chartedSystems, isSurveyed, markSurveyed } from '../../public/games/driftworks/systems/explore.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { cancelOrder, giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { orderOptions } from '../../public/games/driftworks/systems/advisor.js';
+import { carryOut } from '../../public/games/driftworks/systems/commands.js';
 import { flightTime, plotCourse, shipPosition } from '../../public/games/driftworks/systems/travel.js';
 import { MINUTE, firstShip, newGame } from './helpers.mjs';
 
@@ -176,6 +178,46 @@ test('hazard systems cannot be entered or surveyed', () => {
   const result = giveOrder(state, lark, { type: 'survey', systemId: deep.id });
   assert.equal(result.ok, false);
   assert.match(result.error, new RegExp(deep.hazard));
+});
+
+test('the order menu jumps, surveys and trades across systems', () => {
+  const state = newGame({ credits: 100_000 });
+  // By act 2 the haulers carry hundreds of tonnes, which is what makes a jump fee pay.
+  state.research.done.push('warp-drive', 'scout-licence', 'kite-licence', 'hold-2', 'hold-3', 'hold-4');
+  const lark = createShip(state, 'lark', 'halcyon-shipyard');
+  const kite = createShip(state, 'kite', 'halcyon-refinery');
+
+  // An unsurveyed system: the scout may survey it, the hauler has no way in.
+  const survey = orderOptions(state, lark, { kind: 'system', id: 'brennan' });
+  assert.deepEqual(survey.map((o) => o.kind), ['survey']);
+  assert.ok(survey[0].fees > 0 && survey[0].endsAt > state.now);
+  assert.deepEqual(orderOptions(state, kite, { kind: 'system', id: 'brennan' }), []);
+  assert.ok(carryOut(state, lark.id, survey[0]).ok);
+  // A second survey of the same system is refused while the first runs.
+  const lark2 = createShip(state, 'lark', 'halcyon-shipyard');
+  assert.equal(giveOrder(state, lark2, { type: 'survey', systemId: 'brennan' }).ok, false);
+  advance(state, lark.order.endsAt);
+  assert.ok(isSurveyed(state, 'brennan'));
+
+  // Now the hauler can jump there, from the galaxy map or from the gate.
+  const jump = orderOptions(state, kite, { kind: 'system', id: 'brennan' });
+  assert.deepEqual(jump.map((o) => o.kind), ['jump']);
+  assert.equal(jump[0].jumps, 1);
+  const viaGate = orderOptions(state, kite, { kind: 'gate', id: 'gate-brennan' });
+  assert.deepEqual(viaGate.map((o) => o.kind), ['jump', 'fly']);
+  assert.equal(viaGate[0].stationId, gateTo('brennan', 'aurel').id);
+
+  // A trade into a neighbour's foundry pays its jump fee out of the profit.
+  const station = ['brennan', 'dace', 'elm', 'fenn'].flatMap((id) => findSystem(id).stations).find((s) => s.type === 'foundry');
+  markSurveyed(state, systemOf(station.id), state.now);
+  const trade = orderOptions(state, kite, { kind: 'station', id: station.id }).find((o) => o.kind === 'trade');
+  assert.ok(trade, `${station.name} buys what the refinery sells`);
+  assert.equal(trade.jumps, 1);
+  const credits = state.credits;
+  assert.ok(carryOut(state, kite.id, trade).ok);
+  advance(state, state.now + 60 * MINUTE);
+  assert.equal(kite.at, station.id);
+  assert.ok(Math.abs(state.credits - credits - trade.profit) < trade.profit * 0.2 + 50, `${state.credits - credits} vs ${trade.profit}`);
 });
 
 test('an act 1 save upgrades with its company intact', () => {

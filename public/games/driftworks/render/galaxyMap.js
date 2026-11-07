@@ -121,7 +121,7 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     const pos = galaxyPosition(ship, now, index);
     if (!pos) return;
     if (pos.jumping) jumping.push({ ship, pos });
-    else counts.set(pos.system, (counts.get(pos.system) ?? 0) + 1);
+    else counts.set(pos.system, { n: (counts.get(pos.system)?.n ?? 0) + 1, art: counts.get(pos.system)?.art ?? roleArt(ship) });
   });
 
   // Systems
@@ -157,10 +157,10 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     drawLabel(ctx, system.name, p.x, p.y + r + 11, dpr, { size: 12, weight: 800, color: surveyed ? '#ffffff' : 'rgba(220, 236, 255, 0.7)' });
     const sub = system.hazard ? system.hazard : !surveyed ? 'unsurveyed' : system.id === 'aurel' ? 'home' : null;
     if (sub) drawLabel(ctx, sub, p.x, p.y + r + 25, dpr, { size: 10, weight: 600, color: system.hazard ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
-    const n = counts.get(system.id);
-    if (n) {
-      drawAsset(ctx, 'ship-miner', p.x + r + 12, p.y - r - 4, 18 * u, dpr);
-      drawLabel(ctx, String(n), p.x + r + 24, p.y - r - 4, dpr, { size: 11, weight: 800, align: 'left' });
+    const here = counts.get(system.id);
+    if (here) {
+      drawAsset(ctx, here.art, p.x + r + 12, p.y - r - 4, 18 * u, dpr);
+      drawLabel(ctx, String(here.n), p.x + r + 24, p.y - r - 4, dpr, { size: 11, weight: 800, align: 'left' });
     }
     targets.push({ kind: 'system', id: system.id, x: p.x, y: p.y, r: Math.max(16, r * 2.2) });
   }

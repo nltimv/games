@@ -417,7 +417,10 @@ export function createApp(session, doc = document) {
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
     getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
     onSelect(target, mods = {}) {
+      const again = target && ui.selection?.kind === target.kind && ui.selection.id === target.id;
       if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);
+      // A second click on a surveyed system opens its map.
+      else if (again && target.kind === 'system' && isSurveyed(session.state, target.id)) openSystem(target.id);
       else if (target) select(target.kind, target.id);
       else if (ui.menu) closeMenu();
       else if (ui.selection) close();

@@ -30,6 +30,11 @@ export function surveyable(state, systemId) {
   return Boolean(system) && !system.hazard && !isSurveyed(state, systemId) && isCharted(state, systemId);
 }
 
+/** The ship with an order (now or queued) to survey a system, or null. */
+export function surveyorOf(state, systemId) {
+  return state.ships.find((ship) => [ship.order?.spec, ...(ship.queue ?? [])].some((spec) => spec?.type === 'survey' && spec.systemId === systemId)) ?? null;
+}
+
 /** Marks a system surveyed and records its prices. */
 export function markSurveyed(state, systemId, at) {
   if (isSurveyed(state, systemId)) return false;

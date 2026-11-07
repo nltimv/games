@@ -13,7 +13,7 @@ import { marketEntries, marketView } from '../../systems/market.js';
 import { holdOf } from '../../systems/modules.js';
 import { giveOrder, orderRefit, refitAll, refitOffer } from '../../systems/orders.js';
 import { bestModules } from '../../systems/research.js';
-import { travelTime } from '../../systems/travel.js';
+import { plotCourse } from '../../systems/travel.js';
 import { bestTradeQty, buyersOf, maxPurchase, saleHere, tradePlan } from '../../systems/advisor.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, contractTag, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
@@ -429,20 +429,22 @@ function elsewhereSection(ctx, station) {
       const result = ctx.act((s) => giveOrder(s, findShip(s, ship.id), spec));
       if (result?.ok) orderToast(ctx, ship, result);
     };
-    const time = travelTime(state, ship, ship.at, station.id);
+    // Only ships with a known route here.
+    const course = plotCourse(state, ship, ship.at, station.id);
+    if (!course.ok) return null;
     const sellable = Object.keys(ship.cargo).find((g) => ship.cargo[g] > 0 && marketView(state, station.id, g, now)?.side === 'buys');
     const action = sellable
       ? button([`Deliver ${tonnes(ship.cargo[sellable], sellable)}`, contractTag(contractFor(state, station.id, sellable, now))], {
           small: true,
           variant: 'primary',
           key: `bring-${ship.id}`,
-          sub: trip(time),
+          sub: routeText(course),
           onClick: () => send({ type: 'sell', stationId: station.id, good: sellable }),
         })
       : button(`Fly here`, {
           small: true,
           key: `bring-${ship.id}`,
-          sub: trip(time),
+          sub: routeText(course),
           onClick: () => send({ type: 'fly', stationId: station.id }),
         });
     return h(
@@ -453,5 +455,6 @@ function elsewhereSection(ctx, station) {
       action,
     );
   });
+  if (!rows.some(Boolean)) return null;
   return h('div', { class: 'dw-section' }, sectionTitle('Send a ship here'), h('ul', { class: 'dw-list' }, rows));
 }

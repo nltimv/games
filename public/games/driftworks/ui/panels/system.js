@@ -8,7 +8,7 @@ import { STATION_TYPES } from '../../content/stations.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
 import { allFactions, allSystems, findFaction, findGate, findSystem, laneBetween, systemOf } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
-import { chartedSystems, isSurveyed, surveyable } from '../../systems/explore.js';
+import { chartedSystems, isSurveyed, surveyable, surveyorOf } from '../../systems/explore.js';
 import { findShip } from '../../systems/fleet.js';
 import { giveOrder } from '../../systems/orders.js';
 import { canJump, jumpFee, jumpTime, shipSystem } from '../../systems/travel.js';
@@ -33,6 +33,8 @@ function subtitle(state, system) {
 function surveyButtons(ctx, systemId) {
   const { state } = ctx;
   if (!surveyable(state, systemId)) return null;
+  const surveyor = surveyorOf(state, systemId);
+  if (surveyor) return h('p', { class: 'dw-note' }, `${surveyor.name} is on its way to survey it.`);
   const scouts = state.ships.filter((ship) => HULLS[ship.hull].role === 'scout');
   if (!scouts.length) return null;
   return h(

@@ -48,11 +48,12 @@ export function span(ms) {
  * "After its orders · 1 min mining · 20 s flight". `job` names the work
  * ("mining"); orders whose job takes no time show only the flight.
  */
-export function timing({ queued, flight = 0, work = 0 }, job) {
+export function timing({ queued, flight = 0, work = 0, jumps = 0, fees = 0 }, job) {
   const parts = [];
   if (queued) parts.push('After its orders');
   if (job && work > 0) parts.push(`${span(work)} ${job}`);
   if (flight > 0) parts.push(`${span(flight)} flight`);
+  if (jumps > 0) parts.push(`${plural(jumps, 'jump')}, ${formatCredits(fees)}`);
   return parts.join(' · ');
 }
 
@@ -61,10 +62,10 @@ export function plural(count, word, many = `${word}s`) {
 }
 
 /**
- * A route through the gates: "2 jumps · 24 min · 900 cr fees". A route
- * inside one system is just its time.
+ * A route through the gates: "2 jumps, 900 cr · 24 min". A route inside
+ * one system is just its time.
  */
 export function routeText({ jumps = 0, time = 0, fees = 0 }) {
   if (!jumps) return span(time);
-  return `${plural(jumps, 'jump')} · ${span(time)} · ${formatCredits(fees)} fees`;
+  return `${plural(jumps, 'jump')}, ${formatCredits(fees)} · ${span(time)}`;
 }

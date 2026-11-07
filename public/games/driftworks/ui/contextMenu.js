@@ -18,7 +18,7 @@ import { canJump } from '../systems/travel.js';
 import { h } from './dom.js';
 import { contractTag, fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
-import { at, minusCredits, plusCredits, routeText, span, timing, tonnes } from './format.js';
+import { at, minusCredits, plural, plusCredits, routeText, span, timing, tonnes } from './format.js';
 
 function headIcon(target) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
@@ -87,7 +87,7 @@ function describe(option) {
       return {
         label: `Bring ${tonnes(option.qty, option.good)}`,
         value: blocked ?? `about ${plusCredits(option.profit)}`,
-        note: `Bought at ${findStation(option.fromId).name} for ${formatCredits(option.cost)} · 2 orders`,
+        note: `Bought at ${findStation(option.fromId).name} for ${formatCredits(option.cost)} · ${option.jumps ? `${plural(option.jumps, 'jump')}, ${formatCredits(option.fees)}` : '2 orders'}`,
         good: option.good,
         contract: option.contract,
       };
@@ -101,7 +101,7 @@ function describe(option) {
       return {
         label: `Survey ${findSystem(option.systemId).name}`,
         value: blocked ?? `done ${at(option.endsAt)}`,
-        note: option.fees ? `${timing(option, 'surveying')} · ${formatCredits(option.fees)} in fees` : timing(option, 'surveying'),
+        note: timing(option, 'surveying'),
       };
     default:
       return { label: option.kind, value: '', note: '' };
@@ -208,8 +208,18 @@ export function orderMenu(ctx, menu) {
     parts.push(h('p', { class: 'dw-menu-note' }, emptyNote(state, ship, target)));
   }
 
-  parts.push(menuButton('Details', '›', 'menu-details', () => ctx.select(target.kind, target.id)));
+  parts.push(...menuLinks(ctx, target));
   return parts;
+}
+
+/** Details, and for a surveyed system its map (the selected ships stay selected). */
+function menuLinks(ctx, target) {
+  const links = [];
+  if (target.kind === 'system' && isSurveyed(ctx.state, target.id)) {
+    links.push(menuButton(`Open the ${findSystem(target.id).name} map`, '›', 'menu-open', () => ctx.openSystem(target.id)));
+  }
+  links.push(menuButton('Details', '›', 'menu-details', () => ctx.select(target.kind, target.id)));
+  return links;
 }
 
 // ---------- Several ships ----------
@@ -284,7 +294,7 @@ function groupItems(ctx, menu) {
   } else {
     parts.push(h('p', { class: 'dw-menu-note' }, 'None of these ships has anything to do here.'));
   }
-  parts.push(menuButton('Details', '›', 'menu-details', () => ctx.select(menu.target.kind, menu.target.id)));
+  parts.push(...menuLinks(ctx, menu.target));
   return parts;
 }
 

@@ -34,7 +34,7 @@ import {
 import { bestModules, orderSlots } from '../../systems/research.js';
 import { minePreview, saleValue } from '../../systems/advisor.js';
 import { findEntry } from '../../systems/market.js';
-import { knownStations, surveyable } from '../../systems/explore.js';
+import { knownStations, surveyable, surveyorOf } from '../../systems/explore.js';
 import { plotCourse } from '../../systems/travel.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, contractTag, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
@@ -282,7 +282,7 @@ function newOrders(ctx, ship) {
 
   if (hull.role === 'scout') {
     const targets = allSystems()
-      .filter((system) => surveyable(state, system.id))
+      .filter((system) => surveyable(state, system.id) && !surveyorOf(state, system.id))
       .map((system) => ({ system, course: plotCourse(state, view, view.at, system.gates[0]?.id, { surveyTarget: system.id }) }))
       .filter((t) => t.course.ok)
       .sort((a, b) => a.course.time - b.course.time)

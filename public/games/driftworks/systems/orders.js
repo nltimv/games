@@ -40,7 +40,7 @@ import { canCarry, cargoTotal } from './cargo.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
 import { isResearched, orderSlots } from './research.js';
 import { plotCourse, travelTime } from './travel.js';
-import { isSurveyed, knownStations, surveyable } from './explore.js';
+import { isSurveyed, knownStations, surveyable, surveyorOf } from './explore.js';
 import { addLog } from './log.js';
 
 const fail = (error) => ({ ok: false, error });
@@ -232,6 +232,8 @@ function buildSurvey(state, view, { systemId }, start) {
   if (!system) return fail('No such system.');
   if (isSurveyed(state, systemId)) return fail(`${system.name} is already surveyed.`);
   if (!surveyable(state, systemId)) return fail(system.hazard ? `${system.name} has ${system.hazard}. Ships need shielding to go there.` : `${system.name} is too far out to survey yet.`);
+  const surveyor = surveyorOf(state, systemId);
+  if (surveyor) return fail(`${surveyor.name} is already on its way to survey ${system.name}.`);
   // The scout surveys from the gate it arrives at.
   const course = flight(state, view, entryGate(state, view, systemId), start, { surveyTarget: systemId });
   if (!course.ok) return course;
