@@ -469,6 +469,16 @@ export function nextJump(order) {
   return legs[order?.jumpsPaid ?? legs.length] ?? null;
 }
 
+/** The jump fees ships still have to pay on the orders they are flying now (cr). */
+export function feesDue(state) {
+  let due = 0;
+  for (const ship of state.ships) {
+    const legs = jumpLegs(ship.order);
+    for (const leg of legs.slice(ship.order?.jumpsPaid ?? legs.length)) due += leg.fee ?? 0;
+  }
+  return due;
+}
+
 /**
  * Called by the simulation as a ship enters a warp: pays that jump's fee.
  * Without the credits, the ship stays at the gate and its order ends there;

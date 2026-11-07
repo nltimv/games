@@ -23,9 +23,12 @@ import { createLabelSpace, drawCount, flock, flockName } from './flocks.js';
 import { drawRing, iconScale } from './systemMap.js';
 
 const WASH_RADIUS = 120;
-// On a phone, zoomed out so far that neighbouring systems (about 100 units
-// apart) sit closer than this many pixels, the map drops its text labels;
-// only the selected and open systems keep their names.
+// On a phone zoomed out (below PHONE_LABEL_ZOOM, where the galaxy opens at
+// 4) so far that neighbouring systems (about 100 units apart) sit closer
+// than PHONE_LABEL_ROOM pixels, the map drops its text labels; only the
+// selected and open systems keep their names. Zoomed in, labels always show,
+// however big the charted galaxy has grown.
+const PHONE_LABEL_ZOOM = 2.5;
 const PHONE_LABEL_ROOM = 72;
 const SYSTEM_SPACING = 100;
 const blobs = new Map();
@@ -193,7 +196,7 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const charted = chartedSystems(state);
   const systems = allSystems().filter((system) => charted.has(system.id));
   const open = canJump(state);
-  const crowded = Boolean(view.compact) && s * SYSTEM_SPACING < PHONE_LABEL_ROOM;
+  const crowded = Boolean(view.compact) && cam.zoom < PHONE_LABEL_ZOOM && s * SYSTEM_SPACING < PHONE_LABEL_ROOM;
   const named = new Set([view.current, view.selection?.kind === 'system' ? view.selection.id : null, view.guide?.kind === 'system' ? view.guide.id : null]);
 
   // Faction washes behind everything, so regions read as soft colour.

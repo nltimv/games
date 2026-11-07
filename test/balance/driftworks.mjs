@@ -47,6 +47,7 @@ import {
   canCopy,
   freeSlots,
   copyOrders,
+  feesDue,
   giveOrder,
   giveOrders,
   projectShip,
@@ -87,6 +88,9 @@ function play(profileName, days) {
   const click = (n = 1) => {
     clicks += n;
   };
+  // What the bot can spend: its credits less the jump fees its ships still
+  // pay at the gates, as a player watching the order menu would keep.
+  const cash = () => state.credits - feesDue(state);
 
   // Contracts paid out: running contracts are watched across each advance,
   // and one that is gone with all it needed delivered was paid.
@@ -166,7 +170,7 @@ function play(profileName, days) {
       if (!start.ok) continue;
       for (const entry of marketEntries(from.id)) {
         if (entry.side !== 'sells') continue;
-        const max = affordableQty(state, from.id, entry.good, state.credits * 0.8, room, now);
+        const max = affordableQty(state, from.id, entry.good, cash() * 0.8, room, now);
         if (max <= 0) continue;
         const cost = marketView(state, from.id, entry.good, now).price;
         for (const to of stations) {
@@ -239,7 +243,7 @@ function play(profileName, days) {
       const tutorial = state.stats.contracts === 0;
       if (!tutorial && taken + offer.qty > capacity(ore, active, offer.hours)) continue;
       // Goods bought for a contract are paid up front: only what the money covers.
-      if (!ore && !knownStations(state).some((from) => findEntry(from.id, offer.good)?.side === 'sells' && affordableQty(state, from.id, offer.good, state.credits * 0.5, taken + offer.qty, now) >= taken + offer.qty)) continue;
+      if (!ore && !knownStations(state).some((from) => findEntry(from.id, offer.good)?.side === 'sells' && affordableQty(state, from.id, offer.good, cash() * 0.5, taken + offer.qty, now) >= taken + offer.qty)) continue;
       const contract = { ...offer, delivered: 0, deadline: now + offer.hours * HOUR };
       const ships = state.ships.filter((ship) => role(ship) === (ore ? 'miner' : 'hauler'));
       const ship = ships.find((s) => !s.order) ?? ships[0];
@@ -294,7 +298,7 @@ function play(profileName, days) {
     if (need < 1) return null;
     for (const from of knownStations(state)) {
       if (findEntry(from.id, contract.good)?.side !== 'sells') continue;
-      const qty = affordableQty(state, from.id, contract.good, state.credits * 0.8, need, now);
+      const qty = affordableQty(state, from.id, contract.good, cash() * 0.8, need, now);
       if (qty < 1) continue;
       const start = ship.at === from.id ? { ok: true, time: 0, fees: 0 } : plotCourse(state, ship, ship.at, from.id);
       const there = plotCourse(state, ship, from.id, contract.stationId);
@@ -375,7 +379,7 @@ function play(profileName, days) {
     // Once the warp drive is the current goal, the bot saves for it.
     while (freeLab(state)) {
       const next = nextResearch();
-      if (!next || state.credits < next.cost || !startResearch(state, next.id, now).ok) break;
+      if (!next || cash() < next.cost || !startResearch(state, next.id, now).ok) break;
       click();
       report.research.push({ id: next.id, at: now });
     }
@@ -393,7 +397,7 @@ function play(profileName, days) {
       const next = nextResearch();
       const reserve = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? next.cost : Math.min(next.cost, shipPrice(state));
       const price = shipPrice(state);
-      if (state.credits < price + reserve) break;
+      if (cash() < price + reserve) break;
       const bought = buyShip(state, hull, 'halcyon-shipyard');
       if (!bought.ok) break;
       click();
@@ -406,7 +410,7 @@ function play(profileName, days) {
     // Refits: book them all once the money is there twice over.
     const behind = state.ships.filter((s) => refitOffer(state, s));
     const refitCost = behind.reduce((sum, s) => sum + refitOffer(state, s).cost, 0);
-    if (behind.length && state.credits >= refitCost * 2 && refitAll(state).ok) click();
+    if (behind.length && cash() >= refitCost * 2 && refitAll(state).ok) click();
 
     // Idle ships: run the last route again (one click for all), or plan anew.
     const rerun = [];
@@ -453,7 +457,7 @@ function play(profileName, days) {
       const buy = ship.plan.find((s) => s.type === 'buy');
       const sell = ship.plan.find((s) => s.type === 'sell');
       if (!buy || !sell) return false;
-      const qty = Math.min(buy.qty, affordableQty(state, buy.stationId, buy.good, state.credits * 0.8, holdOf(ship), now));
+      const qty = Math.min(buy.qty, affordableQty(state, buy.stationId, buy.good, cash() * 0.8, holdOf(ship), now));
       const back = plotCourse(state, ship, sell.stationId, buy.stationId);
       return back.ok && tradePlan(state, ship, buy.good, qty, sell.stationId, now, buy.stationId).profit - back.fees > MIN_TRADE * 3;
     }

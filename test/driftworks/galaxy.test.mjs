@@ -19,7 +19,7 @@ import { deserialize, serialize } from '../../public/games/driftworks/core/save.
 import { SAVE_VERSION } from '../../public/games/driftworks/core/state.js';
 import { chartedSystems, isSurveyed, markSurveyed } from '../../public/games/driftworks/systems/explore.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
-import { cancelOrder, giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { cancelOrder, feesDue, giveOrder } from '../../public/games/driftworks/systems/orders.js';
 import { orderOptions } from '../../public/games/driftworks/systems/advisor.js';
 import { findEntry } from '../../public/games/driftworks/systems/market.js';
 import { carryOut } from '../../public/games/driftworks/systems/commands.js';
@@ -284,4 +284,17 @@ test('each system has its own star and sky, and foreign stations wear their fact
   assert.equal(stationTint(findStation('halcyon-refinery')), null);
   const foreign = systems.flatMap((system) => system.stations).find((station) => station.faction !== 'halcyon');
   assert.match(stationTint(foreign), /^#[0-9a-f]{6}$/);
+});
+
+test('the fees a ship still pays at its gates count as due until it jumps', () => {
+  const state = newGame({ credits: 10_000 });
+  state.research.done.push('warp-drive');
+  markSurveyed(state, 'brennan', state.now);
+  const mule = firstShip(state);
+  assert.equal(feesDue(state), 0);
+  assert.ok(giveOrder(state, mule, { type: 'fly', stationId: findSystem('brennan').stations[0].id }).ok);
+  const jump = mule.order.legs.find((leg) => leg.jump);
+  assert.equal(feesDue(state), jump.fee);
+  advance(state, jump.start);
+  assert.equal(feesDue(state), 0);
 });
