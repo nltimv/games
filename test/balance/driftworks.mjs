@@ -182,11 +182,15 @@ function play(profileName, days) {
   };
   const goingForWarp = () => Boolean(actEnd());
 
-  /** Research in the list's order, but the act's last one first once it is the goal, and scouts right after the warp drive. */
+  /**
+   * Research in the list's order, but the act's last one first once it is
+   * the goal, and scouts right after the warp drive. Market charts only
+   * change what the galaxy map shows, and the bot reads every price anyway.
+   */
   function nextResearch() {
     const scouts = RESEARCH.find((r) => r.id === 'scout-licence');
     if (researchStatus(state, scouts) === 'open') return scouts;
-    return actEnd() ?? RESEARCH.find((r) => researchStatus(state, r) === 'open');
+    return actEnd() ?? RESEARCH.find((r) => r.id !== 'market-charts' && researchStatus(state, r) === 'open');
   }
 
   // ---------- One look at the game ----------
