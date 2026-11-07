@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkGoals, currentGoal, tutorialGoal } from '../../public/games/driftworks/systems/goals.js';
 import { GOALS } from '../../public/games/driftworks/content/goals.js';
+import { findResearch } from '../../public/games/driftworks/content/research.js';
 import { newGame } from './helpers.mjs';
 
 test('the first goal is the first tutorial step', () => {
@@ -45,4 +46,11 @@ test("goal ids are unique, each act's tutorial comes first, and only each act's 
   }
   assert.equal(GOALS.find((g) => !g.act && g.reward === 0).id, 'warp-drive');
   assert.equal(GOALS.filter((g) => g.act === 2).at(-1).id, 'first-shielding');
+});
+
+test('act 3 ends with Station blueprints, which needs deep shielding and Fleet command II', () => {
+  const act3Goals = GOALS.filter((g) => g.act === 3);
+  assert.deepEqual(act3Goals.filter((g) => g.tutorial).map((g) => g.id), ['hazard-survey', 'first-commander', 'first-mission']);
+  assert.equal(act3Goals.at(-1).id, 'station-blueprints');
+  assert.deepEqual(findResearch('station-blueprints').needs, ['deep-shielding', 'fleet-2']);
 });

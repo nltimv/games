@@ -252,6 +252,55 @@ Object.assign(GUIDES, {
   },
 });
 
+// ---------- Act 3 ----------
+
+/** The nearest system with a hazard a scout may survey now. */
+function nextHazardSurvey(state, scout) {
+  let best = null;
+  for (const system of allSystems()) {
+    if (!system.hazard || !surveyable(state, system.id)) continue;
+    const time = travelTime(state, scout, scout.at, system.gates[0]?.id, { surveyTarget: system.id });
+    if (time < (best?.time ?? Infinity)) best = { id: system.id, time };
+  }
+  return best ? findSystem(best.id) : null;
+}
+
+Object.assign(GUIDES, {
+  'hazard-survey'(state, ui) {
+    const scouts = state.ships.filter(isScout);
+    const busy = scouts.find((ship) => ship.order?.spec.type === 'survey' && findSystem(ship.order.spec.systemId)?.hazard);
+    if (busy) {
+      const target = findSystem(busy.order.spec.systemId);
+      return { text: `${busy.name} flies into the ${target.hazard} of ${target.name}. The shielding covers every ship you own, out to 8 lanes from home.` };
+    }
+    const scout = scouts.find((ship) => ship.at);
+    if (!scout) return null;
+    const target = nextHazardSurvey(state, scout);
+    if (!target) return null;
+    if (!inGalaxy(ui)) return { ...OPEN_GALAXY, text: 'Open the Galaxy map. Systems with the hazard you are shielded against can now be surveyed.' };
+    if (!(ui.selection?.kind === 'ship' && ui.selection.id === scout.id)) return pickOnGalaxy(state, ui, scout, '');
+    if (ui.menu?.target.kind === 'system') return { text: 'Pick Survey.', selector: '[data-key^="menu-survey"]' };
+    return { text: `Right-click ${target.name}, which has ${target.hazard}, and pick Survey. Deep systems hold factories and signals.`, map: { kind: 'system', id: target.id } };
+  },
+  'first-commander'(state, ui) {
+    if (!isResearched(state, 'fleet-1')) return research(state, ui, 'fleet-1', 'Fleet command I', 'Commanders lead a wing of your ships on missions, picking every order themselves.');
+    if (!isSelected(ui, 'station', SHIPYARD)) return { text: 'Shipyards offer commanders now. Click Halcyon Shipyard on the map.', map: { kind: 'station', id: SHIPYARD } };
+    return { text: 'Hire one of the three. Their trait shapes every pick they make: a Prospector for miners, a Thrifty or Greedy one for haulers, a Curious one for scouts.', selector: '[data-key^="hire-"]' };
+  },
+  'first-mission'(state, ui) {
+    const commander = state.ships.find((ship) => ship.commander);
+    if (!commander) return null;
+    if (!(ui.selection?.kind === 'ship' && ui.selection.id === commander.id)) return { text: `Select ${commander.name}: pick them in the Fleet list.`, selector: ui.view === 'fleet' ? key(`fleet-${commander.id}`) : '[data-view="fleet"]' };
+    const wing = state.ships.filter((ship) => ship.fleet === commander.id);
+    if (!wing.length) return { text: `Give ${commander.name} a wing: pick ships under Wing. They take the commander's orders from then on.`, selector: '[data-key^="join-"]' };
+    return {
+      text: 'Pick a mission, the system at the centre of its area and how many hours, then start it. The galaxy map lights up the area.',
+      selector: key('start-mission'),
+      tip: 'Commanders get better with every hour on a mission, and write a captain\'s log when they are back.',
+    };
+  },
+});
+
 /** The current guide step: { goal, step, of, text, tip, map, selector }, or null. */
 export function currentGuide(state, ui) {
   const goal = tutorialGoal(state);
@@ -278,9 +327,18 @@ export function guideCard(guide, { onSkip }) {
   ];
 }
 
-/** Puts the glow on the element the guide points at. */
+let scrolledTo = null;
+
+/** Puts the glow on the element the guide points at, and scrolls it into view when it first shows. */
 export function markGuided(root, guide) {
   for (const el of root.querySelectorAll('.is-guided')) el.classList.remove('is-guided');
-  if (!guide?.selector) return;
-  root.querySelector(`${guide.selector}:not(:disabled)`)?.classList.add('is-guided');
+  const el = guide?.selector ? root.querySelector(`${guide.selector}:not(:disabled)`) : null;
+  if (!el) {
+    scrolledTo = null;
+    return;
+  }
+  el.classList.add('is-guided');
+  if (scrolledTo === guide.selector) return;
+  scrolledTo = guide.selector;
+  el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
 }

@@ -441,7 +441,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     const command = fleetCommand(state);
     if (!fleets || !command) return;
     const next = nextResearch();
-    const reserve = freeLab(state) && next ? costOf(next) : 0;
+    // The first commander comes before anything else; later ones leave money for research.
+    const reserve = commanders(state).length && freeLab(state) && next ? costOf(next) : 0;
     for (const r of ['miner', 'hauler', 'scout']) {
       if (freeShips(r).length < 2 || commanders(state).some((c) => wingRole(c) === r && wingOf(state, c).length < command.wing)) continue;
       if (cash() < commanderPrice(state) + reserve) continue;
@@ -570,7 +571,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       const wantScouts = shieldingsDone(state) > 0 ? 3 : 1;
       const hull = !missingLicence(state, 'lark') && scouts < wantScouts ? 'lark' : !missingLicence(state, 'kite') && haulers < wantHaulers ? hauler : 'mule';
       const next = nextResearch();
-      const reserve = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? costOf(next) : Math.min(costOf(next), shipPrice(state));
+      const forResearch = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? costOf(next) : Math.min(costOf(next), shipPrice(state));
+      // Saves up for the first commander once Fleet command I is in.
+      const reserve = forResearch + (fleets && fleetCommand(state) && !commanders(state).length ? commanderPrice(state) : 0);
       const price = shipPrice(state);
       if (cash() < price + reserve) break;
       const bought = buyShip(state, hull, 'halcyon-shipyard');

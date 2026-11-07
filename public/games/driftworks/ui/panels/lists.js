@@ -55,7 +55,7 @@ export function groupPanel(ctx, ids) {
   const again = ships.filter((ship) => canRunAgain(state, ship));
   const repeat = ships.filter((ship) => canRepeat(state, ship));
   const waiting = ships.filter((ship) => ship.queue.length);
-  const cancellable = ships.filter((ship) => ship.order && !(ship.order.type === 'fly' && orderPhase(ship.order, ctx.now).flying));
+  const cancellable = ships.filter((ship) => ship.order && ship.order.type !== 'standby' && !(ship.order.type === 'fly' && orderPhase(ship.order, ctx.now).flying));
   const action = (text, list, key, fn, done, variant) =>
     list.length
       ? button(text, {
@@ -95,7 +95,7 @@ export function shipRow(ctx, ship) {
       h(
         'span',
         { class: 'dw-grow' },
-        h('strong', null, `${ship.name} · ${HULLS[ship.hull].role}`),
+        h('strong', null, `${ship.name} · ${ship.commander ? 'commander' : HULLS[ship.hull].role}`),
         h('small', null, shipStatus(ship, ctx.now)),
         phase ? bar({ start: phase.start, end: phase.end }) : null,
       ),

@@ -1,10 +1,15 @@
 // Company goals, done in order. The first ones are the tutorial (the guide
 // card in ui/tutorial.js explains each); the rest lead to the warp drive,
 // which ends act 1. Act 2's goals follow, its first three guided too, and
-// end with the first hazard shielding. Each goal checks the state and pays
+// end with the first hazard shielding. Act 3's (Pathfinder) end with Station
+// blueprints, again with the first three guided. Each goal checks the state and pays
 // its reward once. `progress` (optional) feeds the progress bar on the goal
 // card.
 
+import { findSystem } from './galaxy.js';
+import { LEVEL_HOURS } from './commanders.js';
+
+const HOUR = 3600 * 1000;
 const mules = (s) => s.ships.filter((ship) => ship.hull === 'mule');
 const researched = (s, id) => s.research.done.includes(id);
 const SHIELDINGS = ['shield-debris', 'shield-ion', 'shield-radiation'];
@@ -164,11 +169,75 @@ export const GOALS = [
     act: 2,
     done: (s) => SHIELDINGS.some((id) => researched(s, id)),
   },
+
+  // Act 3: Pathfinder.
+  {
+    id: 'hazard-survey',
+    title: 'Survey a system with a hazard',
+    reward: 100000,
+    act: 3,
+    tutorial: true,
+    done: (s) => (s.surveyed ?? []).some((id) => findSystem(id)?.hazard),
+  },
+  {
+    id: 'first-commander',
+    title: 'Hire a commander',
+    reward: 150000,
+    act: 3,
+    tutorial: true,
+    done: (s) => s.ships.some((ship) => ship.commander),
+  },
+  {
+    id: 'first-mission',
+    title: 'Send a fleet on a mission',
+    reward: 200000,
+    act: 3,
+    tutorial: true,
+    done: (s) => s.ships.some((ship) => ship.mission) || (s.stats.missions ?? 0) > 0,
+  },
+  {
+    id: 'sell-component',
+    title: 'Sell circuits or hull plating',
+    // Any component counts.
+    reward: 300000,
+    act: 3,
+    done: (s) => tonnesSold(s, 4) > 0,
+  },
+  {
+    id: 'first-salvage',
+    title: 'Salvage a derelict',
+    reward: 300000,
+    act: 3,
+    done: (s) => (s.stats.salvaged ?? 0) >= 1,
+  },
+  {
+    id: 'survey-100',
+    title: 'Survey 100 systems',
+    reward: 500000,
+    act: 3,
+    done: (s) => (s.surveyed ?? []).length >= 100,
+    progress: (s) => ({ value: (s.surveyed ?? []).length, target: 100, unit: 'systems' }),
+  },
+  {
+    id: 'commander-3',
+    title: 'Raise a commander to level 3',
+    reward: 750000,
+    act: 3,
+    done: (s) => s.ships.some((ship) => (ship.commander?.missionTime ?? 0) >= LEVEL_HOURS[2] * HOUR),
+    progress: (s) => ({ value: Math.floor(Math.max(0, ...s.ships.map((ship) => ship.commander?.missionTime ?? 0)) / HOUR), target: LEVEL_HOURS[2], unit: 'hours' }),
+  },
+  {
+    id: 'station-blueprints',
+    title: 'Research Station blueprints',
+    reward: 0,
+    act: 3,
+    done: (s) => researched(s, 'station-blueprints'),
+  },
 ];
 
 /** Shown once every goal is done: where the game stands, and what the next update brings. */
 export const ENDING = {
-  eyebrow: 'Act 2 complete',
-  title: 'The deep galaxy is open',
-  note: 'Act 3 comes with the next update.',
+  eyebrow: 'Act 3 complete',
+  title: 'The plans for your own stations are ready',
+  note: 'Building stations comes with the next update.',
 };
