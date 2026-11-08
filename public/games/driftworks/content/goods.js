@@ -90,12 +90,46 @@ export const GOODS = {
     value: 30,
     look: { shape: 'square', light: '#b8fff2', mid: '#7fe9de', dark: '#3fcdbf' },
   },
+  // Titanium and iron, smelted at foundries from two lanes out.
+  'titanium-alloy': {
+    name: 'Titanium alloy',
+    tier: 3,
+    value: 56,
+    look: { shape: 'square', light: '#f1edff', mid: '#ada2e4', dark: '#6457a8' },
+  },
+  // Crystal and silicon, made at foundries from three lanes out.
+  optics: {
+    name: 'Optics',
+    tier: 3,
+    value: 60,
+    look: { shape: 'square', light: '#fff4fc', mid: '#f3b0e0', dark: '#a8549a' },
+  },
+  // Components, made only at factories in the deep galaxy.
+  'hull-plating': {
+    name: 'Hull plating',
+    tier: 4,
+    value: 135,
+    look: { shape: 'square', light: '#f4f8ff', mid: '#b9c6e0', dark: '#55658a' },
+  },
+  circuits: {
+    name: 'Circuits',
+    tier: 4,
+    value: 130,
+    look: { shape: 'square', light: '#e9fff0', mid: '#7fe0a4', dark: '#2b8a5c' },
+  },
+  'sensor-arrays': {
+    name: 'Sensor arrays',
+    tier: 4,
+    value: 165,
+    look: { shape: 'square', light: '#fff6dd', mid: '#f5c96a', dark: '#a8742a' },
+  },
 };
 
 export const TIER_NAMES = {
   1: 'Raw ore',
   2: 'Refined',
   3: 'Processed material',
+  4: 'Component',
 };
 
 export function goodName(id) {

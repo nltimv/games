@@ -15,6 +15,7 @@
 //                                       modules (see orderRefit; paid up front)
 //   { type: 'survey', systemId }        scouts: fly to an unsurveyed system
 //                                       and survey it
+//   { type: 'investigate' | 'salvage', signalId }  see systems/signalOrders.js
 //
 // Targets in another system are reached through the gates (see
 // travel.plotCourse). Each jump's fee is paid as the ship enters the
@@ -42,12 +43,18 @@ import { findField, findPlace, findStation, findSystem, systemOf } from '../cont
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { MINUTE, SECOND } from '../core/time.js';
 import { findEntry } from './market.js';
-import { canCarry, cargoTotal } from './cargo.js';
+import { canCarry, cargoTotal, holdNote } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
 import { isResearched, orderSlots } from './research.js';
 import { plotCourse, travelTime } from './travel.js';
+import { flight, route, stationLegs } from './courses.js';
+import { buildInvestigate, buildSalvage } from './signalOrders.js';
+import { buildStandby } from './standby.js';
+import { buildJoin } from './joinOrder.js';
+import { isFieldOpen } from './signals.js';
 import { isSurveyed, knownStations, surveyable, surveyorOf } from './explore.js';
+import { hazardNote } from './shielding.js';
 import { addLog } from './log.js';
 
 const fail = (error) => ({ ok: false, error });
@@ -73,16 +80,6 @@ function sellable(view, stationId, good) {
   return Object.keys(view.cargo).filter((g) => view.cargo[g] > 0 && (!good || g === good) && findEntry(stationId, g)?.side === 'buys');
 }
 
-/** The course to `to`, shifted to start at `start`: { ok, travel, legs, fees, jumps } or { ok: false, error }. */
-function flight(state, view, to, start, options) {
-  const course = plotCourse(state, view, view.at, to, options);
-  if (!course.ok) return course;
-  const legs = course.legs.map((leg) => ({ ...leg, start: leg.start + start, end: leg.end + start }));
-  return { ok: true, travel: course.time, legs, fees: course.fees, jumps: course.jumps };
-}
-
-const route = (course) => ({ fees: course.fees, jumps: course.jumps });
-
 // ---------- Builders ----------
 // Each builds an order for `view` (a ship, or a projection of one; see
 // projectShip) starting at `start`, or explains why it cannot.
@@ -90,7 +87,7 @@ const route = (course) => ({ fees: course.fees, jumps: course.jumps });
 function buildMine(state, view, { fieldId, amount }, start) {
   if (HULLS[view.hull].role !== 'miner') return fail(`${view.name} is not a mining ship.`);
   const field = findField(fieldId);
-  if (!field) return fail('No such asteroid field.');
+  if (!field || !isFieldOpen(state, field)) return fail('No such asteroid field.');
   const free = freeIn(view);
   const qty = Math.floor(Math.min(free, amount ?? free));
   if (free < 1) return fail(`${view.name}'s hold is full.`);
@@ -115,15 +112,6 @@ function buildMine(state, view, { fieldId, amount }, start) {
       ...route(course),
     },
   };
-}
-
-function stationLegs(state, view, stationId, start, stay = 0, options) {
-  const course = flight(state, view, stationId, start, options);
-  if (!course.ok) return course;
-  const { travel, legs } = course;
-  const end = start + travel + stay;
-  if (!legs.length || stay) legs.push({ from: stationId, to: stationId, start: start + travel, end });
-  return { ok: true, end, legs, ...route(course) };
 }
 
 function buildSell(state, view, { stationId, good }, start) {
@@ -159,7 +147,7 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
   const station = findStation(stationId);
   if (!station) return fail('No such station.');
   if (findEntry(stationId, good)?.side !== 'sells') return fail(`${station.name} does not sell ${lower(good)}.`);
-  if (!canCarry(view, good)) return fail(`${goodName(good)} needs a better hold.`);
+  if (!canCarry(view, good)) return fail(holdNote(good));
   const amount = Math.floor(Math.min(qty, freeIn(view)));
   if (amount < 1) return fail(`${view.name}'s hold is full.`);
   const course = stationLegs(state, view, stationId, start);
@@ -268,7 +256,7 @@ function buildSurvey(state, view, { systemId }, start) {
   const system = findSystem(systemId);
   if (!system) return fail('No such system.');
   if (isSurveyed(state, systemId)) return fail(`${system.name} is already surveyed.`);
-  if (!surveyable(state, systemId)) return fail(system.hazard ? `${system.name} has ${system.hazard}. Ships need shielding to go there.` : `${system.name} is too far out to survey yet.`);
+  if (!surveyable(state, systemId)) return fail(hazardNote(state, system) ?? `${system.name} is too far out to survey yet.`);
   const surveyor = surveyorOf(state, systemId);
   if (surveyor) return fail(`${surveyor.name} is already on its way to survey ${system.name}.`);
   // The scout surveys from the gate it arrives at.
@@ -307,7 +295,19 @@ function entryGate(state, view, systemId) {
   return best?.id ?? gates[0]?.id ?? null;
 }
 
-const BUILDERS = { mine: buildMine, sell: buildSell, buy: buildBuy, deliver: buildDeliver, fly: buildFly, refit: buildRefit, survey: buildSurvey };
+const BUILDERS = {
+  mine: buildMine,
+  sell: buildSell,
+  buy: buildBuy,
+  deliver: buildDeliver,
+  fly: buildFly,
+  refit: buildRefit,
+  survey: buildSurvey,
+  investigate: buildInvestigate,
+  salvage: buildSalvage,
+  standby: buildStandby,
+  join: buildJoin,
+};
 
 export function buildOrder(state, view, spec, start = state.now) {
   const build = BUILDERS[spec?.type];
@@ -342,7 +342,10 @@ function applySteps(view, order, from = 0) {
     } else if (step.kind === 'refit') {
       view.modules = { ...view.modules, ...step.modules };
       view.at = step.station;
-    } else if (step.kind === 'arrive' || step.kind === 'survey') {
+    } else if (step.kind === 'salvage') {
+      view.cargo[step.good] = (view.cargo[step.good] ?? 0) + Math.min(step.qty, freeIn(view));
+      view.at = step.station;
+    } else if (step.kind === 'arrive' || step.kind === 'survey' || step.kind === 'investigate' || step.kind === 'standby' || step.kind === 'join') {
       view.at = step.station;
     }
   }
@@ -406,7 +409,8 @@ export function freeSlots(state, ship) {
 }
 
 /** Starts a spec now on an idle ship. Its jump fees are paid at the gates. */
-function startOrder(state, ship, spec) {
+/** Starts an order on an idle ship now, without touching its plan. */
+export function startOrder(state, ship, spec) {
   const result = buildOrder(state, ship, spec, state.now);
   if (!result.ok) return result;
   const fees = result.order.fees ?? 0;
@@ -418,9 +422,20 @@ function startOrder(state, ship, spec) {
 }
 
 function remember(ship, spec) {
-  if (spec.type === 'refit') return;
+  if (spec.type === 'refit' || spec.type === 'join') return;
   ship.plan.push(spec);
   if (ship.plan.length > MAX_PLAN) ship.plan.splice(0, ship.plan.length - MAX_PLAN);
+}
+
+/**
+ * Why a ship takes no orders of the player's: it is aboard a commander's
+ * fleet, or it is a commander away on a mission. Null when it does.
+ */
+export function awayNote(state, ship) {
+  if (ship.mission) return `${ship.name} is away on a mission.`;
+  if (!ship.fleet) return null;
+  const lead = state.ships.find((s) => s.id === ship.fleet);
+  return `${ship.name} flies in ${lead?.name ?? 'a commander'}'s fleet.`;
 }
 
 /**
@@ -430,7 +445,10 @@ function remember(ship, spec) {
  */
 export function giveOrder(state, ship, spec) {
   if (!ship) return fail('No such ship.');
-  if (!BUILDERS[spec?.type]) return fail('Unknown order.');
+  if (!BUILDERS[spec?.type] || spec.type === 'standby') return fail('Unknown order.');
+  const away = awayNote(state, ship);
+  if (away) return fail(away);
+  if ([ship.order?.spec, ...ship.queue].some((s) => s?.type === 'join')) return fail(`${ship.name} is on its way to join a fleet.`);
   if (ship.order) {
     if (freeSlots(state, ship) <= 0) return fail(`${ship.name}'s orders are full.`);
     const view = projectShip(state, ship);
@@ -558,6 +576,8 @@ export function cargoNow(ship, now) {
  */
 export function cancelOrder(state, ship, at = state.now) {
   if (!ship) return fail('No such ship.');
+  const away = awayNote(state, ship);
+  if (away) return fail(away);
   const order = ship.order;
   if (!order) return fail(`${ship.name} has no order to cancel.`);
   const phase = orderPhase(order, at);
@@ -600,6 +620,8 @@ export function cancelOrder(state, ship, at = state.now) {
 
 /** Removes the orders waiting after the current one. Refits are refunded. */
 export function clearQueue(state, ship) {
+  const away = awayNote(state, ship);
+  if (away) return fail(away);
   if (!ship.queue.length) return fail(`${ship.name} has no orders waiting.`);
   const dropped = ship.queue.splice(0);
   for (const spec of dropped) refund(state, spec);
@@ -647,7 +669,7 @@ export function refitAll(state, stationId) {
   let cost = 0;
   let error = null;
   for (const ship of state.ships) {
-    if (!refitOffer(state, ship)) continue;
+    if (awayNote(state, ship) || !refitOffer(state, ship)) continue;
     const result = stationId ? orderRefit(state, ship, stationId) : orderRefit(state, ship);
     if (result.ok) {
       count += 1;
@@ -817,6 +839,14 @@ export function specLabel(spec) {
       return `Refit at ${findStation(spec.stationId ?? SHIPYARD_ID)?.name ?? '?'}`;
     case 'survey':
       return `Survey ${findSystem(spec.systemId)?.name ?? '?'}`;
+    case 'investigate':
+      return `Investigate the signal in ${findSystem(systemOf(spec.signalId))?.name ?? '?'}`;
+    case 'salvage':
+      return `Salvage the derelict in ${findSystem(systemOf(spec.signalId))?.name ?? '?'}`;
+    case 'standby':
+      return `Wait for ${spec.by}'s orders`;
+    case 'join':
+      return 'Join a fleet';
     default:
       return spec.type;
   }

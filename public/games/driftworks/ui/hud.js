@@ -2,7 +2,10 @@
 
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { findPlace, findSystem, systemOf } from '../content/galaxy.js';
+import { MISSIONS } from '../content/commanders.js';
+import { commanders, leaderOf, mapShips } from '../systems/commanders.js';
 import { currentGoal } from '../systems/goals.js';
+import { portrait } from './portrait.js';
 import { orderPhase, shipStatus } from '../systems/orders.js';
 import { shipGlyph } from './components.js';
 import { bar, countdown, h, svgIcon } from './dom.js';
@@ -19,7 +22,12 @@ const ACTIVITY_ICONS = {
   survey: '<path d="M2.5 8a5.5 5.5 0 1 0 5.5-5.5"/><path d="M8 8l3.6-3.6"/><circle cx="8" cy="8" r="1.1"/>',
   refit: '<path d="M10.6 2.6a3 3 0 0 0-3.1 4.1l-4.6 4.6a1.3 1.3 0 0 0 1.8 1.8l4.6-4.6a3 3 0 0 0 4.1-3.1l-1.9 1.9-1.6-.3-.3-1.6z"/>',
   wait: '<path d="M6 4.5v7M10 4.5v7"/>',
+  investigate: '<circle cx="6.8" cy="6.8" r="4"/><path d="M9.8 9.8l3.6 3.6"/>',
+  salvage: '<path d="M8 2v6.5a2.6 2.6 0 1 1-2.6-2.6"/><path d="M5.5 2h5"/>',
 };
+
+// Orders at a signal name its system, as the signal itself may still be unknown.
+const SIGNAL_ORDERS = new Set(['investigate', 'salvage']);
 
 function activityIcon(kind) {
   const paths = ACTIVITY_ICONS[kind] ?? ACTIVITY_ICONS.fly;
@@ -41,15 +49,18 @@ export function renderTopBar(els, state, previous) {
     pill.classList.add('is-bumped');
   }
 
-  const busy = state.ships.filter((s) => s.order);
-  els.fleetSummary.textContent = `${plural(state.ships.length, 'ship')} · ${busy.length} busy`;
+  // Ships out on a mission count as busy; their orders stay with their commander.
+  const shown = mapShips(state);
+  const busy = shown.filter((s) => s.order);
+  const away = state.ships.filter((s) => s.mission || leaderOf(state, s)?.mission).length;
+  els.fleetSummary.textContent = `${plural(state.ships.length, 'ship')} · ${busy.length + away} busy`;
 
   const next = [...busy].sort((a, b) => a.order.endsAt - b.order.endsAt)[0];
   els.nextChip.classList.toggle('is-idle', !next);
   if (next) {
     els.nextText.replaceChildren(`${next.name} done in `, countdown(next.order.endsAt, { className: '' }));
   } else {
-    els.nextText.textContent = state.ships.length === 1 ? `${state.ships[0].name} is waiting` : 'All ships are waiting';
+    els.nextText.textContent = !shown.length ? 'Every ship is with a fleet' : shown.length === 1 ? `${shown[0].name} is waiting` : away ? 'Only fleets on missions are busy' : 'All ships are waiting';
   }
   return credits;
 }
@@ -60,17 +71,20 @@ export function renderTopBar(els, state, previous) {
 // whole order.
 export function underwayCard(ctx) {
   const { state, now } = ctx;
-  const busy = state.ships.filter((s) => s.order).sort((a, b) => a.order.endsAt - b.order.endsAt);
-  const idle = state.ships.filter((s) => !s.order);
+  // A fleet on a mission is one row; ships aboard a fleet have none.
+  const fleets = commanders(state).filter((c) => c.mission);
+  const ships = mapShips(state);
+  const busy = ships.filter((s) => s.order).sort((a, b) => a.order.endsAt - b.order.endsAt);
+  const idle = ships.filter((s) => !s.order);
   const goal = currentGoal(state);
-  const rows = [...idle, ...busy].map((ship) => runRow(ctx, ship, now));
+  const rows = [...idle.map((ship) => runRow(ctx, ship, now)), ...fleets.map((c) => fleetRow(ctx, c)), ...busy.map((ship) => runRow(ctx, ship, now))];
 
   return [
     h(
       'div',
       { class: 'dw-underway-head' },
       h('strong', null, 'Underway'),
-      h('span', { class: 'dw-underway-sub' }, `${busy.length} running · ${idle.length} waiting`),
+      h('span', { class: 'dw-underway-sub' }, `${busy.length + fleets.length} running · ${idle.length} waiting`),
     ),
     h('div', { class: 'dw-runs' }, rows),
     goal
@@ -86,6 +100,26 @@ export function underwayCard(ctx) {
         )
       : null,
   ];
+}
+
+// The mission icons borrow the order icons for the same work.
+const MISSION_ICONS = { mine: 'mine', trade: 'sell', survey: 'survey' };
+
+function fleetRow(ctx, commander) {
+  const mission = commander.mission;
+  const where = findSystem(mission.center)?.name ?? '?';
+  const returning = mission.status === 'returning';
+  const status = `${commander.name}: ${MISSIONS[mission.kind].name.toLowerCase()} mission around ${where}`;
+  return h(
+    'button',
+    { type: 'button', class: 'dw-run is-fleet', onClick: () => ctx.select('ship', commander.id), dataset: { key: `run-${commander.id}` }, title: status, 'aria-label': status },
+    h('span', { class: 'dw-run-face' }, portrait(commander, 22)),
+    h('span', { class: 'dw-run-name' }, commander.name),
+    activityIcon(MISSION_ICONS[mission.kind]),
+    h('span', { class: 'dw-run-where' }, where, h('span', { class: 'dw-run-more' }, ` +${mission.ships}`)),
+    returning ? h('span', { class: 'dw-run-time' }, 'Heading back') : countdown(mission.endsAt, { className: 'dw-run-time' }),
+    returning ? null : bar({ start: mission.startedAt, end: mission.endsAt }),
+  );
 }
 
 function runRow(ctx, ship, now) {
@@ -105,7 +139,7 @@ function runRow(ctx, ship, now) {
   const { order } = ship;
   const phase = orderPhase(order, now);
   const jumpTo = phase.jumping ? findSystem(systemOf(order.legs.find((l) => now < l.end)?.to ?? order.target)) : null;
-  const target = order.type === 'survey' ? findSystem(order.steps.at(-1)?.system)?.name : findPlace(order.target)?.name;
+  const target = order.type === 'survey' ? findSystem(order.steps.at(-1)?.system)?.name : SIGNAL_ORDERS.has(order.type) ? findSystem(systemOf(order.target))?.name : findPlace(order.target)?.name;
   const where = jumpTo ? jumpTo.name : `${phase.flying && order.type !== 'fly' ? 'to ' : ''}${target ?? '?'}`;
   return h(
     'button',

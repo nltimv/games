@@ -52,6 +52,9 @@ export const HOME_SKY = {
   seed: hashString('sky'),
 };
 
+/** The gold of ancient gates and their lanes. */
+export const ANCIENT_TINT = '#f5c96a';
+
 /** The colour a station's art is tinted: its faction's (Halcyon's art is already its colour). */
 export function stationTint(station) {
   return station && station.faction !== HOME_FACTION ? (findFaction(station.faction)?.color ?? null) : null;

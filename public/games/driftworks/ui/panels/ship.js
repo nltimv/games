@@ -9,7 +9,8 @@ import { cargoTotal } from '../../systems/cargo.js';
 import { contractFor, deliverCargo, stillNeeded } from '../../systems/contracts.js';
 import { sellAllHere } from '../../systems/commands.js';
 import { findShip } from '../../systems/fleet.js';
-import { holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
+import { onMap } from '../../systems/commanders.js';
+import { holdClassOf, holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
 import {
   cancelOrder,
   canCopy,
@@ -41,6 +42,7 @@ import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch 
 import { orderToast } from '../contextMenu.js';
 import { at, plusCredits, routeText, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
+import { aboardSection, commanderSections, fleetSection } from './commander.js';
 
 export function shipPanel(ctx, shipId) {
   const { state } = ctx;
@@ -52,21 +54,33 @@ export function shipPanel(ctx, shipId) {
   const total = cargoTotal({ cargo });
   const hold = holdOf(ship);
 
+  const head = panelHead({ icon: shipGlyph(ship.hull), title: ship.name, subtitle: hull.name, onClose: ctx.close });
+  if (ship.commander) {
+    // Away on a mission, the command ship is out of contact: no place, no orders.
+    if (ship.mission) return [head, commanderSections(ctx, ship)];
+    return [head, commanderSections(ctx, ship), statusCard(ctx, ship), newOrders(ctx, ship), modulesSection(ctx, ship)];
+  }
+  const aboard = Boolean(ship.fleet);
+  // Out on a mission, nothing of what the ship carries shows.
+  const away = aboard && Boolean(findShip(state, ship.fleet)?.mission);
   return [
-    panelHead({ icon: shipGlyph(ship.hull), title: ship.name, subtitle: hull.name, onClose: ctx.close }),
-    statusCard(ctx, ship),
-    ordersSection(ctx, ship),
-    h(
-      'div',
-      { class: 'dw-section' },
-      sectionTitle('Hold', `${tonnes(total)} / ${tonnes(hold)}`, { numeric: true }),
-      bar({ fraction: total / hold, variant: hull.role === 'hauler' ? 'gold' : null }),
-      total > 0
-        ? h('div', { class: 'dw-chips' }, Object.keys(cargo).map((g) => chip([swatch(g), tonnes(cargo[g], g)])))
-        : h('p', { class: 'dw-note' }, 'Empty.'),
-    ),
-    newOrders(ctx, ship),
-    modulesSection(ctx, ship),
+    head,
+    aboard ? aboardSection(ctx, ship) : statusCard(ctx, ship),
+    aboard ? null : fleetSection(ctx, ship),
+    aboard ? null : ordersSection(ctx, ship),
+    hold > 0 && !away
+      ? h(
+          'div',
+          { class: 'dw-section' },
+          sectionTitle('Hold', `${tonnes(total)} / ${tonnes(hold)}`, { numeric: true }),
+          bar({ fraction: total / hold, variant: hull.role === 'hauler' ? 'gold' : null }),
+          total > 0
+            ? h('div', { class: 'dw-chips' }, Object.keys(cargo).map((g) => chip([swatch(g), tonnes(cargo[g], g)])))
+            : h('p', { class: 'dw-note' }, 'Empty.'),
+        )
+      : null,
+    aboard ? null : newOrders(ctx, ship),
+    aboard ? null : modulesSection(ctx, ship),
   ];
 }
 
@@ -146,7 +160,7 @@ function ordersSection(ctx, ship) {
   }
 
   // Copy another ship's orders onto this one.
-  const sources = ship.order || ship.plan.length ? [] : state.ships.filter((other) => canCopy(state, other, ship));
+  const sources = ship.order || ship.plan.length ? [] : state.ships.filter((other) => onMap(other) && canCopy(state, other, ship));
   const copy = sources.length
     ? h(
         'div',
@@ -392,8 +406,9 @@ function modulesSection(ctx, ship) {
   const { state } = ctx;
   const best = bestModules(state);
   const hull = HULLS[ship.hull];
-  const rows = linesFor(ship.hull).map((line) => {
-    const level = ship.modules[line];
+  const lines = linesFor(ship.hull);
+  const rows = lines.map((line) => {
+    const level = ship.modules[line] ?? 0;
     const value = (lvl) => moduleValue(ship, line, lvl);
     const newer = best[line] > level ? h('span', { class: 'dw-module-new' }, `newest ${value(best[line])}`) : null;
     return h('div', null, h('dt', null, `${MODULES[line].name}:`), h('dd', null, value(level), newer));
@@ -404,7 +419,13 @@ function modulesSection(ctx, ship) {
     'div',
     { class: 'dw-section' },
     sectionTitle('Modules'),
-    h('dl', { class: 'dw-specs is-stacked' }, rows, h('div', null, h('dt', null, 'Hold type:'), h('dd', null, HOLD_CLASS_NAMES[hull.holdClass]))),
+    h(
+      'dl',
+      { class: 'dw-specs is-stacked' },
+      rows,
+      // Hulls without a seal line keep the hold they are built with.
+      hull.holdScale > 0 && !lines.includes('seal') ? h('div', null, h('dt', null, 'Hold type:'), h('dd', null, HOLD_CLASS_NAMES[hull.holdClass])) : null,
+    ),
     offer
       ? button(short > 0 ? `Refit · need ${formatCredits(short)} more` : `Refit at the shipyard`, {
           block: true,
@@ -424,5 +445,6 @@ function moduleValue(ship, line, level) {
   const probe = { ...ship, modules: { ...ship.modules, [line]: level } };
   if (line === 'hold') return tonnes(holdOf(probe));
   if (line === 'laser') return `${laserOf(probe)} t/min`;
+  if (line === 'seal') return HOLD_CLASS_NAMES[holdClassOf(probe)];
   return `${Math.round(speedOf(probe))} u/min`;
 }

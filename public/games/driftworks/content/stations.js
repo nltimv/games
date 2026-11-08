@@ -15,7 +15,16 @@ export const CURVES = {
   postBuys: { high: 1.05, low: 0.55, cap: 2000, target: 0.35 },
   // Trading posts sell a few staples at a markup.
   postSells: { high: 1.45, low: 1.05, cap: 1500, target: 0.55 },
+  // Shipyards pay well for the materials their hulls are built from.
+  materials: { high: 1.6, low: 0.8, cap: 4000, target: 0.25 },
 };
+
+/**
+ * Stations keep less of the higher tiers: a tier 3 good's storage is half
+ * the curve's cap. Each tonne pays more, so a full hold is not the only
+ * good answer.
+ */
+export const TIER_STORAGE = { 3: 0.5, 4: 0.25 };
 
 export const STATION_TYPES = {
   refinery: {
@@ -28,7 +37,7 @@ export const STATION_TYPES = {
   },
   foundry: {
     label: 'Foundry',
-    description: 'Smelts refined goods into steel and glass.',
+    description: 'Smelts refined goods into processed materials.',
     buys: ['iron', 'graphite', 'silicon'],
     sells: ['steel', 'glass'],
     buyCurve: 'input',
@@ -37,16 +46,25 @@ export const STATION_TYPES = {
   tradingPost: {
     label: 'Trading post',
     description: 'Buys most goods at thin margins and sells a few staples.',
-    buys: ['ferrite-ore', 'silicate-rock', 'carbon-ore', 'iron', 'silicon', 'graphite'],
+    buys: ['ferrite-ore', 'silicate-rock', 'carbon-ore', 'iron', 'silicon', 'graphite', 'steel', 'glass', 'circuits'],
     sells: ['ice', 'water'],
     buyCurve: 'postBuys',
     sellCurve: 'postSells',
   },
+  factory: {
+    label: 'Factory',
+    description: 'Builds ship components from processed materials.',
+    buys: ['steel', 'glass', 'titanium-alloy', 'optics'],
+    sells: ['hull-plating', 'circuits', 'sensor-arrays'],
+    buyCurve: 'input',
+    sellCurve: 'output',
+  },
   shipyard: {
     label: 'Shipyard',
-    description: 'Sells ships and fits new modules.',
-    buys: [],
+    description: 'Sells ships, fits new modules and buys hull materials.',
+    buys: ['steel', 'titanium-alloy', 'hull-plating', 'circuits', 'sensor-arrays'],
     sells: [],
+    buyCurve: 'materials',
     hulls: ['mule', 'kite', 'lark', 'heron'],
   },
 };

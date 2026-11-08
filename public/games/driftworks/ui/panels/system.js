@@ -16,10 +16,14 @@ import { marketEntries } from '../../systems/market.js';
 import { isResearched } from '../../systems/research.js';
 import { seenAt } from '../../systems/knowledge.js';
 import { findShip } from '../../systems/fleet.js';
+import { mapShips, onMap } from '../../systems/commanders.js';
 import { giveOrder } from '../../systems/orders.js';
 import { canJump, jumpFee, jumpTime, shipSystem } from '../../systems/travel.js';
+import { hazardNote, isShielded, shieldingNeeded } from '../../systems/shielding.js';
+import { fieldsOf, signalTitle } from '../../systems/signals.js';
+import { signalPanel } from './signal.js';
 import { h } from '../dom.js';
-import { button, contractMark, fieldIcon, gateIcon, panelHead, sectionTitle, stationIcon, swatch } from '../components.js';
+import { button, contractMark, fieldIcon, gateIcon, panelHead, sectionTitle, signalIcon, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { ago, formatPrice, plural, span } from '../format.js';
 
@@ -34,7 +38,7 @@ function where(system) {
 
 function subtitle(state, system) {
   const faction = findFaction(system.faction);
-  const known = isSurveyed(state, system.id) ? where(system) : system.hazard ?? 'unsurveyed';
+  const known = isSurveyed(state, system.id) ? where(system) : (shieldingNeeded(state, system) ? system.hazard : 'unsurveyed');
   return `${faction?.name ?? 'Unclaimed'} · ${known}`;
 }
 
@@ -43,8 +47,8 @@ function surveyButtons(ctx, systemId) {
   const { state } = ctx;
   if (!surveyable(state, systemId)) return null;
   const surveyor = surveyorOf(state, systemId);
-  if (surveyor) return h('p', { class: 'dw-note' }, `${surveyor.name} is on its way to survey it.`);
-  const scouts = state.ships.filter((ship) => HULLS[ship.hull].role === 'scout');
+  if (surveyor) return h('p', { class: 'dw-note' }, onMap(surveyor) ? `${surveyor.name} is on its way to survey it.` : 'A fleet on a mission is surveying it.');
+  const scouts = mapShips(state).filter((ship) => HULLS[ship.hull].role === 'scout');
   if (!scouts.length) return null;
   return h(
     'div',
@@ -83,7 +87,7 @@ function contractMarksFor(marks) {
 function gateLine(state, system, gate) {
   const far = findSystem(gate.to);
   if (!canJump(state)) return 'Locked';
-  if (far?.hazard) return `${far.name} has ${far.hazard}`;
+  if (shieldingNeeded(state, far)) return `${far.name} has ${far.hazard}`;
   const lane = laneBetween(system.id, gate.to);
   const trip = `${span(jumpTime(state, lane))} jump · ${formatCredits(jumpFee(state, lane))}`;
   return isSurveyed(state, gate.to) ? trip : `${trip} · unsurveyed`;
@@ -102,13 +106,13 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
     subtitle: subtitle(state, system),
     onClose: overview && !ctx.isPhone() ? null : ctx.close,
   });
-  const ships = state.ships.filter((ship) => shipSystem(ship, ctx.now) === system.id);
+  const ships = mapShips(state).filter((ship) => shipSystem(ship, ctx.now) === system.id);
   const open = ctx.ui.view === 'galaxy' && surveyed ? button(`Open the ${system.name} map`, { key: 'open-system', variant: 'primary', block: true, onClick: () => ctx.openSystem(system.id) }) : null;
 
   if (!surveyed) {
     return [
       head,
-      h('p', { class: 'dw-note' }, system.hazard ? `${system.name} has ${system.hazard}. Ships need shielding to go there.` : `${system.name} has not been surveyed.`),
+      h('p', { class: 'dw-note' }, hazardNote(state, system) ?? `${system.name} has not been surveyed.`),
       surveyButtons(ctx, system.id),
     ];
   }
@@ -117,7 +121,8 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
   const stationRows = system.stations.map((station) =>
     placeRow(ctx, 'station', station, stationIcon(station.type, { size: 34, tint: stationTint(station) }), STATION_TYPES[station.type].description, contractMarksFor(marks.get(station.id))),
   );
-  const fieldRows = system.fields.map((field) =>
+  const fields = fieldsOf(state, system);
+  const fieldRows = fields.map((field) =>
     placeRow(ctx, 'field', field, fieldIcon(field.good, 34), `${GOODS[field.good].name} · ${richnessLabel(field.richness).toLowerCase()}`),
   );
   const gateRows = system.gates.map((gate) =>
@@ -143,7 +148,15 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
     ctx.ui.view === 'galaxy' && isResearched(state, 'market-charts') ? pricesSection(ctx, system) : null,
     ships.length ? h('div', { class: 'dw-section' }, sectionTitle('Your ships here', String(ships.length), { numeric: true }), h('ul', { class: 'dw-list' }, ships.map((ship) => shipRow(ctx, ship)))) : null,
     system.stations.length ? h('div', { class: 'dw-section' }, sectionTitle('Stations'), h('div', { class: 'dw-list' }, stationRows)) : null,
-    system.fields.length ? h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)) : null,
+    fields.length ? h('div', { class: 'dw-section' }, sectionTitle('Asteroid fields'), h('div', { class: 'dw-list' }, fieldRows)) : null,
+    system.signal
+      ? h(
+          'div',
+          { class: 'dw-section' },
+          sectionTitle('Signal'),
+          h('div', { class: 'dw-list' }, placeRow(ctx, 'signal', { id: system.signal.id, name: signalTitle(state, system.signal) }, signalIcon(state, system.signal, 34), 'Out past the planets')),
+        )
+      : null,
     h('div', { class: 'dw-section' }, sectionTitle('Warp gates'), h('div', { class: 'dw-list' }, gateRows)),
   ];
 }
@@ -195,6 +208,8 @@ export function gatePanel(ctx, gateId) {
   const { state } = ctx;
   const gate = findGate(gateId);
   if (!gate) return systemPanel(ctx, ctx.ui.systemId, { overview: true });
+  // An ancient gate is its system's signal, investigated.
+  if (gate.ancient) return signalPanel(ctx, findSystem(systemOf(gateId)).signal.id);
   const system = findSystem(systemOf(gateId));
   const far = findSystem(gate.to);
   const known = isSurveyed(state, gate.to);
@@ -267,7 +282,7 @@ export function galaxyPanel(ctx) {
   const { state } = ctx;
   const charted = chartedSystems(state);
   const surveyed = allSystems().filter((system) => isSurveyed(state, system.id));
-  const unsurveyed = allSystems().filter((system) => charted.has(system.id) && !isSurveyed(state, system.id) && !system.hazard);
+  const unsurveyed = allSystems().filter((system) => charted.has(system.id) && !isSurveyed(state, system.id) && isShielded(state, system));
   const row = (system) =>
     h(
       'button',

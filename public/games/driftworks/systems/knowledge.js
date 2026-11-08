@@ -16,7 +16,9 @@ const cache = new WeakMap();
 
 /** The systems with live prices at `at`. */
 export function liveSystems(state, at = state.now) {
-  const key = `${at}|${state.ships.map((ship) => `${ship.at}:${ship.order?.startedAt ?? ''}`).join(',')}|${state.research.done.length}`;
+  // Where a ship is at `at` follows from its orders, and orders given at
+  // `at` start there, so the time, the fleet and the research make the key.
+  const key = `${at}|${state.ships.length}|${state.research.done.length}`;
   const hit = cache.get(state);
   if (hit?.key === key) return hit.live;
   const live = new Set();

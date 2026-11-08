@@ -6,7 +6,7 @@
 // touched, so markets cost nothing to simulate while nobody looks at them.
 
 import { GOODS } from '../content/goods.js';
-import { CURVES, STATION_TYPES } from '../content/stations.js';
+import { CURVES, STATION_TYPES, TIER_STORAGE } from '../content/stations.js';
 import { findStation } from '../content/galaxy.js';
 import { seededUnit } from '../core/rng.js';
 import { MINUTE } from '../core/time.js';
@@ -15,20 +15,38 @@ import { priceFactor } from './standing.js';
 /** Time constant of the drift back to target: ~86% recovered after 3 h. */
 export const RECOVERY_TAU = 90 * MINUTE;
 
+// Curves with storage scaled for each tier, made once.
+const scaled = new Map();
+function curveFor(name, good) {
+  const share = TIER_STORAGE[GOODS[good].tier] ?? 1;
+  const key = `${name}:${share}`;
+  if (!scaled.has(key)) scaled.set(key, { ...CURVES[name], cap: CURVES[name].cap * share });
+  return scaled.get(key);
+}
+
+// Each station's entries, made once per station (a galaxy's stations never change).
+const entriesOf = new WeakMap();
+
 /** The goods a station trades, as { good, side, curve } entries. */
 export function marketEntries(stationId) {
   const station = findStation(stationId);
   if (!station) return [];
-  const type = STATION_TYPES[station.type];
-  const entries = [];
-  // Generated stations list their own goods; Aurel's use their type's.
-  for (const good of station.buys ?? type.buys) entries.push({ good, side: 'buys', curve: CURVES[type.buyCurve] });
-  for (const good of station.sells ?? type.sells) entries.push({ good, side: 'sells', curve: CURVES[type.sellCurve] });
-  return entries;
+  let cached = entriesOf.get(station);
+  if (!cached) {
+    const type = STATION_TYPES[station.type];
+    const entries = [];
+    // Generated stations list their own goods; Aurel's use their type's.
+    for (const good of station.buys ?? type.buys) entries.push({ good, side: 'buys', curve: curveFor(type.buyCurve, good) });
+    for (const good of station.sells ?? type.sells) entries.push({ good, side: 'sells', curve: curveFor(type.sellCurve, good) });
+    cached = { entries, byGood: new Map(entries.map((e) => [e.good, e])) };
+    entriesOf.set(station, cached);
+  }
+  return cached.entries;
 }
 
 export function findEntry(stationId, good) {
-  return marketEntries(stationId).find((e) => e.good === good) ?? null;
+  marketEntries(stationId);
+  return entriesOf.get(findStation(stationId))?.byGood.get(good) ?? null;
 }
 
 /** Each save's targets differ by up to ±10% so markets are not identical. */

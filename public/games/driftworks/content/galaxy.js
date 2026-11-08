@@ -32,6 +32,16 @@ export const JUMP_FEE = { min: 300, max: 800 };
 const LANE_SHORT = 80;
 const LANE_LONG = 250;
 
+/** Factories stand in about this share of the systems from HAZARD_DEPTH out. */
+export const FACTORY_SHARE = 1 / 3;
+
+/** What each component is made from, at factories. */
+export const COMPONENTS = {
+  'hull-plating': ['steel', 'titanium-alloy'],
+  circuits: ['glass', 'optics'],
+  'sensor-arrays': ['optics', 'titanium-alloy'],
+};
+
 /** What each refinery makes from each ore. */
 export const REFINES = {
   'ferrite-ore': 'iron',
@@ -294,7 +304,7 @@ function fieldName(rng, used) {
   }
 }
 
-const STATION_LABELS = { refinery: 'Refinery', foundry: 'Foundry', tradingPost: 'Trading Post', shipyard: 'Shipyard' };
+const STATION_LABELS = { refinery: 'Refinery', foundry: 'Foundry', tradingPost: 'Trading Post', shipyard: 'Shipyard', factory: 'Factory' };
 
 /** The goods a generated station trades, by its type and depth. */
 function stationTrade(type, depthOf) {
@@ -302,13 +312,16 @@ function stationTrade(type, depthOf) {
   if (type === 'refinery') return { buys: ores, sells: ores.map((ore) => REFINES[ore]) };
   if (type === 'tradingPost') {
     const extra = ores.filter((g) => g === 'titanium-ore' || g === 'crystal-ore');
-    return { buys: ['ferrite-ore', 'silicate-rock', 'carbon-ore', ...extra, 'iron', 'silicon', 'graphite'], sells: ['ice', 'water'] };
+    const processed = ['steel', 'glass', ...(depthOf >= 3 ? ['optics'] : []), 'circuits'];
+    return { buys: ['ferrite-ore', 'silicate-rock', 'carbon-ore', ...extra, 'iron', 'silicon', 'graphite', ...processed], sells: ['ice', 'water'] };
   }
   if (type === 'foundry') {
     const extra = depthOf >= 2 ? ['titanium'] : [];
     if (depthOf >= 3) extra.push('crystal');
-    return { buys: ['iron', 'graphite', 'silicon', ...extra], sells: ['steel', 'glass'] };
+    const made = [...(depthOf >= 2 ? ['titanium-alloy'] : []), ...(depthOf >= 3 ? ['optics'] : [])];
+    return { buys: ['iron', 'graphite', 'silicon', ...extra], sells: ['steel', 'glass', ...made] };
   }
+  if (type === 'shipyard') return { buys: ['steel', 'titanium-alloy', ...Object.keys(COMPONENTS)], sells: [] };
   return { buys: [], sells: [] };
 }
 
@@ -392,6 +405,9 @@ function buildSystem(seed, point, depthOf, faction, neighbours, hazard) {
     };
   });
 
+  const factory = factoryFor(seed, point, depthOf, faction, stations);
+  if (factory) stations.push(factory);
+
   return {
     id,
     name: point.name,
@@ -409,6 +425,126 @@ function buildSystem(seed, point, depthOf, faction, neighbours, hazard) {
     gates,
     extent: 480,
   };
+}
+
+/**
+ * A factory for a deep system, or null. It rolls on its own seed, so the
+ * rest of the system is the same as before factories existed. Each makes
+ * two of the three components, and buys what goes into them.
+ */
+function factoryFor(seed, point, depthOf, faction, stations) {
+  if (depthOf < HAZARD_DEPTH) return null;
+  const rng = createRng(hashString(`${seed}:factory:${point.id}`));
+  if (rng() >= FACTORY_SHARE) return null;
+  const all = Object.keys(COMPONENTS);
+  const skip = Math.floor(rng() * all.length);
+  const sells = all.filter((_, i) => i !== skip);
+  const buys = [...new Set(sells.flatMap((good) => COMPONENTS[good]))];
+  // In the widest gap between the other stations.
+  const angles = stations.map((s) => deg(Math.atan2(s.y, s.x))).sort((a, b) => a - b);
+  let angle = rng() * 360;
+  if (angles.length) {
+    let widest = -1;
+    angles.forEach((a, i) => {
+      const next = i + 1 < angles.length ? angles[i + 1] : angles[0] + 360;
+      if (next - a > widest) {
+        widest = next - a;
+        angle = a + (next - a) / 2;
+      }
+    });
+  }
+  return {
+    id: `${point.id}-factory`,
+    name: `${point.name} ${STATION_LABELS.factory}`,
+    short: STATION_LABELS.factory,
+    type: 'factory',
+    faction,
+    buys,
+    sells,
+    ...polar(between(rng, 165, 215), angle),
+  };
+}
+
+// ---------- Signals ----------
+
+/** About this share of the systems from HAZARD_DEPTH out hold a signal. */
+export const SIGNAL_SHARE = 0.3;
+/** Of the other signals, this share are derelicts; the rest are rich fields. */
+const DERELICT_SHARE = 0.6;
+/** What a derelict may hold: processed materials and components. */
+const SALVAGE_GOODS = ['steel', 'glass', 'titanium-alloy', 'optics', 'hull-plating', 'circuits', 'sensor-arrays'];
+/** Ores a rich field may hold, titanium and crystal more often. */
+const RICH_ORES = ['ferrite-ore', 'silicate-rock', 'carbon-ore', 'ice', 'titanium-ore', 'titanium-ore', 'crystal-ore', 'crystal-ore'];
+/** How many ancient gate pairs a galaxy has, and how far apart their ends are at least (galaxy units). */
+const ANCIENT_PAIRS = [2, 3];
+const ANCIENT_GAP = 850;
+/** An ancient lane's jump: as long as the longest lane, and nobody charges for it. */
+const ANCIENT_LANE = { minutes: 15, fee: 0 };
+
+/** Where a system's signal sits: out past the planets, clear of the gates. */
+function signalSpot(rng, system) {
+  const gateAngles = system.gates.map((gate) => gate.angle);
+  let angle = rng() * 360;
+  for (let k = 0; k < 12; k += 1) {
+    if (gateAngles.every((a) => Math.min(Math.abs(a - angle) % 360, 360 - (Math.abs(a - angle) % 360)) > 22)) break;
+    angle += 30;
+  }
+  return polar(between(rng, 420, 440), angle);
+}
+
+/**
+ * Seeds the signals of the deep systems: derelicts and rich fields, then
+ * turns a few far-apart pairs into ancient gates. Each system rolls on its
+ * own seed. Returns the ancient lanes.
+ */
+function placeSignals(seed, systems, lanes) {
+  const linked = new Set(lanes.map((lane) => `${lane.a}|${lane.b}`));
+  for (const system of systems) {
+    if (system.depth < HAZARD_DEPTH) continue;
+    const rng = createRng(hashString(`${seed}:signal:${system.id}`));
+    if (rng() >= SIGNAL_SHARE) continue;
+    const base = { id: `${system.id}-signal`, name: 'Unknown signal', ...signalSpot(rng, system) };
+    if (rng() < DERELICT_SHARE) {
+      system.signal = { ...base, kind: 'derelict', good: pick(rng, SALVAGE_GOODS), qty: Math.round(between(rng, 100, 400) / 10) * 10 };
+    } else {
+      const field = {
+        id: `${system.id}-lode`,
+        name: `${pick(rng, FIELD_ADJECTIVES)} Lode`,
+        good: pick(rng, RICH_ORES),
+        richness: Math.round(between(rng, 3, 4) * 100) / 100,
+        signal: base.id,
+        x: base.x,
+        y: base.y,
+      };
+      system.signal = { ...base, kind: 'rich', field };
+    }
+  }
+
+  const rng = createRng(hashString(`${seed}:ancient`));
+  const [fewest, most] = ANCIENT_PAIRS;
+  const pairs = fewest + Math.floor(rng() * (most - fewest + 1));
+  const ancient = [];
+  const used = new Set();
+  for (let k = 0; k < pairs; k += 1) {
+    const free = systems.filter((s) => s.signal && !used.has(s.id));
+    const a = free.length ? pick(rng, free) : null;
+    const far = free.filter((b) => b !== a && Math.hypot(b.gx - a.gx, b.gy - a.gy) >= ANCIENT_GAP && !linked.has(`${a.id}|${b.id}`) && !linked.has(`${b.id}|${a.id}`));
+    if (!far.length) continue;
+    const b = pick(rng, far);
+    used.add(a.id);
+    used.add(b.id);
+    for (const [here, there] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const { id, name, x, y } = here.signal;
+      const angle = deg(Math.atan2(there.gy - here.gy, there.gx - here.gx));
+      const gate = { id: `${here.id}-ancient-gate`, name: `Ancient gate to ${there.name}`, short: there.name, to: there.id, angle, ancient: true, x, y };
+      here.signal = { id, name, x, y, kind: 'gate', to: there.id, gate };
+    }
+    ancient.push({ a: a.id, b: b.id, length: Math.round(Math.hypot(a.gx - b.gx, a.gy - b.gy)), ...ANCIENT_LANE, ancient: true });
+  }
+  return ancient;
 }
 
 function laneFor(a, b) {
@@ -454,9 +590,10 @@ export function generateGalaxy(seed) {
     return buildSystem(seed, p, depth[i], owner[i], neighbours, hazard);
   });
   const lanes = edges.map(([i, j]) => laneFor(points[i], points[j]));
+  const ancientLanes = placeSignals(seed, systems, lanes);
   const factions = { [HOME_FACTION]: { ...HALCYON, capital: HOME_SYSTEM.id } };
   for (const f of others) factions[f.id] = { ...f, capital: points[f.capital]?.id ?? null };
-  return { seed, systems, lanes, factions };
+  return { seed, systems, lanes, ancientLanes, factions };
 }
 
 // ---------- The galaxy in play ----------
@@ -471,18 +608,32 @@ function indexGalaxy(galaxy) {
     for (const kind of ['stations', 'fields', 'planets', 'gates']) {
       for (const place of system[kind]) places.set(place.id, { place, system: system.id, kind });
     }
+    // A signal is a place of its own; what it turns out to be (a rich
+    // field, an ancient gate) is one too, found by the usual lookups.
+    const signal = system.signal;
+    if (signal) {
+      places.set(signal.id, { place: signal, system: system.id, kind: 'signals' });
+      if (signal.field) places.set(signal.field.id, { place: signal.field, system: system.id, kind: 'fields' });
+      if (signal.gate) places.set(signal.gate.id, { place: signal.gate, system: system.id, kind: 'gates' });
+    }
   }
   for (const lane of galaxy.lanes) {
     links.get(lane.a)?.push({ to: lane.b, lane });
     links.get(lane.b)?.push({ to: lane.a, lane });
   }
-  return { ...galaxy, byId: systems, places, links };
+  const ancient = new Map();
+  for (const lane of galaxy.ancientLanes ?? []) {
+    ancient.set(lane.a, { to: lane.b, lane });
+    ancient.set(lane.b, { to: lane.a, lane });
+  }
+  return { ...galaxy, byId: systems, places, links, ancient };
 }
 
 const HOME_ONLY = indexGalaxy({
   seed: null,
   systems: [{ ...HOME_SYSTEM, gx: 0, gy: 0, depth: 0, hazard: null }],
   lanes: [],
+  ancientLanes: [],
   factions: { [HOME_FACTION]: { ...HALCYON, capital: HOME_SYSTEM.id } },
 });
 
@@ -550,6 +701,21 @@ export function systemOf(placeId) {
 /** The lanes out of a system: [{ to, lane }]. */
 export function lanesFrom(systemId) {
   return active.links.get(systemId) ?? [];
+}
+
+/** The ancient lane out of a system, { to, lane }, or null. It works only once both ends are investigated (systems/signals.js). */
+export function ancientLaneFrom(systemId) {
+  return active.ancient.get(systemId) ?? null;
+}
+
+/** A system's signal, or null. */
+export function signalIn(systemId) {
+  return findSystem(systemId)?.signal ?? null;
+}
+
+/** A signal by id. */
+export function findSignal(id) {
+  return placeOfKind(id, 'signals');
 }
 
 /** The lane between two systems, or null. */

@@ -4,14 +4,17 @@
 // A course is a list of legs: flights inside a system ({ from, to } places
 // in the same system) and jumps ({ from, to, jump: true }, from a gate to
 // the gate on the far side of its lane). Orders to another system plot a
-// course through the gates on their own (see plotCourse).
+// course through the gates on their own (see plotCourse). A command ship
+// pays each jump for the ships aboard its fleet as well.
 
-import { DOCK_SECONDS } from '../content/ships.js';
-import { findPlace, findSystem, gateTo, laneBetween, lanesFrom, systemOf } from '../content/galaxy.js';
+import { DOCK_SECONDS, HULLS } from '../content/ships.js';
+import { findPlace, findSystem, lanesFrom, systemOf } from '../content/galaxy.js';
 import { MINUTE, SECOND } from '../core/time.js';
 import { isSurveyed } from './explore.js';
 import { speedOf } from './modules.js';
 import { isResearched } from './research.js';
+import { hazardNote, isShielded } from './shielding.js';
+import { linksFrom } from './signals.js';
 
 export function distance(aId, bId) {
   const a = findPlace(aId);
@@ -46,18 +49,20 @@ export function canJump(state) {
 }
 
 /**
- * Whether a ship may fly into a system: it has been surveyed and has no
- * hazard. A scout may also enter the unsurveyed system it is sent to survey.
+ * Whether a ship may fly into a system: it has been surveyed, and its
+ * hazard (if any) is shielded. A scout may also enter the unsurveyed system
+ * it is sent to survey.
  */
 function mayEnter(state, systemId, { surveyTarget = null } = {}) {
   const system = findSystem(systemId);
-  if (!system || system.hazard) return false;
+  if (!isShielded(state, system)) return false;
   return isSurveyed(state, systemId) || systemId === surveyTarget;
 }
 
 /**
  * The quickest chain of systems from `fromSys` to `toSys`, by jump time
- * plus the flight across each system between its gates.
+ * plus the flight across each system between its gates. Returns the links
+ * taken, [{ to, lane, exit, entry }], or null when there is no way.
  */
 function systemPath(state, ship, fromSys, toSys, options) {
   const best = new Map([[fromSys, 0]]);
@@ -70,25 +75,53 @@ function systemPath(state, ship, fromSys, toSys, options) {
     if (id === toSys) break;
     if (cost > best.get(id)) continue;
     const entry = entries.get(id);
-    for (const { to, lane } of lanesFrom(id)) {
+    for (const link of linksFrom(state, id, lanesFrom(id))) {
+      const { to, lane, exit } = link;
       if (!mayEnter(state, to, options)) continue;
       // A system we only pass through must be one we know.
       if (to !== toSys && !isSurveyed(state, to)) continue;
-      const exit = gateTo(id, to);
       const crossing = entry ? flightTime(ship, entry, exit.id) : 0;
       const next = cost + crossing + jumpTime(state, lane);
       if (next < (best.get(to) ?? Infinity)) {
         best.set(to, next);
-        back.set(to, id);
-        entries.set(to, gateTo(to, id).id);
+        back.set(to, { from: id, link });
+        entries.set(to, link.entry.id);
         open.push({ id: to, cost: next });
       }
     }
   }
   if (!best.has(toSys)) return null;
-  const path = [toSys];
-  while (path[0] !== fromSys) path.unshift(back.get(path[0]));
+  const path = [];
+  for (let at = toSys; at !== fromSys; at = back.get(at).from) path.unshift(back.get(at).link);
   return path;
+}
+
+// Paths found so far, per save. They hold until the company surveys a
+// system, researches something or investigates a signal (an ancient gate
+// may open), which is when the known routes can change.
+const paths = new WeakMap();
+
+function cachedPath(state, ship, fromSys, toSys, options) {
+  const generation = `${state.surveyed?.length ?? 0}|${state.research.done.length}|${Object.keys(state.signals ?? {}).length}`;
+  let cache = paths.get(state);
+  if (cache?.generation !== generation || cache.surveyed !== state.surveyed || cache.done !== state.research.done) {
+    cache = { generation, surveyed: state.surveyed, done: state.research.done, map: new Map() };
+    paths.set(state, cache);
+  }
+  const key = `${fromSys}|${toSys}|${speedOf(ship)}|${options.surveyTarget ?? ''}`;
+  if (!cache.map.has(key)) cache.map.set(key, systemPath(state, ship, fromSys, toSys, options));
+  return cache.map.get(key);
+}
+
+/**
+ * How many ships a jump is paid for: a command ship pays for its fleet
+ * aboard too, except on a mission, where the wing flies on its own.
+ */
+function shipsAboard(state, ship) {
+  if (HULLS[ship.hull]?.role !== 'command') return 1;
+  const lead = state.ships.find((s) => s.id === ship.id);
+  if (!lead?.commander || lead.mission) return 1;
+  return 1 + state.ships.filter((s) => s.fleet === lead.id).length;
 }
 
 /**
@@ -106,26 +139,25 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
   }
   if (!canJump(state)) return { ok: false, error: 'The gates open with the warp drive research.' };
   const target = findSystem(toSys);
-  if (target?.hazard) return { ok: false, error: `${target.name} has ${target.hazard}. Ships need shielding to go there.` };
+  const blocked = hazardNote(state, target);
+  if (blocked) return { ok: false, error: blocked };
   if (!mayEnter(state, toSys, options)) return { ok: false, error: `${target?.name ?? 'That system'} has not been surveyed yet.` };
-  const path = systemPath(state, ship, fromSys, toSys, options);
+  const path = cachedPath(state, ship, fromSys, toSys, options);
   if (!path) return { ok: false, error: `No known route leads to ${target.name}.` };
 
   const legs = [];
   let t = 0;
   let at = fromId;
   let fees = 0;
-  for (let i = 0; i < path.length - 1; i += 1) {
-    const exit = gateTo(path[i], path[i + 1]);
-    const entry = gateTo(path[i + 1], path[i]);
-    const lane = laneBetween(path[i], path[i + 1]);
+  const aboard = shipsAboard(state, ship);
+  for (const { exit, entry, lane } of path) {
     if (at !== exit.id) {
       const fly = flightTime(ship, at, exit.id);
       legs.push({ from: at, to: exit.id, start: t, end: t + fly });
       t += fly;
     }
     const jump = jumpTime(state, lane);
-    const fee = jumpFee(state, lane);
+    const fee = jumpFee(state, lane) * aboard;
     legs.push({ from: exit.id, to: entry.id, start: t, end: t + jump, jump: true, fee });
     t += jump;
     fees += fee;
@@ -136,7 +168,7 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
     legs.push({ from: at, to: toId, start: t, end: t + fly });
     t += fly;
   }
-  return { ok: true, legs, time: t, jumps: path.length - 1, fees };
+  return { ok: true, legs, time: t, jumps: path.length, fees };
 }
 
 /** Travel time in ms from one place to another, or Infinity when there is no way. */

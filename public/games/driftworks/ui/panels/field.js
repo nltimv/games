@@ -4,6 +4,7 @@ import { GOODS } from '../../content/goods.js';
 import { HULLS } from '../../content/ships.js';
 import { findField } from '../../content/galaxy.js';
 import { findShip } from '../../systems/fleet.js';
+import { mapShips } from '../../systems/commanders.js';
 import { freeSlots, giveOrder, orderPhase } from '../../systems/orders.js';
 import { buyersOf } from '../../systems/advisor.js';
 import { countdown, h } from '../dom.js';
@@ -13,6 +14,7 @@ import { orderToast } from '../contextMenu.js';
 import { formatPrice } from '../format.js';
 
 export function richnessLabel(richness) {
+  if (richness >= 3) return 'Very rich';
   if (richness >= 1.15) return 'Rich';
   if (richness >= 0.95) return 'Average';
   return 'Sparse';
@@ -44,7 +46,7 @@ export function fieldPanel(ctx, fieldId) {
 
 function minersSection(ctx, field) {
   const { state, ui } = ctx;
-  const miners = state.ships.filter((s) => HULLS[s.hull].role === 'miner');
+  const miners = mapShips(state).filter((s) => HULLS[s.hull].role === 'miner');
   // Idle miners first, then busy ones that still have room for an order.
   const ready = [...miners.filter((s) => !s.order), ...miners.filter((s) => s.order && freeSlots(state, s) > 0)];
   const full = miners.filter((s) => s.order && freeSlots(state, s) <= 0);

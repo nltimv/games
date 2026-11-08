@@ -240,15 +240,28 @@ a:hover {
   bottom: var(--dw-gap);
   width: var(--dw-panel-w);
   border-radius: var(--radius-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.dw-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  z-index: 2;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+/* The handle of the phone sheet (see ui/sheet.js). */
+.dw-sheet-grip {
+  display: none;
 }
 
 .dw-panel-head {
@@ -777,6 +790,10 @@ button.dw-price-row[aria-pressed='true'] {
   background: rgba(255, 255, 255, 0.1);
 }
 
+.dw-ship-row.is-aboard:hover {
+  background: var(--dw-row);
+}
+
 .dw-ship-row.is-plain {
   padding: 0;
   background: none;
@@ -841,6 +858,11 @@ button.dw-price-row[aria-pressed='true'] {
 .dw-ship-icon.is-scout {
   background: rgba(150, 200, 255, 0.12);
   border-color: rgba(150, 200, 255, 0.35);
+}
+
+.dw-ship-icon.is-command {
+  background: rgba(127, 231, 255, 0.14);
+  border-color: rgba(127, 231, 255, 0.45);
 }
 
 /* A faction's colour as a small glowing dot, as on the galaxy map. */
@@ -979,6 +1001,115 @@ button.dw-price-row[aria-pressed='true'] {
 .dw-dot.is-order,
 .dw-dot.is-research {
   background: #b7c8ff;
+}
+
+.dw-dot.is-fleet {
+  background: #7fe7ff;
+  box-shadow: 0 0 8px rgba(127, 231, 255, 0.7);
+}
+
+/* ---------- Commanders and fleets ---------- */
+
+.dw-portrait {
+  display: block;
+  flex: none;
+  border-radius: 50%;
+  filter: drop-shadow(0 2px 6px rgba(0, 40, 80, 0.35));
+}
+
+.dw-commander {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dw-commander-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dw-commander-head .dw-grow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dw-commander-head strong {
+  font-size: 16px;
+}
+
+.dw-traits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--glass-muted);
+}
+
+.dw-traits strong {
+  color: #bff4ff;
+}
+
+.dw-captains-log {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-left: 3px solid #7fe7ff;
+  border-radius: 0 10px 10px 0;
+  background: rgba(127, 231, 255, 0.08);
+  font-size: 13px;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.dw-fleet-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.dw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 12.5px;
+  color: var(--glass-muted);
+}
+
+.dw-select {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--glass-soft-edge);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--glass-ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.dw-select option {
+  color: #0d2a40;
+}
+
+.dw-btn .dw-portrait,
+.dw-btn .dw-art {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.dw-run-face {
+  display: flex;
+  justify-content: center;
+}
+
+.dw-act.is-survey {
+  color: #c7b6ff;
 }
 
 .dw-stats-grid {
@@ -1196,6 +1327,11 @@ button.dw-price-row[aria-pressed='true'] {
 
 .dw-act.is-refit {
   color: #dfe7f2;
+}
+
+.dw-act.is-investigate,
+.dw-act.is-salvage {
+  color: #f5c96a;
 }
 
 .dw-underway-foot {
@@ -1922,9 +2058,71 @@ button.dw-price-row[aria-pressed='true'] {
     right: var(--dw-gap);
     bottom: calc(var(--dw-gap) + 56px + 8px);
     width: auto;
-    max-height: 62%;
-    padding: 16px;
+    max-height: var(--dw-sheet-max, 62%);
     z-index: 4;
+    transition: max-height 0.2s ease;
+  }
+
+  .dw-panel.is-folded {
+    max-height: 92px;
+  }
+
+  .dw-panel.is-dragging {
+    transition: none;
+  }
+
+  .dw-panel-body {
+    flex: 0 1 auto;
+    padding: 0 16px 16px;
+  }
+
+  .dw-panel.is-folded .dw-panel-body {
+    overflow: hidden;
+  }
+
+  /* Folded, only the head shows. */
+  .dw-panel.is-folded .dw-panel-body > :not(.dw-panel-head) {
+    visibility: hidden;
+  }
+
+  .dw-sheet-grip {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .dw-sheet-grip span {
+    width: 40px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.35);
+    transition: background 0.15s ease;
+  }
+
+  .dw-sheet-grip:hover span,
+  .dw-sheet-grip:focus-visible span,
+  .dw-panel.is-dragging .dw-sheet-grip span {
+    background: rgba(255, 255, 255, 0.65);
+  }
+
+  .dw-sheet-grip:focus-visible {
+    outline: none;
+  }
+
+  .dw-sheet-grip:focus-visible span {
+    box-shadow: 0 0 0 2px var(--aqua);
+  }
+
+  .dw-panel .dw-panel-head {
+    touch-action: none;
   }
 
   .dw-dock,

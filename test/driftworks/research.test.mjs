@@ -60,7 +60,7 @@ test('ships carry their own modules: new ships get the newest, old ones need a r
   assert.equal(laserOf(old), 10);
   assert.equal(speedOf(old), 400);
   state.research.done.push('hold-1', 'laser-1', 'engine-1');
-  assert.deepEqual(bestModules(state), { hold: 1, laser: 1, engine: 1 });
+  assert.deepEqual(bestModules(state), { hold: 1, laser: 1, engine: 1, seal: 0 });
   const fresh = createShip(state, 'mule', 'halcyon-shipyard');
   assert.equal(holdOf(fresh), 25);
   assert.equal(refitTarget(state, fresh), null);

@@ -1,16 +1,18 @@
 // List panels: the fleet, several selected ships, and the company (goals,
 // stats and log). Systems and gates are in system.js.
 
-import { GOALS, NEXT_CHAPTER } from '../../content/goals.js';
+import { ENDING, GOALS } from '../../content/goals.js';
 import { HULLS } from '../../content/ships.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
-import { allFactions, allSystems } from '../../content/galaxy.js';
+import { allFactions, allSystems, findSystem } from '../../content/galaxy.js';
+import { MISSIONS } from '../../content/commanders.js';
 import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/format.js';
 import { CONTRACT_RULES, boardOpen, contractPlace } from '../../systems/contracts.js';
 import { currentGoal } from '../../systems/goals.js';
 import { isSurveyed } from '../../systems/explore.js';
 import { canJump } from '../../systems/travel.js';
 import { findShip } from '../../systems/fleet.js';
+import { wingOf } from '../../systems/commanders.js';
 import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, runAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
@@ -21,11 +23,13 @@ import { factionRow } from './factions.js';
 
 export function fleetPanel(ctx) {
   const { state } = ctx;
-  const ships = [...state.ships].sort((a, b) => (a.order?.endsAt ?? 0) - (b.order?.endsAt ?? 0));
-  const idle = ships.filter((s) => !s.order).length;
+  // Ships aboard a fleet show on their commander's panel, not here.
+  const ends = (ship) => ship.mission?.endsAt ?? ship.order?.endsAt ?? 0;
+  const ships = state.ships.filter((ship) => !ship.fleet).sort((a, b) => ends(a) - ends(b));
+  const idle = ships.filter((s) => !s.order && !s.mission).length;
   const rows = ships.map((ship) => shipRow(ctx, ship));
   return [
-    panelHead({ title: 'Fleet', subtitle: `${plural(ships.length, 'ship')} · ${idle} waiting for orders`, onClose: ctx.close }),
+    panelHead({ title: 'Fleet', subtitle: `${plural(state.ships.length, 'ship')} · ${idle} waiting for orders`, onClose: ctx.close }),
     h('ul', { class: 'dw-list' }, rows),
     button('Buy ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
   ];
@@ -55,7 +59,7 @@ export function groupPanel(ctx, ids) {
   const again = ships.filter((ship) => canRunAgain(state, ship));
   const repeat = ships.filter((ship) => canRepeat(state, ship));
   const waiting = ships.filter((ship) => ship.queue.length);
-  const cancellable = ships.filter((ship) => ship.order && !(ship.order.type === 'fly' && orderPhase(ship.order, ctx.now).flying));
+  const cancellable = ships.filter((ship) => ship.order && ship.order.type !== 'standby' && !(ship.order.type === 'fly' && orderPhase(ship.order, ctx.now).flying));
   const action = (text, list, key, fn, done, variant) =>
     list.length
       ? button(text, {
@@ -84,7 +88,9 @@ export function groupPanel(ctx, ids) {
 
 /** One ship in a list: what it does now and how long that takes. */
 export function shipRow(ctx, ship) {
+  if (ship.mission) return awayRow(ctx, ship);
   const phase = ship.order ? orderPhase(ship.order, ctx.now) : null;
+  const wing = ship.commander ? wingOf(ctx.state, ship).length : 0;
   return h(
     'li',
     null,
@@ -95,11 +101,35 @@ export function shipRow(ctx, ship) {
       h(
         'span',
         { class: 'dw-grow' },
-        h('strong', null, `${ship.name} · ${HULLS[ship.hull].role}`),
-        h('small', null, shipStatus(ship, ctx.now)),
+        h('strong', null, `${ship.name} · ${ship.commander ? 'commander' : HULLS[ship.hull].role}`),
+        h('small', null, `${shipStatus(ship, ctx.now)}${wing ? ` · ${wing} aboard` : ''}`),
         phase ? bar({ start: phase.start, end: phase.end }) : null,
       ),
       phase ? countdown(phase.end) : chip('Idle', 'gold'),
+    ),
+  );
+}
+
+/** A commander away on a mission: out of contact, so only the mission and when it ends. */
+function awayRow(ctx, commander) {
+  const mission = commander.mission;
+  const returning = mission.status === 'returning';
+  const where = findSystem(mission.center)?.name ?? '?';
+  return h(
+    'li',
+    null,
+    h(
+      'button',
+      { type: 'button', class: 'dw-ship-row', onClick: () => ctx.select('ship', commander.id), dataset: { key: `fleet-${commander.id}` } },
+      shipGlyph(commander.hull),
+      h(
+        'span',
+        { class: 'dw-grow' },
+        h('strong', null, `${commander.name} · commander`),
+        h('small', null, `${MISSIONS[mission.kind].name} mission around ${where} · ${mission.ships} aboard`),
+        returning ? null : bar({ start: mission.startedAt, end: mission.endsAt }),
+      ),
+      returning ? chip('Heading back', 'aqua') : countdown(mission.endsAt),
     ),
   );
 }
@@ -133,7 +163,7 @@ export function companyPanel(ctx) {
         h('div', { class: 'dw-card-head' }, h('strong', null, goal.title), rewardText(goal)),
         goal.progress ? goalProgress(goal.progress(state)) : null,
       )
-    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, 'Act 2 complete'), h('strong', null, 'Station blueprints are ready'), h('p', { class: 'dw-note' }, NEXT_CHAPTER));
+    : h('div', { class: 'dw-card is-aqua' }, h('span', { class: 'dw-eyebrow' }, ENDING.eyebrow), h('strong', null, ENDING.title), h('p', { class: 'dw-note' }, ENDING.note));
 
   const goals = GOALS.map((g) => {
     const done = state.goals.includes(g.id);
@@ -186,7 +216,7 @@ function goalProgress({ value, target, unit }) {
 }
 
 function rewardText(goal) {
-  return h('span', { class: 'dw-goal-reward' }, goal.reward ? `+${formatCredits(goal.reward)}` : 'Ends act 1');
+  return h('span', { class: 'dw-goal-reward' }, goal.reward ? `+${formatCredits(goal.reward)}` : `Ends act ${goal.act ?? 1}`);
 }
 
 // ---------- Contracts ----------

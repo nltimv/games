@@ -3,17 +3,18 @@
 
 import { stationTint } from '../../content/scenery.js';
 import { STATION_TYPES } from '../../content/stations.js';
-import { HULLS, HOLD_CLASS_MAX_TIER, MODULES } from '../../content/ships.js';
-import { GOODS, goodName } from '../../content/goods.js';
+import { HOLD_CLASS_NAMES, HULLS, MODULES } from '../../content/ships.js';
+import { goodName } from '../../content/goods.js';
 import { findFaction, findPlace, findStation, systemOf } from '../../content/galaxy.js';
 import { formatCredits } from '../../../../shared/js/format.js';
 import { HOUR } from '../../core/time.js';
-import { buyCargo, cargoTotal, sellCargo } from '../../systems/cargo.js';
+import { buyCargo, canCarry, cargoTotal, holdNote, sellCargo } from '../../systems/cargo.js';
 import { CONTRACT_RULES, acceptContract, activeAt, boardOpen, contractFor, deliverCargo, offersAt, stillNeeded } from '../../systems/contracts.js';
 import { buyShip, findShip, hullLock, hullsForSale, shipPrice } from '../../systems/fleet.js';
+import { mapShips } from '../../systems/commanders.js';
 import { marketEntries, marketView } from '../../systems/market.js';
 import { knownAt, seenAt } from '../../systems/knowledge.js';
-import { holdOf } from '../../systems/modules.js';
+import { holdClassOf, holdOf, maxTierOf } from '../../systems/modules.js';
 import { giveOrder, orderRefit, refitAll, refitOffer } from '../../systems/orders.js';
 import { bestModules } from '../../systems/research.js';
 import { canJump, plotCourse } from '../../systems/travel.js';
@@ -23,6 +24,7 @@ import { bar, countdown, h } from '../dom.js';
 import { button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { ago, formatPrice, minusCredits, plural, plusCredits, routeText, signedCredits, tonnes, trip } from '../format.js';
+import { hireSection } from './commander.js';
 
 const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
 const isMiner = (ship) => HULLS[ship.hull].role === 'miner';
@@ -31,8 +33,8 @@ export function stationPanel(ctx, stationId) {
   const { state } = ctx;
   const station = findStation(stationId);
   const type = STATION_TYPES[station.type];
-  const docked = state.ships.filter((s) => !s.order && s.at === stationId);
-  const incoming = state.ships.filter((s) => s.order?.target === stationId);
+  const docked = mapShips(state).filter((s) => !s.order && s.at === stationId);
+  const incoming = mapShips(state).filter((s) => s.order?.target === stationId);
 
   return [
     panelHead({ icon: stationIcon(station.type, { tint: stationTint(station) }), title: station.name, subtitle: type.description, onClose: ctx.close }),
@@ -49,7 +51,7 @@ export function stationPanel(ctx, stationId) {
     // open a station.
     dockedSection(ctx, station, docked),
     contractsSection(ctx, station),
-    station.type === 'shipyard' ? [refitSection(ctx, station), shipyardSection(ctx, station)] : marketSection(ctx, station, docked),
+    station.type === 'shipyard' ? [refitSection(ctx, station), shipyardSection(ctx, station), hireSection(ctx, station)] : marketSection(ctx, station, docked),
     elsewhereSection(ctx, station),
   ];
 }
@@ -158,8 +160,8 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
         )
       : null;
 
-  if (GOODS[good].tier > HOLD_CLASS_MAX_TIER[HULLS[hauler.hull].holdClass]) {
-    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note is-warn' }, `${goodName(good)} needs a better hold than ${hauler.name} has.`));
+  if (!canCarry(hauler, good)) {
+    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note is-warn' }, `${holdNote(good)} ${hauler.name} has a ${HOLD_CLASS_NAMES[holdClassOf(hauler)].toLowerCase()}.`));
   }
 
   const maxQty = maxPurchase(state, hauler, good, now);
@@ -265,7 +267,7 @@ function shipyardSection(ctx, station) {
         holds ? spec('Hold', tonnes(holdOf(probe))) : null,
         spec('Speed', `${Math.round(MODULES.engine.levels[best.engine] * hull.speedScale)} u/min`),
         hull.role === 'miner' ? spec('Mining', `${MODULES.laser.levels[best.laser]} t/min`) : null,
-        holds ? spec('Carries', `tiers 1–${HOLD_CLASS_MAX_TIER[hull.holdClass]}`) : null,
+        holds ? spec('Carries', `tiers 1–${maxTierOf(probe)}`) : null,
       ),
       lock
         ? h('p', { class: 'dw-note' }, lock)
@@ -287,7 +289,7 @@ function shipyardSection(ctx, station) {
 
 function refitSection(ctx, station) {
   const { state } = ctx;
-  const behind = state.ships.map((ship) => ({ ship, offer: refitOffer(state, ship) })).filter((r) => r.offer);
+  const behind = mapShips(state).map((ship) => ({ ship, offer: refitOffer(state, ship) })).filter((r) => r.offer);
   if (!behind.length) return null;
   const total = behind.reduce((sum, r) => sum + r.offer.cost, 0);
   const rows = behind.map(({ ship, offer }) =>
@@ -332,12 +334,13 @@ function refitSection(ctx, station) {
 function refitChanges(ship, modules) {
   const parts = [];
   for (const [line, level] of Object.entries(modules)) {
-    if (level <= ship.modules[line]) continue;
+    if (level <= (ship.modules[line] ?? 0)) continue;
     const before = { ...ship, modules: { ...ship.modules } };
     const after = { ...ship, modules: { ...ship.modules, [line]: level } };
     if (line === 'hold') parts.push(`hold ${tonnes(holdOf(before))} → ${tonnes(holdOf(after))}`);
     if (line === 'laser') parts.push(`laser ${MODULES.laser.levels[ship.modules.laser]} → ${MODULES.laser.levels[level]} t/min`);
     if (line === 'engine') parts.push(`engines +${Math.round((MODULES.engine.levels[level] / MODULES.engine.levels[ship.modules.engine] - 1) * 100)}%`);
+    if (line === 'seal') parts.push(HOLD_CLASS_NAMES[MODULES.seal.levels[level]].toLowerCase());
   }
   const text = parts.join(', ');
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -454,7 +457,7 @@ function dockedCard(ctx, station, ship) {
 
 function elsewhereSection(ctx, station) {
   const { state, now } = ctx;
-  const idle = state.ships.filter((s) => !s.order && s.at && s.at !== station.id);
+  const idle = mapShips(state).filter((s) => !s.order && s.at && s.at !== station.id);
   if (!idle.length || station.type === 'shipyard') return null;
 
   const rows = idle.map((ship) => {

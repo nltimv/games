@@ -35,6 +35,17 @@ export const MIGRATIONS = {
       contracts: { offers: [], active: [], nextId: save.contracts?.nextId ?? 1, checks: {} },
     };
   },
+  // Act 3: sealed holds (a new module line, standard on every ship until a
+  // refit), sales counted per tier, signals in the deep galaxy and commanders.
+  4(save) {
+    return {
+      ...save,
+      stats: { tierTonnes: {}, tierProfit: {}, chartPay: 0, signals: 0, salvaged: 0, missions: 0, ...save.stats },
+      signals: save.signals ?? {},
+      hires: save.hires ?? 0,
+      ships: save.ships.map((ship) => ({ ...ship, modules: { seal: 0, ...ship.modules } })),
+    };
+  },
 };
 
 export function migrate(data) {

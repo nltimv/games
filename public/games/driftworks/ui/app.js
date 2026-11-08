@@ -13,6 +13,7 @@ import { isSurveyed } from '../systems/explore.js';
 import { skipGuide } from '../systems/goals.js';
 import { isResearched } from '../systems/research.js';
 import { findShip } from '../systems/fleet.js';
+import { commanders, mapShips, onMap } from '../systems/commanders.js';
 import { minedSoFar, orderPhase } from '../systems/orders.js';
 import { canJump, shipPosition, shipSystem } from '../systems/travel.js';
 import { renderInto, updateLive, h } from './dom.js';
@@ -25,13 +26,16 @@ import { shipPanel } from './panels/ship.js';
 import { companyPanel, fleetPanel, groupPanel } from './panels/lists.js';
 import { researchPanel } from './panels/research.js';
 import { galaxyPanel, gatePanel, systemPanel } from './panels/system.js';
+import { signalPanel } from './panels/signal.js';
+import { plannedArea } from './panels/commander.js';
 import { currentGuide, guideCard, markGuided } from './tutorial.js';
+import { createSheet } from './sheet.js';
 
 const TOAST_KINDS = new Set(['sale', 'goal', 'arrival', 'warning', 'purchase']);
 const TOAST_MS = 4200;
 const MAP_VIEWS = new Set(['system', 'galaxy']);
 const isMapView = (view) => MAP_VIEWS.has(view);
-const PLACE_KINDS = new Set(['station', 'field', 'gate']);
+const PLACE_KINDS = new Set(['station', 'field', 'gate', 'signal']);
 // One step of the zoom buttons in from the whole system.
 const SYSTEM_START_ZOOM = 1.3;
 
@@ -42,6 +46,8 @@ export function createApp(session, doc = document) {
     map: $('map'),
     top: doc.querySelector('.dw-top'),
     panel: $('panel'),
+    panelBody: $('panel-body'),
+    panelGrip: $('panel-grip'),
     underway: $('underway'),
     guide: $('guide'),
     nav: $('nav'),
@@ -64,6 +70,8 @@ export function createApp(session, doc = document) {
   const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null };
   let shownCredits = null;
   let panelKey = null;
+  // On phones, the panel's sheet (created with the map, below).
+  let sheet = null;
   // While a slider is being dragged, panels and the menu wait to re-render,
   // so the drag is not cut short.
   let dragging = false;
@@ -123,7 +131,12 @@ export function createApp(session, doc = document) {
     }
     if (kind === 'ship') {
       const ship = findShip(state, id);
-      if (!ship) return null;
+      // A fleet on a mission has no place on the maps; the galaxy map shows its area.
+      if (ship?.mission) {
+        const center = findSystem(ship.mission.center);
+        return ui.map === 'galaxy' && center ? { x: center.gx, y: center.gy } : null;
+      }
+      if (!ship || !onMap(ship)) return null;
       const index = state.ships.indexOf(ship);
       return ui.map === 'galaxy' ? galaxyPosition(ship, Date.now(), index) : shipPosition(ship, Date.now(), index);
     }
@@ -159,7 +172,7 @@ export function createApp(session, doc = document) {
     const [systemId, role] = badgeId.split('|');
     const now = Date.now();
     return session.state.ships
-      .filter((ship, index) => HULLS[ship.hull].role === role && galaxyPosition(ship, now, index)?.system === systemId)
+      .filter((ship, index) => onMap(ship) && HULLS[ship.hull].role === role && galaxyPosition(ship, now, index)?.system === systemId)
       .map((ship) => ship.id);
   }
 
@@ -321,6 +334,7 @@ export function createApp(session, doc = document) {
     if (sel.kind === 'ship') return findShip(session.state, sel.id) ? shipPanel(ctx, sel.id) : overviewPanel(ctx);
     if (sel.kind === 'ships') return groupPanel(ctx, sel.ids);
     if (sel.kind === 'gate') return gatePanel(ctx, sel.id);
+    if (sel.kind === 'signal') return signalPanel(ctx, sel.id);
     if (sel.kind === 'system') return systemPanel(ctx, sel.id);
     return overviewPanel(ctx);
   }
@@ -341,12 +355,16 @@ export function createApp(session, doc = document) {
     els.panel.hidden = !visible;
     els.app.classList.toggle('is-panel-closed', !visible);
     if (visible) {
-      renderInto(els.panel, panelContent(ctx));
-      // A different thing in the panel starts at the top.
+      renderInto(els.panelBody, panelContent(ctx));
+      // A different thing in the panel starts at the top, and on phones
+      // opens the sheet again.
       const key = `${ui.view}:${ui.selection?.kind}:${ui.selection?.id}`;
-      if (key !== panelKey) els.panel.scrollTop = 0;
+      if (key !== panelKey) {
+        els.panelBody.scrollTop = 0;
+        sheet?.open();
+      }
       panelKey = key;
-    }
+    } else panelKey = null;
     // The ship list scrolls on its own; a refresh keeps its place.
     const runsScroll = els.underway.querySelector('.dw-runs')?.scrollTop ?? 0;
     renderInto(els.underway, underwayCard(ctx));
@@ -391,7 +409,7 @@ export function createApp(session, doc = document) {
   // re-render when a ship arrives and starts its job.
   // The selected ship's hold also fills while it mines.
   function phaseKey(now) {
-    const phases = session.state.ships.map((ship) => (ship.order ? orderPhase(ship.order, now).end : 0)).join(',');
+    const phases = mapShips(session.state).map((ship) => (ship.order ? orderPhase(ship.order, now).end : 0)).join(',');
     const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
     return `${phases}|${ship ? minedSoFar(ship.order, now) : 0}`;
   }
@@ -413,7 +431,9 @@ export function createApp(session, doc = document) {
     if (card && key !== guideKey) renderInto(els.guide, card);
     guideKey = key;
     if (card) els.app.style.setProperty('--dw-guide-h', `${els.guide.offsetHeight}px`);
-    markGuided(doc.body, ui.guide);
+    // A new step that points into a folded sheet opens it.
+    const shown = markGuided(doc.body, ui.guide);
+    if (shown && els.panel.contains(shown)) sheet?.open();
   }
 
   // ---------- Toasts ----------
@@ -458,7 +478,7 @@ export function createApp(session, doc = document) {
   function startViewFor(scene) {
     if (scene.kind !== 'galaxy') return { zoom: SYSTEM_START_ZOOM };
     const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
-    const point = ship ? galaxyPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : null;
+    const point = ship && onMap(ship) ? galaxyPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : null;
     const system = findSystem(ui.systemId);
     return { zoom: MAX_ZOOM, x: point?.x ?? system?.gx ?? 0, y: point?.y ?? system?.gy ?? 0 };
   }
@@ -470,6 +490,13 @@ export function createApp(session, doc = document) {
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
     getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
     getMarketGood: () => (isResearched(session.state, 'market-charts') ? ui.marketGood : null),
+    // Every fleet on a mission shows its area, and so does the mission the selected commander plans.
+    getArea: () => {
+      const state = session.state;
+      const ship = ui.selection?.kind === 'ship' ? findShip(state, ui.selection.id) : null;
+      const areas = commanders(state).filter((c) => c.mission || c === ship).map((c) => plannedArea(state, c) ?? []);
+      return areas.length ? [...new Set(areas.flat())] : null;
+    },
     getStartView: startViewFor,
     getOpenSystem: () => ui.systemId,
     isCompact: isPhone,
@@ -493,6 +520,8 @@ export function createApp(session, doc = document) {
     },
     onBoxSelect: (ids, mods) => selectShips(ids, mods),
     onContextMenu: openMenu,
+    // Moving the map folds a phone's sheet down, so the map has the room.
+    onGesture: () => sheet?.fold(),
     getSafeArea(width, height) {
       const gap = 12;
       let top = els.top.getBoundingClientRect().bottom + gap;
@@ -513,6 +542,18 @@ export function createApp(session, doc = document) {
     },
   });
 
+  sheet = createSheet({
+    panel: els.panel,
+    grip: els.panelGrip,
+    body: els.panelBody,
+    app: els.app,
+    isPhone,
+    // The sheet may reach up to just below the top bar.
+    tallest: () => els.panel.getBoundingClientRect().bottom - els.top.getBoundingClientRect().bottom - 8,
+    // What the player does to the sheet leaves the map where it is.
+    onResize: (byPlayer) => (byPlayer ? map.holdView() : map.redraw()),
+  });
+
   // ---------- Wiring ----------
 
   els.nav.addEventListener('click', (e) => {
@@ -522,6 +563,7 @@ export function createApp(session, doc = document) {
   doc.getElementById('settings-btn').addEventListener('click', openSettings);
   doc.querySelector('.dw-zoom').addEventListener('click', (e) => {
     const action = e.target.closest('button')?.dataset.zoom;
+    if (action) sheet.fold();
     if (action === 'in') map.zoomIn();
     if (action === 'out') map.zoomOut();
     if (action === 'fit') map.fit();

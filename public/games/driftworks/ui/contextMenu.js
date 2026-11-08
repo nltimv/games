@@ -5,9 +5,9 @@
 
 import { goodName } from '../content/goods.js';
 import { stationTint } from '../content/scenery.js';
-import { HULLS, MODULES } from '../content/ships.js';
+import { HOLD_CLASS_NAMES, HULLS, MODULES } from '../content/ships.js';
 import { STATION_TYPES } from '../content/stations.js';
-import { findFaction, findField, findGate, findPlace, findStation, findSystem, systemOf } from '../content/galaxy.js';
+import { findFaction, findField, findGate, findPlace, findSignal, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { groupOrderOptions, orderOptions } from '../systems/advisor.js';
 import { carryOut, carryOutGroup } from '../systems/commands.js';
@@ -17,8 +17,10 @@ import { isSurveyed } from '../systems/explore.js';
 import { freeSlots, giveOrder, lowerFirst, orderTimes } from '../systems/orders.js';
 import { orderSlots } from '../systems/research.js';
 import { canJump } from '../systems/travel.js';
+import { hazardNote, isShielded } from '../systems/shielding.js';
+import { derelictLeft, fieldsOf, isInvestigated, signalTitle } from '../systems/signals.js';
 import { h } from './dom.js';
-import { fieldIcon, gateIcon, stationIcon, swatch } from './components.js';
+import { fieldIcon, gateIcon, signalIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
 import { richnessLabel } from './panels/field.js';
 import { at, minusCredits, plural, plusCredits, routeText, signedCredits, span, timing, tonnes } from './format.js';
@@ -26,11 +28,12 @@ import { at, minusCredits, plural, plusCredits, routeText, signedCredits, span, 
 /** Note parts joined with dots, leaving out the empty ones. */
 const joinNote = (...parts) => parts.filter(Boolean).join(' · ');
 
-function headIcon(target, size = 34) {
+function headIcon(target, size = 34, state = null) {
   const wrap = (icon) => h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, icon);
   if (target.kind === 'field') return wrap(fieldIcon(findField(target.id).good, size));
   if (target.kind === 'station') return wrap(stationIcon(findStation(target.id).type, { size, tint: stationTint(findStation(target.id)) }));
-  if (target.kind === 'gate') return wrap(gateIcon());
+  if (target.kind === 'gate') return wrap(gateIcon({ ancient: Boolean(findGate(target.id)?.ancient) }));
+  if (target.kind === 'signal') return wrap(signalIcon(state, findSignal(target.id), size));
   if (target.kind === 'system') {
     const color = findFaction(findSystem(target.id)?.faction)?.color;
     return h('span', { class: 'dw-menu-icon', 'aria-hidden': 'true' }, h('span', { class: 'dw-faction-dot is-large', style: { background: color } }));
@@ -42,7 +45,8 @@ function headIcon(target, size = 34) {
 function closedNote(state, systemId) {
   const system = findSystem(systemId);
   if (!canJump(state)) return 'Gates open with the warp drive.';
-  if (system?.hazard) return `${system.name} has ${system.hazard}. Ships need shielding to go there.`;
+  const blocked = hazardNote(state, system);
+  if (blocked) return blocked;
   if (!isSurveyed(state, systemId)) return `${system?.name ?? 'That system'} has not been surveyed yet.`;
   return null;
 }
@@ -61,8 +65,13 @@ function heading(state, target) {
     const faction = findFaction(system?.faction);
     return { title: `${system?.name ?? '?'} system`, subtitle: `${faction?.name ?? 'Unclaimed'}${isSurveyed(state, target.id) ? '' : ' · unsurveyed'}` };
   }
+  if (target.kind === 'signal') {
+    const signal = findSignal(target.id);
+    return { title: signalTitle(state, signal), subtitle: `Signal · ${findSystem(systemOf(target.id))?.name ?? '?'}` };
+  }
   const gate = findGate(target.id);
   const far = findSystem(gate?.to);
+  if (gate?.ancient) return { title: gate.name, subtitle: 'Ancient gate' };
   return { title: gate?.name ?? 'Gate', subtitle: canJump(state) ? `Warp gate to ${far?.name ?? '?'}` : 'Warp gate · locked' };
 }
 
@@ -107,6 +116,10 @@ function describe(option) {
         value: blocked ?? `done ${at(option.endsAt)}`,
         note: timing(option, 'surveying'),
       };
+    case 'investigate':
+      return { label: 'Investigate the signal', value: blocked ?? `done ${at(option.endsAt)}`, note: timing(option, 'investigating') };
+    case 'salvage':
+      return { label: `Salvage ${tonnes(option.qty, option.good)}`, value: blocked ?? `done ${at(option.endsAt)}`, note: timing(option, 'salvaging'), good: option.good };
     default:
       return { label: option.kind, value: '', note: '' };
   }
@@ -137,6 +150,7 @@ export function modulesText(modules) {
   if (modules.hold != null) parts.push(`hold ${MODULES.hold.levels[modules.hold]} t (Mule)`);
   if (modules.laser != null && modules.laser > 0) parts.push(`laser ${MODULES.laser.levels[modules.laser]} t/min`);
   if (modules.engine != null && modules.engine > 0) parts.push(`engines ${MODULES.engine.levels[modules.engine]} u/min`);
+  if (modules.seal != null && modules.seal > 0) parts.push(HOLD_CLASS_NAMES[MODULES.seal.levels[modules.seal]].toLowerCase());
   const text = parts.join(', ');
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -187,7 +201,7 @@ export function orderMenu(ctx, menu) {
     h(
       'div',
       { class: 'dw-menu-head' },
-      headIcon(target),
+      headIcon(target, 34, state),
       h('span', { class: 'dw-grow' }, h('strong', { id: 'menu-title' }, title), h('small', null, subtitle)),
     ),
   ];
@@ -244,17 +258,27 @@ export function orderMenu(ctx, menu) {
   return parts;
 }
 
+/** The system's signal, for ships with work there: scouts while it is unknown, haulers at a derelict. */
+function signalItem(state, system, roles) {
+  const signal = system.signal;
+  if (!signal) return [];
+  const known = isInvestigated(state, signal);
+  const work = (roles.has('scout') && !known) || (roles.has('hauler') && known && derelictLeft(state, signal) > 0);
+  return work ? [{ kind: 'signal', place: { id: signal.id, name: signalTitle(state, signal) }, note: known ? goodName(signal.good) : 'Signal' }] : [];
+}
+
 /**
- * The stations and fields of a surveyed system the ships can work at, each
- * opening its own orders. Fields only for miners, nothing for scouts.
+ * The stations, fields and signal of a surveyed system the ships can work
+ * at, each opening its own orders. Fields only for miners.
  */
 function placeItems(ctx, menu, ships) {
   const system = findSystem(menu.target.id);
-  if (!system || system.hazard || !canJump(ctx.state) || !isSurveyed(ctx.state, system.id)) return null;
+  if (!isShielded(ctx.state, system) || !canJump(ctx.state) || !isSurveyed(ctx.state, system.id)) return null;
   const roles = new Set(ships.map((ship) => HULLS[ship.hull].role));
   const places = [
-    ...(roles.has('miner') ? system.fields.map((field) => ({ kind: 'field', place: field, note: `${goodName(field.good)} · ${richnessLabel(field.richness).toLowerCase()}` })) : []),
+    ...(roles.has('miner') ? fieldsOf(ctx.state, system).map((field) => ({ kind: 'field', place: field, note: `${goodName(field.good)} · ${richnessLabel(field.richness).toLowerCase()}` })) : []),
     ...(roles.has('miner') || roles.has('hauler') ? system.stations.map((station) => ({ kind: 'station', place: station, note: stationNote(station) })) : []),
+    ...signalItem(ctx.state, system, roles),
   ];
   if (!places.length) return null;
   return h(
@@ -272,7 +296,7 @@ function placeItems(ctx, menu, ships) {
             requestAnimationFrame(() => document.querySelector('#menu [data-menu-item]:not(:disabled)')?.focus());
           },
         },
-        h('span', { class: 'dw-menu-row' }, headIcon({ kind, id: place.id }, 26), h('strong', { class: 'dw-grow' }, place.name), h('span', { class: 'dw-menu-value', 'aria-hidden': 'true' }, '›')),
+        h('span', { class: 'dw-menu-row' }, headIcon({ kind, id: place.id }, 26, ctx.state), h('strong', { class: 'dw-grow' }, place.name), h('span', { class: 'dw-menu-value', 'aria-hidden': 'true' }, '›')),
         h('small', null, note),
       ),
     ),

@@ -2,12 +2,12 @@
 // selling while docked.
 
 import { GOODS, goodName } from '../content/goods.js';
-import { HOLD_CLASS_MAX_TIER, HULLS } from '../content/ships.js';
+import { HOLD_CLASS_MAX_TIER, HOLD_CLASS_NAMES, HULLS } from '../content/ships.js';
 import { findStation, systemOf } from '../content/galaxy.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { affordableQty, buyFromStation, findEntry, sellToStation } from './market.js';
-import { holdOf } from './modules.js';
+import { holdOf, maxTierOf } from './modules.js';
 import { addLog } from './log.js';
 import { earnStanding } from './standing.js';
 
@@ -20,7 +20,13 @@ export function freeHold(ship) {
 }
 
 export function canCarry(ship, good) {
-  return GOODS[good].tier <= HOLD_CLASS_MAX_TIER[HULLS[ship.hull].holdClass];
+  return GOODS[good].tier <= maxTierOf(ship);
+}
+
+/** "Steel needs a sealed hold.": why a ship cannot carry a good. */
+export function holdNote(good) {
+  const holdClass = Object.keys(HOLD_CLASS_MAX_TIER).find((c) => HOLD_CLASS_MAX_TIER[c] >= GOODS[good].tier);
+  return `${goodName(good)} needs a ${HOLD_CLASS_NAMES[holdClass].toLowerCase()}.`;
 }
 
 /** Takes `qty` of a good out of a hold. Returns what that part cost to buy. */
@@ -67,7 +73,10 @@ export function sellCargo(state, ship, good, qty = Infinity, at = state.now) {
   // "Earned" counts what the company made: for traded goods that is the
   // profit, not the whole sale, so buying and reselling does not inflate it.
   state.stats.earned += Math.max(0, profit);
-  if (GOODS[good].tier === 1) state.stats.oreSold += sale.qty;
+  const tier = GOODS[good].tier;
+  if (tier === 1) state.stats.oreSold += sale.qty;
+  state.stats.tierTonnes = { ...state.stats.tierTonnes, [tier]: (state.stats.tierTonnes?.[tier] ?? 0) + sale.qty };
+  state.stats.tierProfit = { ...state.stats.tierProfit, [tier]: (state.stats.tierProfit?.[tier] ?? 0) + profit };
   if (HULLS[ship.hull].role === 'hauler') state.stats.tradeProfit += profit;
 
   const notes = [];
@@ -91,7 +100,7 @@ export function buyCargo(state, ship, good, qty, at = state.now) {
   if (!entry || entry.side !== 'sells') {
     return { ok: false, error: `${findStation(stationId).name} does not sell ${goodName(good).toLowerCase()}.` };
   }
-  if (!canCarry(ship, good)) return { ok: false, error: `${goodName(good)} needs a better hold.` };
+  if (!canCarry(ship, good)) return { ok: false, error: holdNote(good) };
 
   const limit = Math.min(qty, freeHold(ship));
   const amount = affordableQty(state, stationId, good, state.credits, limit, at);

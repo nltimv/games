@@ -16,7 +16,10 @@ import { systemMarket } from '../systems/advisor.js';
 import { contractMarks } from '../systems/contracts.js';
 import { chartedSystems } from '../systems/explore.js';
 import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
+import { shieldingNeeded } from '../systems/shielding.js';
+import { derelictLeft, isGateOpen, isInvestigated } from '../systems/signals.js';
 import { shipRoute } from '../systems/orders.js';
+import { onMap } from '../systems/commanders.js';
 import { scaleOf, toScreen, toWorld } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
@@ -151,7 +154,7 @@ function drawRoutes(ctx, cam, state, now, selection) {
   for (const id of ids.slice(0, MAX_ROUTES)) {
     const index = state.ships.findIndex((ship) => ship.id === id);
     const ship = state.ships[index];
-    if (!ship) continue;
+    if (!ship || !onMap(ship)) continue;
     const hops = routeOf(state, ship, now);
     if (!hops.length) continue;
     for (const hop of hops) {
@@ -250,6 +253,23 @@ let chart = null;
  * the unknown). Worked out again only when a survey (or a new galaxy)
  * changes it.
  */
+/** The open ancient lanes, with their two systems. */
+function ancientLanes(state) {
+  const open = [];
+  for (const lane of currentGalaxy().ancientLanes ?? []) {
+    if (isGateOpen(state, findSystem(lane.a)?.signal)) open.push({ lane, a: findSystem(lane.a), b: findSystem(lane.b) });
+  }
+  return open;
+}
+
+/** The small mark beside a system with a signal to look at: unknown, or a derelict with cargo left. */
+function signalMark(state, system) {
+  const signal = system.signal;
+  if (!signal) return null;
+  if (!isInvestigated(state, signal)) return 'signal';
+  return signal.kind === 'derelict' && derelictLeft(state, signal) > 0 ? 'derelict' : null;
+}
+
 function chartOf(state) {
   const key = `${currentGalaxy().seed}|${(state.surveyed ?? []).join(',')}`;
   if (chart?.key === key) return chart;
@@ -412,7 +432,7 @@ function dot(ctx, x, y, r, color) {
 
 /** A price per tonne for a map label: one decimal under 100 cr. */
 const price = (value) => (value < 100 ? value.toFixed(1) : String(Math.round(value)));
-const ROLES = ['miner', 'hauler', 'scout'];
+const ROLES = ['miner', 'hauler', 'scout', 'command'];
 
 /**
  * Draws the galaxy. `view` is as for drawSystem. Returns hit targets for
@@ -458,6 +478,22 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     ctx.stroke();
   }
   ctx.setLineDash([]);
+  // Open ancient gates: a gold lane straight across the map.
+  for (const { lane, a, b } of ancientLanes(state)) {
+    const pa = toScreen(cam, a.gx, a.gy);
+    const pb = toScreen(cam, b.gx, b.gy);
+    if (!crosses(pa, pb)) continue;
+    ctx.strokeStyle = 'rgba(245, 201, 106, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([9, 6]);
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const mid = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+    if (times && onScreen(mid)) drawLabel(ctx, `${Math.round(jumpTime(state, lane) / 60000)} min`, mid.x, mid.y, dpr, { size: 10, weight: 600, color: 'rgba(255, 230, 180, 0.7)' });
+  }
   if (times) {
     for (const lane of chart.lanes) {
       const a = toScreen(cam, lane.a.gx, lane.a.gy);
@@ -473,6 +509,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const counts = new Map();
   const jumping = [];
   state.ships.forEach((ship, index) => {
+    // A fleet is drawn as its command ship; one on a mission not at all.
+    if (!onMap(ship)) return;
     const pos = galaxyPosition(ship, now, index);
     if (!pos) return;
     if (pos.jumping) jumping.push({ ship, pos });
@@ -498,6 +536,31 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const share = (value, list) => (list.length < 2 || list[0] === list.at(-1) ? 1 : (value - list.at(-1)) / (list[0] - list.at(-1)));
   const everyPrice = s >= 0.9;
 
+  // A fleet's mission area: a soft cyan pool under each of its systems.
+  const area = view.area ? new Set(view.area) : null;
+  if (area) {
+    for (const system of systems) {
+      if (!area.has(system.id)) continue;
+      const p = toScreen(cam, system.gx, system.gy);
+      if (!onScreen(p)) continue;
+      const r = nodeRadius(system, u) * 3.4;
+      const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      glow.addColorStop(0, 'rgba(127, 231, 255, 0.5)');
+      glow.addColorStop(1, 'rgba(127, 231, 255, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(127, 231, 255, 0.85)';
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 0.62, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
   // Systems, with a "!" above the left shoulder for contracts at their stations.
   const marks = contractMarks(state, now).systems;
   for (const system of systems) {
@@ -520,9 +583,12 @@ export function drawGalaxy(ctx, cam, state, now, view) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.stroke();
+      const mark = signalMark(state, system);
+      if (mark) drawAsset(ctx, mark, p.x + r * 1.15, p.y - r * 1.15, Math.max(12, r * 1.6), dpr, { alpha: mark === 'signal' ? 0.75 + 0.25 * Math.sin(now / 500) : 1 });
     } else {
       ctx.fillStyle = 'rgba(150, 180, 220, 0.18)';
-      ctx.strokeStyle = system.hazard ? 'rgba(255, 170, 120, 0.7)' : 'rgba(190, 215, 255, 0.5)';
+      const blocked = Boolean(shieldingNeeded(state, system));
+      ctx.strokeStyle = blocked ? 'rgba(255, 170, 120, 0.7)' : 'rgba(190, 215, 255, 0.5)';
       ctx.lineWidth = 1.4;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
@@ -534,8 +600,9 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     }
     const labelled = !crowded || named.has(system.id);
     if (labelled) drawLabel(ctx, system.name, p.x, p.y + below, dpr, { size: 12, weight: 800, color: isKnown ? '#ffffff' : 'rgba(220, 236, 255, 0.7)' });
+    const hazardBlocks = Boolean(system.hazard) && Boolean(shieldingNeeded(state, system));
     const sub = system.hazard ? system.hazard : !isKnown ? 'unsurveyed' : system.id === 'aurel' ? 'home' : null;
-    if (sub && labelled) drawLabel(ctx, sub, p.x, p.y + below + 14, dpr, { size: 10, weight: 600, color: system.hazard ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
+    if (sub && labelled) drawLabel(ctx, sub, p.x, p.y + below + 14, dpr, { size: 10, weight: 600, color: hazardBlocks ? 'rgba(255, 190, 150, 0.8)' : 'rgba(200, 225, 255, 0.55)' });
     const market = markets.get(system.id);
     if (market) {
       const y = p.y + below + (sub ? 28 : 14);

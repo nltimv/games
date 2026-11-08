@@ -9,7 +9,8 @@ import { randomSeed } from './rng.js';
 // Version 2 rebuilt orders, research and contracts; older saves start over.
 // Version 3 added the galaxy (act 2); version 2 saves upgrade (see save.js).
 // Version 4 made contracts a fixed price for a set amount.
-export const SAVE_VERSION = 4;
+// Version 5 added sealed holds, hazard shielding, signals and act 3.
+export const SAVE_VERSION = 5;
 export const OLDEST_SAVE_VERSION = 2;
 export const STARTING_CREDITS = 250;
 
@@ -39,8 +40,16 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
       jumps: 0,
       jumpFees: 0,
       surveys: 0,
+      // Paid by factions for the charts of systems surveyed first.
+      chartPay: 0,
+      signals: 0,
+      salvaged: 0,
+      missions: 0,
       // Profit from sales in other systems than the one the goods came from.
       farSales: 0,
+      // Tonnes sold and profit made per goods tier: { [tier]: number }.
+      tierTonnes: {},
+      tierProfit: {},
     },
     research: { done: [], active: null, second: null },
     // Offers, running contracts, and when each surveyed system is next
@@ -53,6 +62,10 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
     surveyed: [],
     // When a ship last saw each system's prices: { [systemId]: time }.
     seen: {},
+    // Signals investigated or salvaged: { [signalId]: { investigatedAt, salvaged } }.
+    signals: {},
+    // Commanders hired so far; the next three candidates come from it.
+    hires: 0,
     // Standing with each faction, in points.
     standing: {},
     goals: [],
