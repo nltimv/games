@@ -454,7 +454,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     // The first commander comes before anything else; later ones leave money for research, as ships do.
     const reserve = commanders(state).length && freeLab(state) && next ? Math.min(costOf(next), commanderPrice(state)) : 0;
     for (const r of ['miner', 'hauler', 'scout']) {
-      if (freeShips(r).length < 2 || commanders(state).some((c) => wingRole(c) === r && wingOf(state, c).length < command.wing)) continue;
+      // A commander away on a mission takes no ships until it is back, so only one at hand counts as room.
+      const room = (c) => !c.mission && wingOf(state, c).length + joiningOf(state, c).length < command.wing;
+      if (freeShips(r).length < 2 || commanders(state).some((c) => wingRole(c) === r && room(c))) continue;
       if (cash() < commanderPrice(state) + reserve) continue;
       const rank = (c) => {
         const i = WANTED_TRAITS[r].indexOf(c.traits[0]);
