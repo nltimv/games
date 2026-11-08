@@ -20,6 +20,7 @@ import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { shieldingNeeded } from '../systems/shielding.js';
 import { derelictLeft, fieldsOf, isGateOpen, isInvestigated, signalTitle } from '../systems/signals.js';
 import { orderPhase, projectShip } from '../systems/orders.js';
+import { onMap } from '../systems/commanders.js';
 import { scaleOf, toScreen } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
@@ -104,7 +105,7 @@ function dot(ctx, x, y, r, color) {
 }
 
 function shipsAt(state, placeId) {
-  return state.ships.filter((s) => !s.order && s.at === placeId);
+  return state.ships.filter((s) => onMap(s) && !s.order && s.at === placeId);
 }
 
 /**
@@ -306,7 +307,7 @@ export function drawSystem(ctx, cam, state, now, view) {
   // parkingSpots); ships in a jump show on the galaxy map instead. Ships
   // flying close together are drawn as one flock (see flocks.js).
   const label = createLabelSpace(ctx, dpr);
-  const positions = state.ships.map((ship, index) => ({ ship, index, pos: shipPosition(ship, now, index) })).filter(({ pos }) => pos.system === system.id);
+  const positions = state.ships.map((ship, index) => ({ ship, index, pos: onMap(ship) ? shipPosition(ship, now, index) : {} })).filter(({ pos }) => pos.system === system.id);
   const spots = parkingSpots(cam, state, now, u, positions.filter((p) => p.pos.place).map((p) => ({ ship: p.ship, place: p.pos.place })));
   const flying = [];
   // The time left of what a ship does now: the flight, or the job.
@@ -322,6 +323,9 @@ export function drawSystem(ctx, cam, state, now, view) {
     const w = (pos.moving ? SIZE.ship : SIZE.parkedShip) * u;
     const rotate = Number.isFinite(heading) ? heading : 0;
     if (!drawAsset(ctx, `ship-${HULLS[ship.hull].role}`, p.x, p.y, w, dpr, { rotate })) dot(ctx, p.x, p.y, 3, '#d9fff8');
+    // A command ship carries its fleet: the count shows how many ships are aboard.
+    const aboard = ship.commander ? state.ships.filter((s) => s.fleet === ship.id).length : 0;
+    if (aboard) drawCount(ctx, p.x + w * 0.42, p.y - w * 0.36, aboard, dpr, u);
     return w;
   };
 

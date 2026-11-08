@@ -777,6 +777,10 @@ button.dw-price-row[aria-pressed='true'] {
   background: rgba(255, 255, 255, 0.1);
 }
 
+.dw-ship-row.is-aboard:hover {
+  background: var(--dw-row);
+}
+
 .dw-ship-row.is-plain {
   padding: 0;
   background: none;

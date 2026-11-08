@@ -9,6 +9,7 @@ import { cargoTotal } from '../../systems/cargo.js';
 import { contractFor, deliverCargo, stillNeeded } from '../../systems/contracts.js';
 import { sellAllHere } from '../../systems/commands.js';
 import { findShip } from '../../systems/fleet.js';
+import { onMap } from '../../systems/commanders.js';
 import { holdClassOf, holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
 import {
   cancelOrder,
@@ -41,7 +42,7 @@ import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch 
 import { orderToast } from '../contextMenu.js';
 import { at, plusCredits, routeText, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
-import { commanderSections, fleetSection } from './commander.js';
+import { aboardSection, commanderSections, fleetSection } from './commander.js';
 
 export function shipPanel(ctx, shipId) {
   const { state } = ctx;
@@ -53,21 +54,21 @@ export function shipPanel(ctx, shipId) {
   const total = cargoTotal({ cargo });
   const hold = holdOf(ship);
 
+  const head = panelHead({ icon: shipGlyph(ship.hull), title: ship.name, subtitle: hull.name, onClose: ctx.close });
   if (ship.commander) {
-    return [
-      panelHead({ icon: shipGlyph(ship.hull), title: ship.name, subtitle: hull.name, onClose: ctx.close }),
-      commanderSections(ctx, ship),
-      statusCard(ctx, ship),
-      newOrders(ctx, ship),
-      modulesSection(ctx, ship),
-    ];
+    // Away on a mission, the command ship is out of contact: no place, no orders.
+    if (ship.mission) return [head, commanderSections(ctx, ship)];
+    return [head, commanderSections(ctx, ship), statusCard(ctx, ship), newOrders(ctx, ship), modulesSection(ctx, ship)];
   }
+  const aboard = Boolean(ship.fleet);
+  // Out on a mission, nothing of what the ship carries shows.
+  const away = aboard && Boolean(findShip(state, ship.fleet)?.mission);
   return [
-    panelHead({ icon: shipGlyph(ship.hull), title: ship.name, subtitle: hull.name, onClose: ctx.close }),
-    statusCard(ctx, ship),
-    fleetSection(ctx, ship),
-    ordersSection(ctx, ship),
-    hold > 0
+    head,
+    aboard ? aboardSection(ctx, ship) : statusCard(ctx, ship),
+    aboard ? null : fleetSection(ctx, ship),
+    aboard ? null : ordersSection(ctx, ship),
+    hold > 0 && !away
       ? h(
           'div',
           { class: 'dw-section' },
@@ -78,8 +79,8 @@ export function shipPanel(ctx, shipId) {
             : h('p', { class: 'dw-note' }, 'Empty.'),
         )
       : null,
-    newOrders(ctx, ship),
-    modulesSection(ctx, ship),
+    aboard ? null : newOrders(ctx, ship),
+    aboard ? null : modulesSection(ctx, ship),
   ];
 }
 
@@ -103,9 +104,8 @@ function statusCard(ctx, ship) {
     const phase = orderPhase(order, ctx.now);
     const { work } = orderTimes(order);
     const after = work > 0 ? `Then ${lowerFirst(order.label)} for ${span(work)}.` : 'Done when it arrives.';
-    // A plain flight cannot be cancelled: there is nowhere to stop. A wait
-    // for a commander's orders ends when the ship leaves the fleet.
-    const cancellable = !(phase.flying && order.type === 'fly') && order.type !== 'standby';
+    // A plain flight cannot be cancelled: there is nowhere to stop.
+    const cancellable = !(phase.flying && order.type === 'fly');
     return h(
       'div',
       { class: 'dw-card is-aqua' },
@@ -160,7 +160,7 @@ function ordersSection(ctx, ship) {
   }
 
   // Copy another ship's orders onto this one.
-  const sources = ship.order || ship.plan.length ? [] : state.ships.filter((other) => canCopy(state, other, ship));
+  const sources = ship.order || ship.plan.length ? [] : state.ships.filter((other) => onMap(other) && canCopy(state, other, ship));
   const copy = sources.length
     ? h(
         'div',

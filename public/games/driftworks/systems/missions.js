@@ -3,11 +3,18 @@
 // ship's next order itself. The ships really fly it: markets move, standing
 // grows and fees are paid at the gate.
 //
+// A fleet sets out from where the command ship docks: the wing leaves the
+// fleet's hold (see systems/commanders.js) and the command ship flies to
+// the centre of the area. From then until the fleet is back, the commander
+// and the wing are off the maps and take no orders of the player's, and the
+// mission cannot be called off.
+//
 // A commander ship on a mission has
 //   mission: { id, kind, center, reach, hours, startedAt, endsAt,
 //              status: 'active' | 'returning', report, plans }
 // When the time is up the mission is 'returning': each ship finishes its
-// order, then the commander writes the captain's log into the company log.
+// order and flies back to the command ship, and once the whole wing is
+// aboard the commander writes the captain's log into the company log.
 //
 // The simulation asks dispatch() for a ship's next order whenever one in a
 // wing runs out of orders. Orders a commander gives carry `missionBy` (the
@@ -19,19 +26,20 @@
 import { GOODS, goodName } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { DOCTRINE_DEFAULT, MINE_MISSION_TIER, MISSIONS, SECOND_TRAIT_LEVEL, TRAITS } from '../content/commanders.js';
-import { findField, findSignal, findStation, findSystem, lanesFrom, systemOf } from '../content/galaxy.js';
+import { findField, findPlace, findSignal, findStation, findSystem, lanesFrom, systemOf } from '../content/galaxy.js';
 import { HOUR, MINUTE, SECOND } from '../core/time.js';
-import { formatCredits, formatDuration, formatNumber } from '../../../shared/js/format.js';
+import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { buyersOf, saleValue, tradePlan } from './advisor.js';
 import { canCarry, cargoTotal } from './cargo.js';
-import { commanderLevel, efficiency, fleetCommand, hasTrait, isCommander, leaderOf, traitText, wingOf } from './commanders.js';
+import { commanderLevel, efficiency, fleetCommand, hasTrait, isCommander, joiningOf, leaderOf, traitText, wingOf } from './commanders.js';
 import { isSurveyed, surveyable, surveyorOf } from './explore.js';
 import { findShip } from './fleet.js';
 import { knownAt } from './knowledge.js';
-import { addLog } from './log.js';
+import { addLog, quietly } from './log.js';
 import { affordableQty, marketEntries, marketView } from './market.js';
 import { holdOf } from './modules.js';
-import { buildOrder, startOrder } from './orders.js';
+import { buildOrder, clearQueue, giveOrder, startOrder } from './orders.js';
+import { meetingPlace } from './joinOrder.js';
 import { isShielded } from './shielding.js';
 import { derelictLeft, fieldsOf, foundSignals, isInvestigated, linksFrom, workerAt } from './signals.js';
 import { hasStanding } from './standing.js';
@@ -88,29 +96,74 @@ function release(ship) {
   ship.order = null;
 }
 
+/** A ship goes aboard a commander's fleet: off the maps, its orders done. */
+function board(state, ship, commander, at) {
+  if (ship.queue.length) clearQueue(state, ship);
+  ship.fleet = commander.id;
+  ship.at = null;
+  addLog(state, at, `${ship.name} joined ${commander.name}'s fleet`, 'order');
+}
+
+/**
+ * Takes a ship into a commander's fleet. A ship docked where the command
+ * ship is goes aboard at once; any other gets a join order, after the
+ * orders it has: it flies to the commander and goes aboard there.
+ * Returns { ok, boarded } or { ok: false, error }.
+ */
 export function joinFleet(state, ship, commander, at = state.now) {
   const command = fleetCommand(state);
   if (!command) return fail('Fleets come with the Fleet command I research.');
   if (!ship || !isCommander(commander)) return fail('No such commander.');
   if (isCommander(ship)) return fail(`${ship.name} leads a fleet of their own.`);
   if (ship.fleet === commander.id) return fail(`${ship.name} is already in ${commander.name}'s fleet.`);
-  if (wingOf(state, commander).length >= command.wing) return fail(`${commander.name}'s wing is full, at ${command.wing} ships.`);
-  const before = leaderOf(state, ship);
-  release(ship);
-  ship.fleet = commander.id;
-  addLog(state, at, `${ship.name} joined ${commander.name}'s fleet`, 'order');
-  if (before) finishIfDone(state, before, at);
-  dispatch(state, ship, at);
-  return { ok: true };
+  if (ship.fleet) return fail(`${ship.name} flies in ${leaderOf(state, ship).name}'s fleet.`);
+  if (commander.mission) return fail(`${commander.name} is away on a mission.`);
+  const joining = joiningOf(state, commander);
+  if (joining.includes(ship)) return fail(`${ship.name} is on its way to ${commander.name}.`);
+  if (wingOf(state, commander).length + joining.length >= command.wing) return fail(`${commander.name}'s wing is full, at ${command.wing} ships.`);
+  if (!ship.order && !ship.queue.length && ship.at && ship.at === commander.at && !commander.order) {
+    board(state, ship, commander, at);
+    return { ok: true, boarded: true };
+  }
+  const result = giveOrder(state, ship, { type: 'join', commanderId: commander.id });
+  return result.ok ? { ok: true, boarded: false, queued: result.queued } : result;
 }
 
+/**
+ * A ship with a join order reaches the meeting place: it goes aboard if
+ * the command ship is there (or docks there now), and follows it if it
+ * has moved on. Called by the simulation.
+ */
+export function meetCommander(state, ship, commanderId, at) {
+  const commander = findShip(state, commanderId);
+  if (!isCommander(commander)) return;
+  const place = findPlace(ship.at)?.name ?? 'the meeting place';
+  if (commander.mission) {
+    addLog(state, at, `${ship.name} reached ${place}, but ${commander.name} had left on a mission`, 'warning');
+    return;
+  }
+  const here = commander.order ? commander.order.target === ship.at && commander.order.endsAt <= at : commander.at === ship.at;
+  if (!here) {
+    ship.queue.unshift({ type: 'join', commanderId });
+    return;
+  }
+  const command = fleetCommand(state);
+  if (wingOf(state, commander).length >= (command?.wing ?? 0)) {
+    addLog(state, at, `${ship.name} reached ${commander.name}, but the wing is full`, 'warning');
+    return;
+  }
+  board(state, ship, commander, at);
+}
+
+/** Takes a ship out of its fleet: it docks where the command ship is and takes orders again. */
 export function leaveFleet(state, ship, at = state.now) {
   const commander = leaderOf(state, ship);
   if (!commander) return fail(`${ship?.name ?? 'That ship'} is not in a fleet.`);
-  release(ship);
+  if (commander.mission) return fail(`${commander.name} is away on a mission.`);
+  if (commander.order || !commander.at) return fail(`${ship.name} can leave once ${commander.name} docks.`);
   ship.fleet = null;
-  addLog(state, at, `${ship.name} left ${commander.name}'s fleet`, 'order');
-  finishIfDone(state, commander, at);
+  ship.at = commander.at;
+  addLog(state, at, `${ship.name} left ${commander.name}'s fleet at ${findPlace(commander.at)?.name ?? 'its dock'}`, 'order');
   return { ok: true };
 }
 
@@ -143,6 +196,7 @@ export function canStartMission(state, commander, { kind, center, hours }) {
   if (!command) return fail('Missions come with the Fleet command I research.');
   if (!isCommander(commander)) return fail('No such commander.');
   if (commander.mission) return fail(`${commander.name} is already on a mission.`);
+  if (commander.order || !commander.at) return fail(`${commander.name} sets out once the command ship docks.`);
   const mission = MISSIONS[kind];
   if (!mission) return fail('Pick a mission.');
   if (!command.hours.includes(hours)) return fail(`Missions last ${command.hours.join(', ')} hours.`);
@@ -159,6 +213,7 @@ export function startMission(state, commander, plan, at = state.now) {
   const check = canStartMission(state, commander, plan);
   if (!check.ok) return check;
   const { kind, center, hours } = plan;
+  const wing = wingOf(state, commander);
   commander.commander.missions = (commander.commander.missions ?? 0) + 1;
   commander.mission = {
     id: commander.commander.missions,
@@ -166,7 +221,7 @@ export function startMission(state, commander, plan, at = state.now) {
     center,
     reach: check.reach,
     hours,
-    ships: wingOf(state, commander).length,
+    ships: wing.length,
     startedAt: at,
     endsAt: at + hours * HOUR,
     status: 'active',
@@ -174,49 +229,60 @@ export function startMission(state, commander, plan, at = state.now) {
     // Where each hauler means to sell what it bought: { [shipId]: { stationId, good } }.
     plans: {},
   };
+  if (commander.queue.length) clearQueue(state, commander);
+  // The wing sets out from the command ship's dock.
+  for (const ship of wing) ship.at = commander.at;
   const system = findSystem(center);
   // The commander flies out to the centre of the area.
-  if (!commander.order && commander.at && systemOf(commander.at) !== center) {
+  if (systemOf(commander.at) !== center) {
     const place = system.stations[0]?.id ?? system.gates[0]?.id;
-    if (place) startOrder(state, commander, { type: 'fly', stationId: place });
+    if (place) startTagged(state, commander, commander, { type: 'fly', stationId: place });
   }
-  const wing = wingOf(state, commander);
   addLog(state, at, `${commander.name} took ${wing.length} ${wing.length === 1 ? 'ship' : 'ships'} on a ${MISSIONS[kind].name.toLowerCase()} mission around ${system.name}, for ${hours} h`, 'order');
   for (const ship of wing) dispatch(state, ship, at);
   return { ok: true, mission: commander.mission };
 }
 
-/** Ends a mission early: each ship finishes its order, then the commander writes the log. */
-export function recallMission(state, commander, at = state.now) {
-  if (commander?.mission?.status !== 'active') return fail(`${commander?.name ?? 'That commander'} is not on a mission.`);
-  endMission(state, commander, at, true);
-  return { ok: true };
-}
-
-/** The time is up (or the player called the fleet back). */
-export function endMission(state, commander, at, recalled = false) {
+/** The time is up: each ship finishes its order, then flies back to the command ship. */
+export function endMission(state, commander, at) {
   const mission = commander.mission;
   if (mission?.status !== 'active') return;
   mission.status = 'returning';
   mission.endedAt = Math.min(at, mission.endsAt);
-  mission.recalled = recalled;
   for (const ship of state.ships) if (ship.order?.missionBy === commander.id) release(ship);
   finishIfDone(state, commander, at);
 }
 
-/** Once a returning mission's ships have finished their orders, the commander writes the log. */
+/**
+ * Ships of a returning mission that are done with their orders fly back to
+ * the command ship, and go aboard once both are there. A ship that cannot
+ * fly back (no credits for the gates, say) finds its own way aboard.
+ */
+function regroup(state, commander) {
+  const place = meetingPlace(commander);
+  for (const ship of wingOf(state, commander)) {
+    if (ship.order || !ship.at) continue;
+    if (ship.at !== place) {
+      if (startTagged(state, ship, commander, { type: 'fly', stationId: place }).ok) continue;
+    } else if (commander.order) continue;
+    ship.at = null;
+  }
+}
+
+/** Once a returning mission's wing is back aboard, the commander writes the log and the fleet shows on the maps again. */
 export function finishIfDone(state, commander, at) {
   const mission = commander?.mission;
   if (mission?.status !== 'returning') return;
-  if (state.ships.some((ship) => ship.order?.missionBy === commander.id)) return;
+  regroup(state, commander);
+  if (commander.order || wingOf(state, commander).some((ship) => ship.order || ship.at)) return;
   const before = commanderLevel(commander);
   const time = mission.endedAt - mission.startedAt;
-  const text = captainsLog(state, commander, mission, time);
+  const text = captainsLog(state, commander, mission);
   commander.commander.missionTime = (commander.commander.missionTime ?? 0) + time;
-  commander.commander.report = { ...mission.report, kind: mission.kind, center: mission.center, ships: mission.ships, time, recalled: mission.recalled, at, text };
+  commander.commander.report = { ...mission.report, kind: mission.kind, center: mission.center, ships: mission.ships, time, at, text };
   commander.mission = null;
   state.stats.missions = (state.stats.missions ?? 0) + 1;
-  addLog(state, at, text, 'fleet');
+  addLog(state, at, text, 'fleet', Math.round(mission.report.credits));
   const after = commanderLevel(commander);
   if (after > before) {
     const second = after >= SECOND_TRAIT_LEVEL && before < SECOND_TRAIT_LEVEL ? `, and shows a second side: ${TRAITS[commander.commander.traits[1]].name.toLowerCase()}` : '';
@@ -238,7 +304,9 @@ export function nextMissionEnd(state) {
 
 /**
  * Runs one step (or a jump) of a ship's order and adds what it earned and
- * did to the mission that gave the order, if any.
+ * did to the mission that gave the order, if any. A fleet on a mission is
+ * out of contact: what it does stays out of the company log, and the
+ * captain's log tells it at the end.
  */
 export function trackMission(state, ship, step, run) {
   const commander = ship.order?.missionBy ? findShip(state, ship.order.missionBy) : null;
@@ -246,7 +314,7 @@ export function trackMission(state, ship, step, run) {
   if (!report) return run();
   const { stats } = state;
   const before = { credits: state.credits, cargo: cargoTotal(ship), held: { ...ship.cargo }, surveys: stats.surveys ?? 0, signals: stats.signals ?? 0, salvaged: stats.salvaged ?? 0, jumps: stats.jumps ?? 0, fees: stats.jumpFees ?? 0 };
-  const result = run();
+  const result = quietly(run);
   report.credits += state.credits - before.credits;
   report.jumps += (stats.jumps ?? 0) - before.jumps;
   report.fees += (stats.jumpFees ?? 0) - before.fees;
@@ -274,10 +342,10 @@ export function trackMission(state, ship, step, run) {
 const mostOf = (counts) => Object.entries(counts).sort((a, b) => b[1] - a[1])[0] ?? null;
 
 /** Three or four lines in the commander's voice, from what happened. */
-export function captainsLog(state, commander, mission, time) {
+export function captainsLog(state, commander, mission) {
   const r = mission.report;
   const area = findSystem(mission.center)?.name ?? 'Unknown';
-  const lines = [`${commander.name}, level ${commanderLevel(commander)}, ${traitText(commander).toLowerCase()}. ${area} area, ${mission.recalled ? `called back after ${formatDuration(time)}` : `${mission.hours} h`}.`];
+  const lines = [`${commander.name}, level ${commanderLevel(commander)}, ${traitText(commander).toLowerCase()}. ${area} area, ${mission.hours} h.`];
 
   const field = mostOf(r.fields);
   if (r.mined > 0) lines.push(`Mined ${formatNumber(r.mined)} t${field ? `, most of it at ${findField(field[0])?.name ?? 'a field'}` : ''}.`);

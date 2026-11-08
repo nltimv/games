@@ -15,6 +15,7 @@ import { findSystem } from '../content/galaxy.js';
 import { sceneryOf } from '../content/scenery.js';
 import { HULLS, MODULES } from '../content/ships.js';
 import { shipPosition } from '../systems/travel.js';
+import { onMap } from '../systems/commanders.js';
 import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, startView, toScreen, zoomAt } from './camera.js';
 import { loadAssets } from './assets.js';
 import { clearLabels } from './labels.js';
@@ -175,7 +176,7 @@ export function createMapView(canvas, options) {
     // as ships fly and parked ships drift.
     const galaxy = sceneKey === 'galaxy';
     const moving = state.ships.some((ship, i) => {
-      if (!ship.order) return false;
+      if (!ship.order || !onMap(ship)) return false;
       const pos = shipPosition(ship, now, i);
       return galaxy ? Boolean(pos.jump) : pos.moving;
     });

@@ -4,9 +4,10 @@
 // A course is a list of legs: flights inside a system ({ from, to } places
 // in the same system) and jumps ({ from, to, jump: true }, from a gate to
 // the gate on the far side of its lane). Orders to another system plot a
-// course through the gates on their own (see plotCourse).
+// course through the gates on their own (see plotCourse). A command ship
+// pays each jump for the ships aboard its fleet as well.
 
-import { DOCK_SECONDS } from '../content/ships.js';
+import { DOCK_SECONDS, HULLS } from '../content/ships.js';
 import { findPlace, findSystem, lanesFrom, systemOf } from '../content/galaxy.js';
 import { MINUTE, SECOND } from '../core/time.js';
 import { isSurveyed } from './explore.js';
@@ -113,6 +114,17 @@ function cachedPath(state, ship, fromSys, toSys, options) {
 }
 
 /**
+ * How many ships a jump is paid for: a command ship pays for its fleet
+ * aboard too, except on a mission, where the wing flies on its own.
+ */
+function shipsAboard(state, ship) {
+  if (HULLS[ship.hull]?.role !== 'command') return 1;
+  const lead = state.ships.find((s) => s.id === ship.id);
+  if (!lead?.commander || lead.mission) return 1;
+  return 1 + state.ships.filter((s) => s.fleet === lead.id).length;
+}
+
+/**
  * The course from one place to another, with times from 0:
  * { ok, legs, time, jumps, fees } or { ok: false, error }. Legs that jump
  * carry their `fee`.
@@ -137,6 +149,7 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
   let t = 0;
   let at = fromId;
   let fees = 0;
+  const aboard = shipsAboard(state, ship);
   for (const { exit, entry, lane } of path) {
     if (at !== exit.id) {
       const fly = flightTime(ship, at, exit.id);
@@ -144,7 +157,7 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
       t += fly;
     }
     const jump = jumpTime(state, lane);
-    const fee = jumpFee(state, lane);
+    const fee = jumpFee(state, lane) * aboard;
     legs.push({ from: exit.id, to: entry.id, start: t, end: t + jump, jump: true, fee });
     t += jump;
     fees += fee;

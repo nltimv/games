@@ -49,12 +49,18 @@ function run(traits, level, hand = false) {
   commander.commander.missionTime = LEVEL_HOURS[level - 1] * HOUR;
   const ships = state.ships.filter((ship) => HULLS[ship.hull].role === role && !ship.order && ship.at).slice(0, fleetCommand(state).wing);
   if (!ships.length) throw new Error(`No idle ${role}s in this save.`);
-  for (const ship of ships) joinFleet(state, ship, commander, now);
-  const started = startMission(state, commander, { kind, center: systemOf(ships[0].at), hours }, now);
+  // The fleet sets out from where the first ship is, with every ship aboard.
+  commander.at = ships[0].at;
+  for (const ship of ships) {
+    ship.at = commander.at;
+    joinFleet(state, ship, commander, now);
+  }
+  const center = systemOf(commander.at);
+  const started = startMission(state, commander, { kind, center, hours }, now);
   if (!started.ok) throw new Error(started.error);
   advance(state, now + (hours + 6) * HOUR);
   const report = commander.commander.report;
-  return { credits: report?.credits ?? NaN, ships: ships.length, center: systemOf(ships[0].at) };
+  return { credits: report?.credits ?? NaN, ships: ships.length, center };
 }
 
 const hand = run(kind === 'mine' ? ['prospector', 'greedy'] : ['greedy', 'thrifty'], 5, true);

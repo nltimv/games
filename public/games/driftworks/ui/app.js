@@ -13,6 +13,7 @@ import { isSurveyed } from '../systems/explore.js';
 import { skipGuide } from '../systems/goals.js';
 import { isResearched } from '../systems/research.js';
 import { findShip } from '../systems/fleet.js';
+import { commanders, mapShips, onMap } from '../systems/commanders.js';
 import { minedSoFar, orderPhase } from '../systems/orders.js';
 import { canJump, shipPosition, shipSystem } from '../systems/travel.js';
 import { renderInto, updateLive, h } from './dom.js';
@@ -125,7 +126,12 @@ export function createApp(session, doc = document) {
     }
     if (kind === 'ship') {
       const ship = findShip(state, id);
-      if (!ship) return null;
+      // A fleet on a mission has no place on the maps; the galaxy map shows its area.
+      if (ship?.mission) {
+        const center = findSystem(ship.mission.center);
+        return ui.map === 'galaxy' && center ? { x: center.gx, y: center.gy } : null;
+      }
+      if (!ship || !onMap(ship)) return null;
       const index = state.ships.indexOf(ship);
       return ui.map === 'galaxy' ? galaxyPosition(ship, Date.now(), index) : shipPosition(ship, Date.now(), index);
     }
@@ -161,7 +167,7 @@ export function createApp(session, doc = document) {
     const [systemId, role] = badgeId.split('|');
     const now = Date.now();
     return session.state.ships
-      .filter((ship, index) => HULLS[ship.hull].role === role && galaxyPosition(ship, now, index)?.system === systemId)
+      .filter((ship, index) => onMap(ship) && HULLS[ship.hull].role === role && galaxyPosition(ship, now, index)?.system === systemId)
       .map((ship) => ship.id);
   }
 
@@ -394,7 +400,7 @@ export function createApp(session, doc = document) {
   // re-render when a ship arrives and starts its job.
   // The selected ship's hold also fills while it mines.
   function phaseKey(now) {
-    const phases = session.state.ships.map((ship) => (ship.order ? orderPhase(ship.order, now).end : 0)).join(',');
+    const phases = mapShips(session.state).map((ship) => (ship.order ? orderPhase(ship.order, now).end : 0)).join(',');
     const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
     return `${phases}|${ship ? minedSoFar(ship.order, now) : 0}`;
   }
@@ -461,7 +467,7 @@ export function createApp(session, doc = document) {
   function startViewFor(scene) {
     if (scene.kind !== 'galaxy') return { zoom: SYSTEM_START_ZOOM };
     const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
-    const point = ship ? galaxyPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : null;
+    const point = ship && onMap(ship) ? galaxyPosition(ship, Date.now(), session.state.ships.indexOf(ship)) : null;
     const system = findSystem(ui.systemId);
     return { zoom: MAX_ZOOM, x: point?.x ?? system?.gx ?? 0, y: point?.y ?? system?.gy ?? 0 };
   }
@@ -473,9 +479,12 @@ export function createApp(session, doc = document) {
     getMenuTarget: () => (ui.menu ? { ...ui.menu.target, shipId: ui.menu.shipId, shipIds: ui.menu.shipIds } : null),
     getGuideTarget: () => (isMapView(ui.view) || !isPhone() ? (ui.guide?.map ?? null) : null),
     getMarketGood: () => (isResearched(session.state, 'market-charts') ? ui.marketGood : null),
+    // Every fleet on a mission shows its area, and so does the mission the selected commander plans.
     getArea: () => {
-      const ship = ui.selection?.kind === 'ship' ? findShip(session.state, ui.selection.id) : null;
-      return ship?.commander ? plannedArea(session.state, ship) : null;
+      const state = session.state;
+      const ship = ui.selection?.kind === 'ship' ? findShip(state, ui.selection.id) : null;
+      const areas = commanders(state).filter((c) => c.mission || c === ship).map((c) => plannedArea(state, c) ?? []);
+      return areas.length ? [...new Set(areas.flat())] : null;
     },
     getStartView: startViewFor,
     getOpenSystem: () => ui.systemId,

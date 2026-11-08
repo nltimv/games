@@ -11,6 +11,7 @@ import { HOUR } from '../../core/time.js';
 import { buyCargo, canCarry, cargoTotal, holdNote, sellCargo } from '../../systems/cargo.js';
 import { CONTRACT_RULES, acceptContract, activeAt, boardOpen, contractFor, deliverCargo, offersAt, stillNeeded } from '../../systems/contracts.js';
 import { buyShip, findShip, hullLock, hullsForSale, shipPrice } from '../../systems/fleet.js';
+import { mapShips } from '../../systems/commanders.js';
 import { marketEntries, marketView } from '../../systems/market.js';
 import { knownAt, seenAt } from '../../systems/knowledge.js';
 import { holdClassOf, holdOf, maxTierOf } from '../../systems/modules.js';
@@ -32,8 +33,8 @@ export function stationPanel(ctx, stationId) {
   const { state } = ctx;
   const station = findStation(stationId);
   const type = STATION_TYPES[station.type];
-  const docked = state.ships.filter((s) => !s.order && s.at === stationId);
-  const incoming = state.ships.filter((s) => s.order?.target === stationId);
+  const docked = mapShips(state).filter((s) => !s.order && s.at === stationId);
+  const incoming = mapShips(state).filter((s) => s.order?.target === stationId);
 
   return [
     panelHead({ icon: stationIcon(station.type, { tint: stationTint(station) }), title: station.name, subtitle: type.description, onClose: ctx.close }),
@@ -288,7 +289,7 @@ function shipyardSection(ctx, station) {
 
 function refitSection(ctx, station) {
   const { state } = ctx;
-  const behind = state.ships.map((ship) => ({ ship, offer: refitOffer(state, ship) })).filter((r) => r.offer);
+  const behind = mapShips(state).map((ship) => ({ ship, offer: refitOffer(state, ship) })).filter((r) => r.offer);
   if (!behind.length) return null;
   const total = behind.reduce((sum, r) => sum + r.offer.cost, 0);
   const rows = behind.map(({ ship, offer }) =>
@@ -456,7 +457,7 @@ function dockedCard(ctx, station, ship) {
 
 function elsewhereSection(ctx, station) {
   const { state, now } = ctx;
-  const idle = state.ships.filter((s) => !s.order && s.at && s.at !== station.id);
+  const idle = mapShips(state).filter((s) => !s.order && s.at && s.at !== station.id);
   if (!idle.length || station.type === 'shipyard') return null;
 
   const rows = idle.map((ship) => {

@@ -1,13 +1,14 @@
 // Fleets in the panels: a commander's card, wing and missions (on the
-// command ship's panel), joining or leaving a fleet (on any other ship's),
-// and the commanders a shipyard offers.
+// command ship's panel), joining a fleet (on any other ship's), a ship
+// aboard a fleet, and the commanders a shipyard offers.
 
 import { FEE_LIMIT_STEPS, MARGIN_STEPS, MISSIONS, MISSION_IDS, TRAITS } from '../../content/commanders.js';
 import { HULLS } from '../../content/ships.js';
-import { allFactions, allSystems, findSystem, systemOf } from '../../content/galaxy.js';
+import { allFactions, allSystems, findPlace, findSystem, systemOf } from '../../content/galaxy.js';
+import { goodName } from '../../content/goods.js';
 import { formatCredits, formatNumber } from '../../../../shared/js/format.js';
-import { candidates, commanderLevel, commanderPrice, commanders, fleetCommand, hireCommander, hireLock, leaderOf, levelProgress, traitText, wingOf } from '../../systems/commanders.js';
-import { areaAround, canStartMission, doctrineOf, joinFleet, leaveFleet, missionArea, recallMission, setDoctrine, startMission } from '../../systems/missions.js';
+import { candidates, commanderLevel, commanderPrice, commanders, fleetCommand, hireCommander, hireLock, joiningOf, leaderOf, levelProgress, onMap, traitText, wingOf } from '../../systems/commanders.js';
+import { areaAround, canStartMission, doctrineOf, joinFleet, leaveFleet, missionArea, setDoctrine, startMission } from '../../systems/missions.js';
 import { findShip } from '../../systems/fleet.js';
 import { isSurveyed } from '../../systems/explore.js';
 import { isShielded } from '../../systems/shielding.js';
@@ -122,7 +123,6 @@ function missionSection(ctx, commander) {
     const system = findSystem(mission.center);
     const area = missionArea(state, mission);
     const returning = mission.status === 'returning';
-    const busy = state.ships.filter((ship) => ship.order?.missionBy === commander.id).length;
     return h(
       'div',
       { class: 'dw-section' },
@@ -130,14 +130,9 @@ function missionSection(ctx, commander) {
       h(
         'div',
         { class: 'dw-card is-aqua' },
-        h('div', { class: 'dw-card-head' }, h('strong', null, returning ? 'Finishing the last orders' : `${MISSIONS[mission.kind].verb} around ${system.name}`), returning ? h('span', null, plural(busy, 'ship')) : countdown(mission.endsAt)),
+        h('div', { class: 'dw-card-head' }, h('strong', null, returning ? 'Heading back to the command ship' : `${MISSIONS[mission.kind].verb} around ${system.name}`), returning ? null : countdown(mission.endsAt)),
         returning ? null : bar({ start: mission.startedAt, end: mission.endsAt }),
-        h(
-          'div',
-          { class: 'dw-card-foot' },
-          h('p', { class: 'dw-note dw-grow' }, `So far: ${signedCredits(Math.round(mission.report.credits))}`),
-          returning ? null : button('Recall', { small: true, key: 'recall', onClick: () => ctx.act((s) => recallMission(s, findShip(s, commander.id))) }),
-        ),
+        h('p', { class: 'dw-note' }, `${plural(mission.ships, 'ship')} out of contact until the fleet is back.`),
       ),
     );
   }
@@ -196,17 +191,20 @@ function wingSection(ctx, commander) {
   const { state } = ctx;
   const command = fleetCommand(state);
   const wing = wingOf(state, commander);
-  const room = (command?.wing ?? 0) - wing.length;
-  const others = state.ships.filter((ship) => !ship.commander && ship.fleet !== commander.id);
+  const joining = joiningOf(state, commander);
+  const room = (command?.wing ?? 0) - wing.length - joining.length;
+  const docked = Boolean(!commander.mission && !commander.order && commander.at);
+  const others = commander.mission ? [] : state.ships.filter((ship) => onMap(ship) && !ship.commander && !joining.includes(ship));
   return h(
     'div',
     { class: 'dw-section' },
     sectionTitle('Wing', `${wing.length} / ${command?.wing ?? 0}`, { numeric: true }),
-    wing.length
+    wing.length || joining.length
       ? h(
           'ul',
           { class: 'dw-list' },
-          wing.map((ship) => shipRow(ctx, ship)),
+          wing.map((ship) => aboardRow(ctx, ship, docked)),
+          joining.map((ship) => shipRow(ctx, ship)),
         )
       : h('p', { class: 'dw-note' }, 'No ships yet.'),
     room > 0 && others.length
@@ -217,12 +215,39 @@ function wingSection(ctx, commander) {
             button([shipGlyph(ship.hull, { small: true }), ` ${ship.name}`], {
               small: true,
               key: `join-${ship.id}`,
-              sub: leaderOf(state, ship) ? `from ${leaderOf(state, ship).name}` : HULLS[ship.hull].role,
-              onClick: () => ctx.act((s) => joinFleet(s, findShip(s, ship.id), findShip(s, commander.id))),
+              sub: `${HULLS[ship.hull].role} · ${travelNote(ship, commander)}`,
+              onClick: () => join(ctx, ship, commander),
             }),
           ),
         )
       : null,
+  );
+}
+
+/** Where a ship would come from to join: "here", "from Aurel", or "after its orders". */
+function travelNote(ship, commander) {
+  if (ship.order || ship.queue.length) return 'after its orders';
+  if (ship.at === commander.at) return 'here';
+  const here = systemOf(ship.at);
+  return here === systemOf(commander.at) ? `from ${findPlace(ship.at)?.name ?? 'nearby'}` : `from ${findSystem(here)?.name ?? 'afar'}`;
+}
+
+/** A ship aboard a fleet: what it is and carries, and taking it out where the command ship docks. */
+function aboardRow(ctx, ship, docked) {
+  const leader = leaderOf(ctx.state, ship);
+  const cargo = Object.entries(ship.cargo).filter(([, qty]) => qty >= 1);
+  // Out on a mission the ship is out of contact: nothing of what it carries shows.
+  const status = leader?.mission ? 'Out on the mission' : cargo.length ? `Aboard with ${cargo.map(([good, qty]) => `${formatNumber(qty)} t ${goodName(good).toLowerCase()}`).join(', ')}` : 'Aboard';
+  return h(
+    'li',
+    null,
+    h(
+      'div',
+      { class: 'dw-ship-row is-aboard' },
+      shipGlyph(ship.hull),
+      h('span', { class: 'dw-grow' }, h('strong', null, `${ship.name} · ${HULLS[ship.hull].role}`), h('small', null, status)),
+      docked ? button('Take out', { small: true, key: `leave-${ship.id}`, onClick: () => ctx.act((s) => leaveFleet(s, findShip(s, ship.id))) }) : null,
+    ),
   );
 }
 
@@ -248,28 +273,18 @@ function reportSection(ctx, commander) {
 
 // ---------- Any other ship ----------
 
-/** On a ship's panel: whose fleet it flies in, or the fleets it could join. */
+function join(ctx, ship, commander) {
+  const result = ctx.act((s) => joinFleet(s, findShip(s, ship.id), findShip(s, commander.id)));
+  if (result?.ok && !result.boarded) ctx.toast(`${ship.name} ${result.queued ? 'joins' : 'flies to'} ${commander.name} ${result.queued ? 'after its orders' : 'and goes aboard'}`, 'order');
+}
+
+/** On a ship's panel: the fleets it could join. */
 export function fleetSection(ctx, ship) {
   const { state } = ctx;
-  if (ship.commander) return null;
-  const leader = leaderOf(state, ship);
-  if (leader) {
-    return h(
-      'div',
-      { class: 'dw-section' },
-      sectionTitle('Fleet'),
-      h(
-        'div',
-        { class: 'dw-fleet-line' },
-        portrait(leader, 32),
-        h('span', { class: 'dw-grow' }, `Flies for ${leader.name}`, leader.mission ? ` · ${MISSIONS[leader.mission.kind].name.toLowerCase()} mission` : ''),
-        button('Open', { small: true, key: 'open-leader', onClick: () => ctx.select('ship', leader.id) }),
-      ),
-      button('Leave the fleet', { small: true, key: 'leave-fleet', onClick: () => ctx.act((s) => leaveFleet(s, findShip(s, ship.id))) }),
-    );
-  }
+  if (ship.commander || ship.fleet) return null;
   const command = fleetCommand(state);
-  const open = commanders(state).filter((c) => wingOf(state, c).length < (command?.wing ?? 0));
+  if (commanders(state).some((c) => joiningOf(state, c).includes(ship))) return null;
+  const open = commanders(state).filter((c) => !c.mission && wingOf(state, c).length + joiningOf(state, c).length < (command?.wing ?? 0));
   if (!open.length) return null;
   return h(
     'div',
@@ -282,10 +297,29 @@ export function fleetSection(ctx, ship) {
         button([portrait(c, 20), ` Join ${c.name}`], {
           small: true,
           key: `join-${c.id}`,
-          onClick: () => ctx.act((s) => joinFleet(s, findShip(s, ship.id), findShip(s, c.id))),
+          onClick: () => join(ctx, ship, c),
         }),
       ),
     ),
+  );
+}
+
+/** The panel of a ship aboard a fleet: whose, and taking it out where the command ship docks. */
+export function aboardSection(ctx, ship) {
+  const { state } = ctx;
+  const leader = leaderOf(state, ship);
+  const docked = !leader.mission && !leader.order && leader.at;
+  return h(
+    'div',
+    { class: 'dw-card is-aqua' },
+    h(
+      'div',
+      { class: 'dw-fleet-line' },
+      portrait(leader, 32),
+      h('span', { class: 'dw-grow' }, leader.mission ? `With ${leader.name} on a ${MISSIONS[leader.mission.kind].name.toLowerCase()} mission` : `Aboard ${leader.name}'s fleet`),
+      button('Open', { small: true, key: 'open-leader', onClick: () => ctx.select('ship', leader.id) }),
+    ),
+    docked ? h('div', { class: 'dw-row-actions' }, button(`Take out at ${findPlace(leader.at)?.name ?? 'the dock'}`, { small: true, key: 'leave-fleet', onClick: () => ctx.act((s) => leaveFleet(s, findShip(s, ship.id))) })) : null,
   );
 }
 

@@ -19,9 +19,9 @@
 //
 // In act 3 it investigates signals near its surveys, salvages derelicts,
 // and, once Fleet command I is in, hires a commander for every two free
-// ships of a kind (the trait that suits them), fills their wings and sends
-// each idle fleet out for as long as a mission may last. --no-fleets plays
-// act 3 by hand instead, to compare.
+// ships of a kind (the trait that suits them), sends ships to join the
+// fleets, and sends each fleet out, once every ship is aboard, for as long
+// as a mission may last. --no-fleets plays act 3 by hand instead, to compare.
 //
 // Contracts: the bot accepts offers that pay better per minute than its
 // best market round and that its fleet can fill in time (two clicks: open
@@ -81,7 +81,7 @@ import { affordableQty, marketEntries, marketView, findEntry } from '../../publi
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { canCarry, cargoTotal } from '../../public/games/driftworks/systems/cargo.js';
 import { derelictLeft, foundSignals, isGateOpen, isInvestigated, workerAt } from '../../public/games/driftworks/systems/signals.js';
-import { candidates, commanderLevel, commanderPrice, commanders, fleetCommand, hireCommander, leaderOf, wingOf } from '../../public/games/driftworks/systems/commanders.js';
+import { candidates, commanderLevel, commanderPrice, commanders, fleetCommand, hireCommander, joiningOf, mapShips, onMap, wingOf } from '../../public/games/driftworks/systems/commanders.js';
 import { areaAround, joinFleet, startMission } from '../../public/games/driftworks/systems/missions.js';
 
 const PROFILES = {
@@ -249,7 +249,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
    * not looked at again in time), with room left for their own trips.
    */
   function capacity(ore, active, hours) {
-    const ships = state.ships.filter((ship) => role(ship) === (ore ? 'miner' : 'hauler') && (active || !ship.order));
+    const ships = mapShips(state).filter((ship) => role(ship) === (ore ? 'miner' : 'hauler') && (active || !ship.order));
     const holds = ships.reduce((sum, ship) => sum + holdOf(ship), 0);
     if (active) return 0.5 * holds * Math.floor((hours * 60) / 10);
     return 0.6 * holds * Math.max(1, Math.floor(orderSlots(state) / 2));
@@ -272,7 +272,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       // Goods bought for a contract are paid up front: only what the money covers.
       if (!ore && !knownStations(state).some((from) => findEntry(from.id, offer.good)?.side === 'sells' && affordableQty(state, from.id, offer.good, cash() * 0.5, taken + offer.qty, now) >= taken + offer.qty)) continue;
       const contract = { ...offer, delivered: 0, deadline: now + offer.hours * HOUR };
-      const ships = state.ships.filter((ship) => role(ship) === (ore ? 'miner' : 'hauler'));
+      const ships = mapShips(state).filter((ship) => role(ship) === (ore ? 'miner' : 'hauler'));
       const ship = ships.find((s) => !s.order) ?? ships[0];
       if (!ship) continue;
       const rate = ore ? contractRound(ship, contract, offer.qty)?.rate : supplyRun(ship, now, contract, offer.qty)?.rate;
@@ -406,8 +406,12 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
   // The traits the bot looks for in a commander for each kind of wing, best first.
   const WANTED_TRAITS = { miner: ['prospector', 'thrifty', 'cautious'], hauler: ['thrifty', 'greedy', 'cautious'], scout: ['curious'] };
   const MISSION_FOR = { miner: 'mine', hauler: 'trade', scout: 'survey' };
-  const onMission = (ship) => Boolean(leaderOf(state, ship)?.mission);
-  const freeShips = (r) => state.ships.filter((s) => role(s) === r && !s.fleet);
+  // Ships aboard a fleet, or on their way to one, are the commanders' to run.
+  const joining = () => new Set(commanders(state).flatMap((c) => joiningOf(state, c)));
+  const freeShips = (r) => {
+    const coming = joining();
+    return state.ships.filter((s) => role(s) === r && onMap(s) && !coming.has(s));
+  };
   /** The kind of ship a commander leads: its wing's, or what its trait suits. */
   function wingRole(commander) {
     const wing = wingOf(state, commander);
@@ -417,7 +421,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
   }
   /** Where a wing works best: where its lead ship's best job is, or for scouts where most is left to survey. */
   function missionCenter(commander, r) {
-    const lead = wingOf(state, commander)[0];
+    // The wing sets out from where the command ship docks.
+    const lead = { ...wingOf(state, commander)[0], at: commander.at };
     const command = fleetCommand(state);
     if (r === 'miner') {
       const round = bestMiningRound(lead, state.now);
@@ -435,6 +440,11 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       if (best) return best.id;
     }
     return systemOf(lead.at ?? lead.order?.target) ?? HOME_SYSTEM.id;
+  }
+  /** Sends a ship to join a commander, dropping the rest of its queue so it goes after its current order. */
+  function enlist(ship, commander, now) {
+    if (ship.queue.length && clearQueue(state, ship).ok) click();
+    if (joinFleet(state, ship, commander, now).ok) click();
   }
   /** Hires a commander for every two free ships of a kind, fills wings, and sends idle fleets out for as long as they may go. */
   function manageFleets(now) {
@@ -455,19 +465,17 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       if (!hired.ok) continue;
       click(2);
       report.missions.push({ hired: true, at: now, trait: pick.traits[0], role: r });
-      for (const ship of freeShips(r).slice(0, command.wing)) if (joinFleet(state, ship, hired.ship, now).ok) click();
+      for (const ship of freeShips(r).slice(0, command.wing)) enlist(ship, hired.ship, now);
     }
     for (const c of commanders(state)) {
+      if (c.mission) continue;
       const r = wingRole(c);
-      for (const ship of freeShips(r).slice(0, command.wing - wingOf(state, c).length)) if (joinFleet(state, ship, c, now).ok) click();
+      for (const ship of freeShips(r).slice(0, command.wing - wingOf(state, c).length - joiningOf(state, c).length)) enlist(ship, c, now);
     }
     for (const c of commanders(state)) {
-      if (c.mission || !wingOf(state, c).length) continue;
+      // A fleet sets out once every ship on its way is aboard.
+      if (c.mission || !wingOf(state, c).length || joiningOf(state, c).length || c.order) continue;
       const r = wingRole(c);
-      // Ships still on the player's orders drop the rest of their queues.
-      const queued = wingOf(state, c).filter((s) => s.queue.length);
-      for (const ship of queued) clearQueue(state, ship);
-      if (queued.length) click(2);
       const started = startMission(state, c, { kind: MISSION_FOR[r], center: missionCenter(c, r), hours: command.hours.at(-1) }, now);
       if (started.ok) click(3);
     }
@@ -586,7 +594,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     }
 
     // Refits: book them all once the money is there twice over.
-    const behind = state.ships.filter((s) => refitOffer(state, s));
+    const behind = mapShips(state).filter((s) => refitOffer(state, s));
     const refitCost = behind.reduce((sum, s) => sum + refitOffer(state, s).cost, 0);
     if (behind.length && cash() >= refitCost * 2 && refitAll(state).ok) click();
 
@@ -595,8 +603,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
 
     // Idle ships: run the last route again (one click for all), or plan anew.
     const rerun = [];
-    for (const ship of state.ships) {
-      if (role(ship) === 'command' || onMission(ship)) continue;
+    const coming = joining();
+    for (const ship of mapShips(state)) {
+      if (role(ship) === 'command' || coming.has(ship)) continue;
       if (role(ship) === 'scout') {
         keepSurveying(ship);
         continue;
@@ -616,8 +625,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     }
     // Between work blocks, fill every queue that has room for more rounds.
     if (!active) {
-      for (const ship of state.ships) {
-        if (role(ship) !== 'scout' && !onMission(ship) && ship.plan.length && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
+      for (const ship of mapShips(state)) {
+        if (role(ship) !== 'scout' && role(ship) !== 'command' && !coming.has(ship) && ship.plan.length && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
       }
     }
 

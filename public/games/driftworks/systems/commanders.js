@@ -5,7 +5,10 @@
 // A commander is a ship with a `commander` record:
 //   { traits: [first, second], portrait, missionTime, missions, report }
 // The second trait shows from SECOND_TRAIT_LEVEL on. A ship in a wing has
-// `fleet` set to its commander's ship id.
+// `fleet` set to its commander's ship id. It is aboard the fleet: it has no
+// place of its own (`at` is null) and takes no orders of the player's, and
+// it moves with the command ship. Only on a mission does it fly on its own,
+// and then the whole fleet is off the maps until it is back.
 
 import {
   COMMANDER_PRICES,
@@ -35,6 +38,14 @@ export function fleetCommand(state) {
 
 export const isCommander = (ship) => Boolean(ship?.commander);
 
+/** Whether the player sees a ship on the maps and gives it orders: not aboard a fleet, and not a commander away on a mission. */
+export const onMap = (ship) => !ship.fleet && !ship.mission;
+
+/** The ships the player sees on the maps and gives orders to. */
+export function mapShips(state) {
+  return state.ships.filter(onMap);
+}
+
 export function commanders(state) {
   return state.ships.filter(isCommander);
 }
@@ -42,6 +53,11 @@ export function commanders(state) {
 /** The ships a commander leads. */
 export function wingOf(state, commander) {
   return state.ships.filter((ship) => ship.fleet === commander.id);
+}
+
+/** Ships on their way to join a commander's fleet; their places in the wing are kept. */
+export function joiningOf(state, commander) {
+  return state.ships.filter((ship) => !ship.fleet && [ship.order?.spec, ...ship.queue].some((spec) => spec?.type === 'join' && spec.commanderId === commander.id));
 }
 
 /** The commander a ship flies for, or null. */

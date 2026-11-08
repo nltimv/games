@@ -3,7 +3,7 @@
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { findPlace, findSystem, systemOf } from '../content/galaxy.js';
 import { MISSIONS } from '../content/commanders.js';
-import { commanders, wingOf } from '../systems/commanders.js';
+import { commanders, leaderOf, mapShips } from '../systems/commanders.js';
 import { currentGoal } from '../systems/goals.js';
 import { portrait } from './portrait.js';
 import { orderPhase, shipStatus } from '../systems/orders.js';
@@ -49,15 +49,18 @@ export function renderTopBar(els, state, previous) {
     pill.classList.add('is-bumped');
   }
 
-  const busy = state.ships.filter((s) => s.order);
-  els.fleetSummary.textContent = `${plural(state.ships.length, 'ship')} · ${busy.length} busy`;
+  // Ships out on a mission count as busy; their orders stay with their commander.
+  const shown = mapShips(state);
+  const busy = shown.filter((s) => s.order);
+  const away = state.ships.filter((s) => s.mission || leaderOf(state, s)?.mission).length;
+  els.fleetSummary.textContent = `${plural(state.ships.length, 'ship')} · ${busy.length + away} busy`;
 
   const next = [...busy].sort((a, b) => a.order.endsAt - b.order.endsAt)[0];
   els.nextChip.classList.toggle('is-idle', !next);
   if (next) {
     els.nextText.replaceChildren(`${next.name} done in `, countdown(next.order.endsAt, { className: '' }));
   } else {
-    els.nextText.textContent = state.ships.length === 1 ? `${state.ships[0].name} is waiting` : 'All ships are waiting';
+    els.nextText.textContent = !shown.length ? 'Every ship is with a fleet' : shown.length === 1 ? `${shown[0].name} is waiting` : away ? 'Only fleets on missions are busy' : 'All ships are waiting';
   }
   return credits;
 }
@@ -68,10 +71,9 @@ export function renderTopBar(els, state, previous) {
 // whole order.
 export function underwayCard(ctx) {
   const { state, now } = ctx;
-  // A fleet on a mission is one row, with its ships folded under it.
+  // A fleet on a mission is one row; ships aboard a fleet have none.
   const fleets = commanders(state).filter((c) => c.mission);
-  const folded = new Set(fleets.flatMap((c) => [c.id, ...wingOf(state, c).map((ship) => ship.id)]));
-  const ships = state.ships.filter((s) => !folded.has(s.id));
+  const ships = mapShips(state);
   const busy = ships.filter((s) => s.order).sort((a, b) => a.order.endsAt - b.order.endsAt);
   const idle = ships.filter((s) => !s.order);
   const goal = currentGoal(state);
@@ -104,9 +106,7 @@ export function underwayCard(ctx) {
 const MISSION_ICONS = { mine: 'mine', trade: 'sell', survey: 'survey' };
 
 function fleetRow(ctx, commander) {
-  const { state } = ctx;
   const mission = commander.mission;
-  const wing = wingOf(state, commander);
   const where = findSystem(mission.center)?.name ?? '?';
   const returning = mission.status === 'returning';
   const status = `${commander.name}: ${MISSIONS[mission.kind].name.toLowerCase()} mission around ${where}`;
@@ -116,8 +116,8 @@ function fleetRow(ctx, commander) {
     h('span', { class: 'dw-run-face' }, portrait(commander, 22)),
     h('span', { class: 'dw-run-name' }, commander.name),
     activityIcon(MISSION_ICONS[mission.kind]),
-    h('span', { class: 'dw-run-where' }, where, h('span', { class: 'dw-run-more' }, ` +${wing.length}`)),
-    returning ? h('span', { class: 'dw-run-time' }, 'Finishing') : countdown(mission.endsAt, { className: 'dw-run-time' }),
+    h('span', { class: 'dw-run-where' }, where, h('span', { class: 'dw-run-more' }, ` +${mission.ships}`)),
+    returning ? h('span', { class: 'dw-run-time' }, 'Heading back') : countdown(mission.endsAt, { className: 'dw-run-time' }),
     returning ? null : bar({ start: mission.startedAt, end: mission.endsAt }),
   );
 }

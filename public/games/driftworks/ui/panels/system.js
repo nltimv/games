@@ -16,6 +16,7 @@ import { marketEntries } from '../../systems/market.js';
 import { isResearched } from '../../systems/research.js';
 import { seenAt } from '../../systems/knowledge.js';
 import { findShip } from '../../systems/fleet.js';
+import { mapShips, onMap } from '../../systems/commanders.js';
 import { giveOrder } from '../../systems/orders.js';
 import { canJump, jumpFee, jumpTime, shipSystem } from '../../systems/travel.js';
 import { hazardNote, isShielded, shieldingNeeded } from '../../systems/shielding.js';
@@ -46,8 +47,8 @@ function surveyButtons(ctx, systemId) {
   const { state } = ctx;
   if (!surveyable(state, systemId)) return null;
   const surveyor = surveyorOf(state, systemId);
-  if (surveyor) return h('p', { class: 'dw-note' }, `${surveyor.name} is on its way to survey it.`);
-  const scouts = state.ships.filter((ship) => HULLS[ship.hull].role === 'scout');
+  if (surveyor) return h('p', { class: 'dw-note' }, onMap(surveyor) ? `${surveyor.name} is on its way to survey it.` : 'A fleet on a mission is surveying it.');
+  const scouts = mapShips(state).filter((ship) => HULLS[ship.hull].role === 'scout');
   if (!scouts.length) return null;
   return h(
     'div',
@@ -105,7 +106,7 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
     subtitle: subtitle(state, system),
     onClose: overview && !ctx.isPhone() ? null : ctx.close,
   });
-  const ships = state.ships.filter((ship) => shipSystem(ship, ctx.now) === system.id);
+  const ships = mapShips(state).filter((ship) => shipSystem(ship, ctx.now) === system.id);
   const open = ctx.ui.view === 'galaxy' && surveyed ? button(`Open the ${system.name} map`, { key: 'open-system', variant: 'primary', block: true, onClick: () => ctx.openSystem(system.id) }) : null;
 
   if (!surveyed) {

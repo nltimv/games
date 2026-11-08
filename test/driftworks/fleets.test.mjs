@@ -1,14 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allSystems, systemOf, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
+import { allSystems, findSystem, lanesFrom, systemOf, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
 import { HOUR } from '../../public/games/driftworks/core/time.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { deserialize, serialize } from '../../public/games/driftworks/core/save.js';
 import { markSurveyed } from '../../public/games/driftworks/systems/explore.js';
 import { createShip, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
-import { candidates, commanderLevel, commanderPrice, hireCommander, hireLock, traitsOf, wingOf } from '../../public/games/driftworks/systems/commanders.js';
-import { areaAround, canStartMission, doctrineOf, joinFleet, leaveFleet, recallMission, setDoctrine, startMission } from '../../public/games/driftworks/systems/missions.js';
+import { candidates, commanderLevel, commanderPrice, hireCommander, hireLock, joiningOf, mapShips, onMap, traitsOf, wingOf } from '../../public/games/driftworks/systems/commanders.js';
+import * as missions from '../../public/games/driftworks/systems/missions.js';
+import { areaAround, canStartMission, doctrineOf, joinFleet, leaveFleet, setDoctrine, startMission } from '../../public/games/driftworks/systems/missions.js';
 import { cancelOrder, giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { plotCourse } from '../../public/games/driftworks/systems/travel.js';
 import { buyersOf } from '../../public/games/driftworks/systems/advisor.js';
 import { sellToStation } from '../../public/games/driftworks/systems/market.js';
 import { newGame } from './helpers.mjs';
@@ -53,22 +55,80 @@ test('Fleet command I brings three commanders to hire, each with a different tra
   assert.notDeepEqual(candidates(state).map((c) => c.name), offered.map((c) => c.name));
 });
 
-test('a wing holds 4 ships with Fleet command I, and ships can leave it', () => {
+/** Ships of a hull, new at the shipyard where commanders are hired, so they go aboard at once. */
+function atYard(state, hull, n) {
+  return Array.from({ length: n }, () => createShip(state, hull, 'halcyon-shipyard'));
+}
+
+test('a ship docked with its commander goes aboard at once, and one elsewhere flies there first', () => {
   const state = act3();
   const lead = hire(state);
-  const ships = [state.ships[0], ...Array.from({ length: 4 }, () => createShip(state, 'mule', 'halcyon-shipyard'))];
-  for (const ship of ships.slice(0, 4)) assert.ok(joinFleet(state, ship, lead).ok);
-  assert.match(joinFleet(state, ships[4], lead).error, /full/);
+  const mule = state.ships[0];
+  assert.notEqual(mule.at, lead.at);
+  const [a, b, c, d] = atYard(state, 'mule', 4);
+  for (const ship of [a, b, c]) assert.deepEqual(joinFleet(state, ship, lead), { ok: true, boarded: true });
+  assert.ok([a, b, c].every((ship) => ship.fleet === lead.id && ship.at === null && !onMap(ship)), 'aboard, off the maps');
+
+  // The fourth place goes to the mule on its way, so the wing is full.
+  const far = joinFleet(state, mule, lead);
+  assert.ok(far.ok && !far.boarded);
+  assert.equal(mule.order.type, 'join');
+  assert.deepEqual(joiningOf(state, lead), [mule]);
+  assert.match(joinFleet(state, d, lead).error, /full/);
   assert.match(joinFleet(state, lead, lead).error, /own/);
-  assert.ok(leaveFleet(state, ships[0]).ok);
-  assert.equal(wingOf(state, lead).length, 3);
-  assert.ok(joinFleet(state, ships[4], lead).ok);
+  assert.match(giveOrder(state, mule, { type: 'fly', stationId: 'halcyon-refinery' }).error, /join a fleet/);
+
+  advance(state, state.now + 30 * 60_000);
+  assert.equal(mule.fleet, lead.id);
+  assert.equal(mule.at, null);
+  assert.equal(wingOf(state, lead).length, 4);
+  assert.ok(!mapShips(state).includes(mule));
+
+  // Aboard, a ship takes no orders of the player's until it leaves, where the command ship docks.
+  assert.match(giveOrder(state, a, { type: 'fly', stationId: 'halcyon-refinery' }).error, /fleet/);
+  assert.match(cancelOrder(state, a).error, /fleet/);
+  assert.ok(leaveFleet(state, a).ok);
+  assert.equal(a.fleet, null);
+  assert.equal(a.at, lead.at);
+  assert.ok(giveOrder(state, a, { type: 'fly', stationId: 'halcyon-refinery' }).ok);
+  assert.ok(joinFleet(state, d, lead).ok);
 });
 
-test('a mine mission works its area for the hours set, then the commander writes the log', () => {
+test('a ship on its way follows its commander when the command ship moves on', () => {
   const state = act3();
   const lead = hire(state);
-  const mules = [state.ships[0], createShip(state, 'mule', 'halcyon-refinery')];
+  const mule = state.ships[0];
+  assert.ok(joinFleet(state, mule, lead).ok);
+  assert.ok(giveOrder(state, lead, { type: 'fly', stationId: 'halcyon-foundry' }).ok);
+  advance(state, state.now + 60 * 60_000);
+  assert.equal(lead.at, 'halcyon-foundry');
+  assert.equal(mule.fleet, lead.id);
+  assert.equal(mule.at, null);
+});
+
+test('a command ship pays each jump for every ship aboard, and they move with it', () => {
+  const state = act3();
+  const lead = hire(state);
+  const ships = atYard(state, 'kite', 2);
+  for (const ship of ships) joinFleet(state, ship, lead);
+  const next = lanesFrom('aurel').map(({ to }) => findSystem(to)).find((system) => system.stations.length);
+  const target = next.stations[0].id;
+  const alone = plotCourse(state, createShip(state, 'kite', 'halcyon-shipyard'), 'halcyon-shipyard', target).fees;
+  assert.ok(alone > 0);
+  assert.equal(plotCourse(state, lead, lead.at, target).fees, alone * 3);
+  const credits = state.credits;
+  assert.ok(giveOrder(state, lead, { type: 'fly', stationId: target }).ok);
+  advance(state, state.now + 3 * HOUR);
+  assert.equal(lead.at, target);
+  assert.equal(credits - state.credits, alone * 3);
+  assert.ok(leaveFleet(state, ships[0]).ok);
+  assert.equal(ships[0].at, target);
+});
+
+test('a mine mission works its area for the hours set, off the maps, then the commander writes the log', () => {
+  const state = act3();
+  const lead = hire(state);
+  const mules = atYard(state, 'mule', 2);
   for (const mule of mules) joinFleet(state, mule, lead);
   assert.match(canStartMission(state, lead, { kind: 'trade', center: 'aurel', hours: 2 }).error, /needs a hauler/);
   assert.match(canStartMission(state, lead, { kind: 'mine', center: 'aurel', hours: 3 }).error, /hours/);
@@ -76,6 +136,10 @@ test('a mine mission works its area for the hours set, then the commander writes
   const started = startMission(state, lead, { kind: 'mine', center: 'aurel', hours: 2 });
   assert.ok(started.ok, started.error);
   assert.ok(mules.every((m) => m.order?.missionBy === lead.id), 'the commander gives orders at once');
+  assert.ok(![lead, ...mules].some(onMap), 'the fleet is off the maps');
+  assert.equal(missions.recallMission, undefined, 'a mission cannot be called back');
+  assert.match(giveOrder(state, lead, { type: 'fly', stationId: 'halcyon-refinery' }).error, /away on a mission/);
+  assert.match(cancelOrder(state, mules[0]).error, /fleet/);
 
   // Between orders the commander takes a while to decide.
   let waited = false;
@@ -84,7 +148,6 @@ test('a mine mission works its area for the hours set, then the commander writes
     waited ||= mules.some((m) => m.order?.type === 'standby');
   }
   assert.ok(waited);
-  assert.match(cancelOrder(state, mules.find((m) => m.order?.type === 'standby') ?? mules[0]).error ?? 'ok', /commander|ok/);
 
   advance(state, start + 4 * HOUR);
   assert.equal(lead.mission, null);
@@ -95,18 +158,39 @@ test('a mine mission works its area for the hours set, then the commander writes
   assert.ok(lead.commander.report.credits > 0);
   assert.ok(lead.commander.report.mined > 0);
   assert.equal(lead.commander.missionTime, 2 * HOUR);
-  assert.ok(mules.every((m) => !m.order), 'the ships wait once the mission is over');
+  assert.ok(mules.every((m) => !m.order && m.at === null && m.fleet === lead.id), 'the wing is back aboard');
+  assert.ok(onMap(lead));
+  // Out of contact: the company log has only the captain's log of the mission, with what it brought in.
+  const during = state.log.filter((e) => e.at > start && [lead, ...mules].some((ship) => e.text.startsWith(ship.name)));
+  assert.deepEqual(during.map((e) => e.kind), ['fleet']);
+  assert.equal(during[0].amount, Math.round(lead.commander.report.credits));
+});
+
+test('after a mission elsewhere the wing flies back to the command ship at the centre', () => {
+  const state = act3();
+  const lead = hire(state);
+  const mules = atYard(state, 'mule', 2);
+  for (const mule of mules) joinFleet(state, mule, lead);
+  const center = lanesFrom('aurel').map(({ to }) => findSystem(to)).find((system) => system.stations.length && areaAround(state, system.id, 1).length);
+  const start = state.now;
+  assert.ok(startMission(state, lead, { kind: 'mine', center: center.id, hours: 2 }).ok);
+  advance(state, start + 6 * HOUR);
+  assert.equal(lead.mission, null);
+  assert.equal(lead.at, center.stations[0].id);
+  assert.ok(mules.every((m) => m.at === null && !m.order));
+  assert.ok(leaveFleet(state, mules[0]).ok);
+  assert.equal(mules[0].at, center.stations[0].id);
 });
 
 test('a wing ship holding ore that no station has room for waits instead of spinning in place', () => {
   const state = act3();
   const lead = hire(state);
-  const mule = state.ships[0];
-  joinFleet(state, mule, lead);
-  // Every station that buys ferrite ore is full, and the mule is docked at the first one in Aurel.
+  // Every station that buys ferrite ore is full, and the fleet sets out from the first one in Aurel.
   const buyers = buyersOf(state, 'ferrite-ore');
   for (const { station } of buyers) sellToStation(state, station.id, 'ferrite-ore', 1e7);
-  mule.at = buyers.find(({ station }) => systemOf(station.id) === 'aurel').station.id;
+  lead.at = buyers.find(({ station }) => systemOf(station.id) === 'aurel').station.id;
+  const mule = createShip(state, 'mule', lead.at);
+  assert.ok(joinFleet(state, mule, lead).boarded);
   mule.cargo['ferrite-ore'] = 100;
   const start = state.now;
   assert.ok(startMission(state, lead, { kind: 'mine', center: 'aurel', hours: 2 }).ok);
@@ -120,7 +204,7 @@ test('a wing ship holding ore that no station has room for waits instead of spin
 test('a trade mission sends haulers on runs inside the area', () => {
   const state = act3();
   const lead = hire(state);
-  const kite = createShip(state, 'kite', 'halcyon-shipyard');
+  const [kite] = atYard(state, 'kite', 1);
   joinFleet(state, kite, lead);
   const start = state.now;
   assert.ok(startMission(state, lead, { kind: 'trade', center: 'aurel', hours: 4 }).ok);
@@ -135,7 +219,7 @@ test('a survey mission surveys the systems around its centre', () => {
   useGalaxy(state.seed);
   state.research.done.push(...ACT_2, 'shield-debris', 'fleet-1');
   const lead = hire(state);
-  const lark = createShip(state, 'lark', 'halcyon-shipyard');
+  const [lark] = atYard(state, 'lark', 1);
   joinFleet(state, lark, lead);
   const surveyed = state.surveyed.length;
   assert.ok(startMission(state, lead, { kind: 'survey', center: 'aurel', hours: 4 }).ok);
@@ -144,18 +228,9 @@ test('a survey mission surveys the systems around its centre', () => {
   assert.equal(lead.commander.report.surveyed, state.surveyed.length - surveyed);
 });
 
-test('a recall ends the mission early, and levels come from hours on missions', () => {
+test('levels come from hours on missions, and a second trait shows at level 3', () => {
   const state = act3();
   const lead = hire(state);
-  joinFleet(state, state.ships[0], lead);
-  const start = state.now;
-  assert.ok(startMission(state, lead, { kind: 'mine', center: 'aurel', hours: 4 }).ok);
-  advance(state, start + HOUR);
-  assert.ok(recallMission(state, lead).ok);
-  advance(state, start + 3 * HOUR);
-  assert.equal(lead.mission, null);
-  assert.match(state.log.filter((e) => e.kind === 'fleet').at(-1).text, /called back after 1 h/);
-
   assert.equal(traitsOf(lead).length, 1);
   lead.commander.missionTime = 12 * HOUR;
   assert.equal(commanderLevel(lead), 3);
@@ -164,22 +239,21 @@ test('a recall ends the mission early, and levels come from hours on missions', 
   assert.equal(commanderLevel(lead), 5);
 });
 
-test('a player order replaces a commander\'s wait, and fleets are kept in the save', () => {
+test('a commander sets out only once docked, and fleets are kept in the save', () => {
   const state = act3();
   const lead = hire(state);
-  const mule = state.ships[0];
+  const [mule] = atYard(state, 'mule', 1);
   joinFleet(state, mule, lead);
+  assert.ok(giveOrder(state, lead, { type: 'fly', stationId: 'halcyon-refinery' }).ok);
+  assert.match(canStartMission(state, lead, { kind: 'mine', center: 'aurel', hours: 4 }).error, /docks/);
+  assert.ok(joinFleet(state, createShip(state, 'mule', 'halcyon-shipyard'), lead).ok, 'ships can still join while it flies');
+  advance(state, state.now + HOUR);
   assert.ok(startMission(state, lead, { kind: 'mine', center: 'aurel', hours: 4 }).ok);
   const loaded = deserialize(serialize(state));
   assert.equal(loaded.ships.find((s) => s.id === lead.id).mission.kind, 'mine');
-  assert.equal(loaded.ships[0].fleet, lead.id);
+  assert.equal(loaded.ships.find((s) => s.id === mule.id).fleet, lead.id);
   assert.equal(loaded.hires, 1);
-
-  let t = state.now;
-  while (mule.order?.type !== 'standby' && t < state.now + 4 * HOUR) advance(state, (t += 60_000));
-  assert.equal(mule.order.type, 'standby');
-  assert.ok(giveOrder(state, mule, { type: 'fly', stationId: 'aurel-post' }).ok);
-  assert.equal(mule.order.type, 'fly');
+  assert.match(joinFleet(state, createShip(state, 'mule', 'halcyon-shipyard'), lead).error, /away on a mission/);
 });
 
 test('Fleet command II brings standing orders, bigger wings and wider areas', () => {
@@ -193,8 +267,7 @@ test('Fleet command II brings standing orders, bigger wings and wider areas', ()
   assert.equal(doctrineOf(lead).factions, 'any');
 
   // With no fees allowed, a trade fleet stays in its own system.
-  const kites = [createShip(state, 'kite', 'halcyon-shipyard'), createShip(state, 'kite', 'halcyon-shipyard')];
-  for (const kite of kites) joinFleet(state, kite, lead);
+  for (const kite of atYard(state, 'kite', 2)) joinFleet(state, kite, lead);
   const start = state.now;
   assert.ok(startMission(state, lead, { kind: 'trade', center: 'aurel', hours: 8 }).ok);
   advance(state, start + 9 * HOUR);

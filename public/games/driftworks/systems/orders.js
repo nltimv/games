@@ -51,6 +51,7 @@ import { plotCourse, travelTime } from './travel.js';
 import { flight, route, stationLegs } from './courses.js';
 import { buildInvestigate, buildSalvage } from './signalOrders.js';
 import { buildStandby } from './standby.js';
+import { buildJoin } from './joinOrder.js';
 import { isFieldOpen } from './signals.js';
 import { isSurveyed, knownStations, surveyable, surveyorOf } from './explore.js';
 import { hazardNote } from './shielding.js';
@@ -305,6 +306,7 @@ const BUILDERS = {
   investigate: buildInvestigate,
   salvage: buildSalvage,
   standby: buildStandby,
+  join: buildJoin,
 };
 
 export function buildOrder(state, view, spec, start = state.now) {
@@ -343,7 +345,7 @@ function applySteps(view, order, from = 0) {
     } else if (step.kind === 'salvage') {
       view.cargo[step.good] = (view.cargo[step.good] ?? 0) + Math.min(step.qty, freeIn(view));
       view.at = step.station;
-    } else if (step.kind === 'arrive' || step.kind === 'survey' || step.kind === 'investigate' || step.kind === 'standby') {
+    } else if (step.kind === 'arrive' || step.kind === 'survey' || step.kind === 'investigate' || step.kind === 'standby' || step.kind === 'join') {
       view.at = step.station;
     }
   }
@@ -420,9 +422,20 @@ export function startOrder(state, ship, spec) {
 }
 
 function remember(ship, spec) {
-  if (spec.type === 'refit') return;
+  if (spec.type === 'refit' || spec.type === 'join') return;
   ship.plan.push(spec);
   if (ship.plan.length > MAX_PLAN) ship.plan.splice(0, ship.plan.length - MAX_PLAN);
+}
+
+/**
+ * Why a ship takes no orders of the player's: it is aboard a commander's
+ * fleet, or it is a commander away on a mission. Null when it does.
+ */
+export function awayNote(state, ship) {
+  if (ship.mission) return `${ship.name} is away on a mission.`;
+  if (!ship.fleet) return null;
+  const lead = state.ships.find((s) => s.id === ship.fleet);
+  return `${ship.name} flies in ${lead?.name ?? 'a commander'}'s fleet.`;
 }
 
 /**
@@ -433,11 +446,9 @@ function remember(ship, spec) {
 export function giveOrder(state, ship, spec) {
   if (!ship) return fail('No such ship.');
   if (!BUILDERS[spec?.type] || spec.type === 'standby') return fail('Unknown order.');
-  // An order of the player's own comes before a commander's next one.
-  if (ship.order?.type === 'standby') {
-    ship.at = ship.order.target;
-    ship.order = null;
-  }
+  const away = awayNote(state, ship);
+  if (away) return fail(away);
+  if ([ship.order?.spec, ...ship.queue].some((s) => s?.type === 'join')) return fail(`${ship.name} is on its way to join a fleet.`);
   if (ship.order) {
     if (freeSlots(state, ship) <= 0) return fail(`${ship.name}'s orders are full.`);
     const view = projectShip(state, ship);
@@ -565,9 +576,10 @@ export function cargoNow(ship, now) {
  */
 export function cancelOrder(state, ship, at = state.now) {
   if (!ship) return fail('No such ship.');
+  const away = awayNote(state, ship);
+  if (away) return fail(away);
   const order = ship.order;
   if (!order) return fail(`${ship.name} has no order to cancel.`);
-  if (order.type === 'standby') return fail(`${ship.name} is waiting for its commander's orders.`);
   const phase = orderPhase(order, at);
   if (phase.flying) {
     const leg = order.legs.find((l) => l.from !== l.to && at < l.end) ?? order.legs.find((l) => l.from !== l.to);
@@ -608,6 +620,8 @@ export function cancelOrder(state, ship, at = state.now) {
 
 /** Removes the orders waiting after the current one. Refits are refunded. */
 export function clearQueue(state, ship) {
+  const away = awayNote(state, ship);
+  if (away) return fail(away);
   if (!ship.queue.length) return fail(`${ship.name} has no orders waiting.`);
   const dropped = ship.queue.splice(0);
   for (const spec of dropped) refund(state, spec);
@@ -655,7 +669,7 @@ export function refitAll(state, stationId) {
   let cost = 0;
   let error = null;
   for (const ship of state.ships) {
-    if (!refitOffer(state, ship)) continue;
+    if (awayNote(state, ship) || !refitOffer(state, ship)) continue;
     const result = stationId ? orderRefit(state, ship, stationId) : orderRefit(state, ship);
     if (result.ok) {
       count += 1;
@@ -831,6 +845,8 @@ export function specLabel(spec) {
       return `Salvage the derelict in ${findSystem(systemOf(spec.signalId))?.name ?? '?'}`;
     case 'standby':
       return `Wait for ${spec.by}'s orders`;
+    case 'join':
+      return 'Join a fleet';
     default:
       return spec.type;
   }

@@ -19,6 +19,7 @@ import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
 import { shieldingNeeded } from '../systems/shielding.js';
 import { derelictLeft, isGateOpen, isInvestigated } from '../systems/signals.js';
 import { shipRoute } from '../systems/orders.js';
+import { onMap } from '../systems/commanders.js';
 import { scaleOf, toScreen, toWorld } from './camera.js';
 import { drawAsset } from './assets.js';
 import { drawLabel } from './labels.js';
@@ -153,7 +154,7 @@ function drawRoutes(ctx, cam, state, now, selection) {
   for (const id of ids.slice(0, MAX_ROUTES)) {
     const index = state.ships.findIndex((ship) => ship.id === id);
     const ship = state.ships[index];
-    if (!ship) continue;
+    if (!ship || !onMap(ship)) continue;
     const hops = routeOf(state, ship, now);
     if (!hops.length) continue;
     for (const hop of hops) {
@@ -508,6 +509,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const counts = new Map();
   const jumping = [];
   state.ships.forEach((ship, index) => {
+    // A fleet is drawn as its command ship; one on a mission not at all.
+    if (!onMap(ship)) return;
     const pos = galaxyPosition(ship, now, index);
     if (!pos) return;
     if (pos.jumping) jumping.push({ ship, pos });

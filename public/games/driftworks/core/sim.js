@@ -18,7 +18,7 @@ import { LAB_SLOTS, finishResearch } from '../systems/research.js';
 import { checkGoals } from '../systems/goals.js';
 import { addLog } from '../systems/log.js';
 import { findEntry } from '../systems/market.js';
-import { dispatch, endMission, finishIfDone, nextMissionEnd, trackMission, wakeFleets } from '../systems/missions.js';
+import { dispatch, endMission, finishIfDone, meetCommander, nextMissionEnd, trackMission, wakeFleets } from '../systems/missions.js';
 import { findShip } from '../systems/fleet.js';
 
 const MAX_STEPS = 50_000;
@@ -96,6 +96,10 @@ const STEP_HANDLERS = {
   standby(state, ship, step) {
     ship.at = step.station;
   },
+  join(state, ship, step) {
+    ship.at = step.station;
+    meetCommander(state, ship, step.commander, step.at);
+  },
 };
 
 /** After a ship's order ends: its commander's next order, and the log of a mission that is over. */
@@ -125,7 +129,7 @@ export function advance(state, until) {
     } else {
       const { ship, step } = due;
       trackMission(state, ship, step, () => STEP_HANDLERS[step.kind]?.(state, ship, step));
-      markSeen(state, systemOf(ship.at), step.at);
+      markSeen(state, systemOf(ship.at ?? step.station), step.at);
       ship.order.stepIndex += 1;
       if (ship.order.stepIndex >= ship.order.steps.length) {
         const finished = ship.order;

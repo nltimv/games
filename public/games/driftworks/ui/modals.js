@@ -23,7 +23,7 @@ export function showAway(dialog, state, since, now) {
   // Captain's logs from missions that ended, each on a card of its own.
   const logs = all.filter((e) => e.kind === 'fleet').slice(-3);
   if (!entries.length && !logs.length) return false;
-  const income = entries.reduce((sum, e) => sum + Math.max(0, e.amount ?? 0), 0);
+  const income = [...entries, ...all.filter((e) => e.kind === 'fleet')].reduce((sum, e) => sum + Math.max(0, e.amount ?? 0), 0);
   const close = () => dialog.close();
   openDialog(dialog, [
     h('span', { class: 'dw-eyebrow' }, 'Welcome back'),

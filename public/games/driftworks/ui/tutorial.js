@@ -9,6 +9,7 @@ import { HULLS, ORDER_SLOTS } from '../content/ships.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { allSystems, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { cargoTotal } from '../systems/cargo.js';
+import { joiningOf, mapShips, wingOf } from '../systems/commanders.js';
 import { knownStations, surveyable } from '../systems/explore.js';
 import { tutorialGoal } from '../systems/goals.js';
 import { findEntry, marketEntries } from '../systems/market.js';
@@ -267,7 +268,7 @@ function nextHazardSurvey(state, scout) {
 
 Object.assign(GUIDES, {
   'hazard-survey'(state, ui) {
-    const scouts = state.ships.filter(isScout);
+    const scouts = mapShips(state).filter(isScout);
     const busy = scouts.find((ship) => ship.order?.spec.type === 'survey' && findSystem(ship.order.spec.systemId)?.hazard);
     if (busy) {
       const target = findSystem(busy.order.spec.systemId);
@@ -291,10 +292,12 @@ Object.assign(GUIDES, {
     const commander = state.ships.find((ship) => ship.commander);
     if (!commander) return null;
     if (!(ui.selection?.kind === 'ship' && ui.selection.id === commander.id)) return { text: `Select ${commander.name}: pick them in the Fleet list.`, selector: ui.view === 'fleet' ? key(`fleet-${commander.id}`) : '[data-view="fleet"]' };
-    const wing = state.ships.filter((ship) => ship.fleet === commander.id);
-    if (!wing.length) return { text: `Give ${commander.name} a wing: pick ships under Wing. They take the commander's orders from then on.`, selector: '[data-key^="join-"]' };
+    const wing = wingOf(state, commander);
+    const coming = joiningOf(state, commander);
+    if (!wing.length && coming.length) return { text: `${coming[0].name} flies to ${commander.name} and goes aboard the command ship when it gets there.` };
+    if (!wing.length) return { text: `Give ${commander.name} a wing: pick ships under Wing. Each flies to the command ship, goes aboard and moves with the fleet from then on.`, selector: '[data-key^="join-"]' };
     return {
-      text: 'Pick a mission, the system at the centre of its area and how many hours, then start it. The galaxy map lights up the area.',
+      text: 'Pick a mission, the system at the centre of its area and how many hours, then start it. The fleet is out of contact until it is back, and the galaxy map shows its area.',
       selector: key('start-mission'),
       tip: 'Commanders get better with every hour on a mission, and write a captain\'s log when they are back.',
     };

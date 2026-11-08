@@ -6,6 +6,7 @@ import { HULLS } from '../../content/ships.js';
 import { findSignal, findSystem, systemOf } from '../../content/galaxy.js';
 import { canCarry, holdNote } from '../../systems/cargo.js';
 import { findShip } from '../../systems/fleet.js';
+import { mapShips, onMap } from '../../systems/commanders.js';
 import { freeSlots, giveOrder } from '../../systems/orders.js';
 import { derelictLeft, isGateOpen, isInvestigated, signalTitle, workerAt } from '../../systems/signals.js';
 import { isSurveyed } from '../../systems/explore.js';
@@ -18,7 +19,7 @@ import { tonnes } from '../format.js';
 function sendButtons(ctx, ships, type, signal, verb) {
   const { state } = ctx;
   const busy = workerAt(state, signal.id, type);
-  if (busy) return h('p', { class: 'dw-note' }, `${busy.name} is on its way.`);
+  if (busy) return h('p', { class: 'dw-note' }, onMap(busy) ? `${busy.name} is on its way.` : 'A fleet on a mission has it.');
   const ready = ships.filter((ship) => freeSlots(state, ship) > 0);
   if (!ready.length) return null;
   return h(
@@ -46,14 +47,14 @@ export function signalPanel(ctx, signalId) {
   const head = panelHead({ icon: signalIcon(state, signal), title: signalTitle(state, signal), subtitle: `Signal · ${system.name}`, onClose: ctx.close });
 
   if (!isInvestigated(state, signal)) {
-    const scouts = state.ships.filter((ship) => HULLS[ship.hull].role === 'scout');
+    const scouts = mapShips(state).filter((ship) => HULLS[ship.hull].role === 'scout');
     return [head, h('p', { class: 'dw-note' }, 'Something out past the planets answers the scanners.'), sendButtons(ctx, scouts, 'investigate', signal, 'Investigate')];
   }
 
   if (signal.kind === 'derelict') {
     const left = derelictLeft(state, signal);
     const good = GOODS[signal.good];
-    const haulers = state.ships.filter((ship) => HULLS[ship.hull].role === 'hauler');
+    const haulers = mapShips(state).filter((ship) => HULLS[ship.hull].role === 'hauler');
     const able = haulers.filter((ship) => canCarry(ship, signal.good));
     return [
       head,
