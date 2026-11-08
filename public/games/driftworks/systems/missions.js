@@ -350,7 +350,10 @@ export function dispatch(state, ship, at, finished = null) {
   const t = tilt(state, commander);
   const wait = (ms) => startTagged(state, ship, commander, { type: 'standby', ms: Math.min(ms, left), by: commander.name });
   if (finished?.missionBy === commander.id && finished.type !== 'standby') {
-    const pause = (finished.endsAt - finished.startedAt) * (1 / efficiency(commander) - 1) * t.pause;
+    const time = finished.endsAt - finished.startedAt;
+    // An order that took no time (a sale at a station with no room, say) still
+    // gets a short wait, so a wing never spins in place.
+    const pause = Math.max(time * (1 / efficiency(commander) - 1) * t.pause, time > 0 ? 0 : MINUTE);
     if (pause >= 20 * SECOND) {
       wait(pause);
       return;
@@ -423,6 +426,7 @@ function sellSpec(state, ship, commander, mission, t, work, at) {
       const course = courseTo(state, ship, ship.at, station.id);
       if (!course.ok || course.jumps > t.maxJumps || course.fees > t.feeLimit) continue;
       const sale = saleValue(state, station.id, good, ship.cargo[good], at);
+      if (sale.total <= 0) continue;
       const share = 0.8 ** (taken[`${station.id}|${good}`] ?? 0);
       const score = (sale.total * share - course.fees * t.feeWeight) / (course.time / MINUTE + 2);
       if (!best || score > best.score) best = { score, stationId: station.id, good };
@@ -431,7 +435,7 @@ function sellSpec(state, ship, commander, mission, t, work, at) {
   // Nobody in the area buys it: the best buyer the company knows.
   if (!best) {
     const good = Object.keys(ship.cargo).find((g) => ship.cargo[g] >= 1);
-    const buyer = good ? buyersOf(state, good, at).find(({ station }) => courseTo(state, ship, ship.at, station.id).ok) : null;
+    const buyer = good ? buyersOf(state, good, at).find(({ station }) => saleValue(state, station.id, good, ship.cargo[good], at).total > 0 && courseTo(state, ship, ship.at, station.id).ok) : null;
     if (!buyer) return null;
     best = { stationId: buyer.station.id, good };
   }
@@ -449,6 +453,7 @@ function mineSpec(state, ship, mission, t, work, at) {
       const buyer = buyersOf(state, good, at).find(({ station }) => work.includes(systemOf(station.id)) && t.allows(station));
       if (!buyer) continue;
       const value = saleValue(state, buyer.station.id, good, amount, at).total;
+      if (value <= 0) continue;
       const minutes = (built.order.endsAt - at) / MINUTE;
       let score = (value - (built.order.fees ?? 0) * t.feeWeight) / minutes;
       if (t.prospector) score *= Math.sqrt(field.richness);

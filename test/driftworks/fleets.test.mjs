@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allSystems, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
+import { allSystems, systemOf, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
 import { HOUR } from '../../public/games/driftworks/core/time.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { deserialize, serialize } from '../../public/games/driftworks/core/save.js';
@@ -9,6 +9,8 @@ import { createShip, shipPrice } from '../../public/games/driftworks/systems/fle
 import { candidates, commanderLevel, commanderPrice, hireCommander, hireLock, traitsOf, wingOf } from '../../public/games/driftworks/systems/commanders.js';
 import { areaAround, canStartMission, doctrineOf, joinFleet, leaveFleet, recallMission, setDoctrine, startMission } from '../../public/games/driftworks/systems/missions.js';
 import { cancelOrder, giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { buyersOf } from '../../public/games/driftworks/systems/advisor.js';
+import { sellToStation } from '../../public/games/driftworks/systems/market.js';
 import { newGame } from './helpers.mjs';
 
 const ACT_2 = ['warp-drive', 'scout-licence', 'lane-charts', 'jump-1', 'kite-licence', 'sealed-holds', 'hold-1', 'hold-2', 'hold-3', 'laser-1', 'laser-2'];
@@ -94,6 +96,25 @@ test('a mine mission works its area for the hours set, then the commander writes
   assert.ok(lead.commander.report.mined > 0);
   assert.equal(lead.commander.missionTime, 2 * HOUR);
   assert.ok(mules.every((m) => !m.order), 'the ships wait once the mission is over');
+});
+
+test('a wing ship holding ore that no station has room for waits instead of spinning in place', () => {
+  const state = act3();
+  const lead = hire(state);
+  const mule = state.ships[0];
+  joinFleet(state, mule, lead);
+  // Every station that buys ferrite ore is full, and the mule is docked at the first one in Aurel.
+  const buyers = buyersOf(state, 'ferrite-ore');
+  for (const { station } of buyers) sellToStation(state, station.id, 'ferrite-ore', 1e7);
+  mule.at = buyers.find(({ station }) => systemOf(station.id) === 'aurel').station.id;
+  mule.cargo['ferrite-ore'] = 100;
+  const start = state.now;
+  assert.ok(startMission(state, lead, { kind: 'mine', center: 'aurel', hours: 2 }).ok);
+  for (let t = start; t <= start + 4 * HOUR; t += HOUR) {
+    advance(state, t);
+    assert.ok(!mule.order || mule.order.endsAt >= state.now, 'orders never fall behind the clock');
+  }
+  assert.equal(lead.mission, null);
 });
 
 test('a trade mission sends haulers on runs inside the area', () => {

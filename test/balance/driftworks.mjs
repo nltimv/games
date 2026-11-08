@@ -441,8 +441,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     const command = fleetCommand(state);
     if (!fleets || !command) return;
     const next = nextResearch();
-    // The first commander comes before anything else; later ones leave money for research.
-    const reserve = commanders(state).length && freeLab(state) && next ? costOf(next) : 0;
+    // The first commander comes before anything else; later ones leave money for research, as ships do.
+    const reserve = commanders(state).length && freeLab(state) && next ? Math.min(costOf(next), commanderPrice(state)) : 0;
     for (const r of ['miner', 'hauler', 'scout']) {
       if (freeShips(r).length < 2 || commanders(state).some((c) => wingRole(c) === r && wingOf(state, c).length < command.wing)) continue;
       if (cash() < commanderPrice(state) + reserve) continue;
