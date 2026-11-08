@@ -240,15 +240,28 @@ a:hover {
   bottom: var(--dw-gap);
   width: var(--dw-panel-w);
   border-radius: var(--radius-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.dw-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  z-index: 2;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+/* The handle of the phone sheet (see ui/sheet.js). */
+.dw-sheet-grip {
+  display: none;
 }
 
 .dw-panel-head {
@@ -2045,9 +2058,71 @@ button.dw-price-row[aria-pressed='true'] {
     right: var(--dw-gap);
     bottom: calc(var(--dw-gap) + 56px + 8px);
     width: auto;
-    max-height: 62%;
-    padding: 16px;
+    max-height: var(--dw-sheet-max, 62%);
     z-index: 4;
+    transition: max-height 0.2s ease;
+  }
+
+  .dw-panel.is-folded {
+    max-height: 92px;
+  }
+
+  .dw-panel.is-dragging {
+    transition: none;
+  }
+
+  .dw-panel-body {
+    flex: 0 1 auto;
+    padding: 0 16px 16px;
+  }
+
+  .dw-panel.is-folded .dw-panel-body {
+    overflow: hidden;
+  }
+
+  /* Folded, only the head shows. */
+  .dw-panel.is-folded .dw-panel-body > :not(.dw-panel-head) {
+    visibility: hidden;
+  }
+
+  .dw-sheet-grip {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .dw-sheet-grip span {
+    width: 40px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.35);
+    transition: background 0.15s ease;
+  }
+
+  .dw-sheet-grip:hover span,
+  .dw-sheet-grip:focus-visible span,
+  .dw-panel.is-dragging .dw-sheet-grip span {
+    background: rgba(255, 255, 255, 0.65);
+  }
+
+  .dw-sheet-grip:focus-visible {
+    outline: none;
+  }
+
+  .dw-sheet-grip:focus-visible span {
+    box-shadow: 0 0 0 2px var(--aqua);
+  }
+
+  .dw-panel .dw-panel-head {
+    touch-action: none;
   }
 
   .dw-dock,

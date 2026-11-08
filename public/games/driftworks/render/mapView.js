@@ -57,6 +57,8 @@ const REVEAL_MARGIN = 40;
  *   onContextMenu(target, p) right-click or long-press on { kind, id } (or
  *                            null); p is the viewport point { x, y }, with
  *                            `touch` set for a long-press
+ *   onGesture()              the player starts moving the map: a pan, a
+ *                            pinch or the wheel
  */
 export function createMapView(canvas, options) {
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -75,6 +77,9 @@ export function createMapView(canvas, options) {
   let running = false;
   let raf = 0;
   let idleTimer = 0;
+  // Until this time, a change in the free area moves its middle without
+  // moving the picture (see holdView).
+  let holdUntil = 0;
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
@@ -111,7 +116,20 @@ export function createMapView(canvas, options) {
       snap = true;
     }
     const safe = options.getSafeArea(width, height);
-    const fitting = fitCamera(cam, safe, extent, snap ? 1 : 0.2);
+    const holding = performance.now() < holdUntil;
+    let fitting;
+    if (holding) {
+      // The middle follows the free area at once, and the pan makes up for
+      // it, so nothing on the map moves.
+      const before = cam.base ? { cx: cam.cx, cy: cam.cy } : null;
+      fitCamera(cam, safe, extent, 1);
+      if (before) {
+        const scale = scaleOf(cam);
+        cam.panX += (cam.cx - before.cx) / scale;
+        cam.panY += (cam.cy - before.cy) / scale;
+      }
+      fitting = true;
+    } else fitting = fitCamera(cam, safe, extent, snap ? 1 : 0.2);
     if (reveal) {
       // Slide a pick made off screen (from a list) into view.
       const p = toScreen(cam, reveal.x, reveal.y);
@@ -257,6 +275,7 @@ export function createMapView(canvas, options) {
       const [a, b] = [...pointers.values()];
       pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) };
       drag = null;
+      options.onGesture?.();
     }
   });
 
@@ -287,6 +306,10 @@ export function createMapView(canvas, options) {
         drag.moved = true;
         cancelLongPress();
         canvas.style.cursor = drag.which === 'left' ? 'crosshair' : 'grabbing';
+      }
+      if (drag.moved && drag.which !== 'left' && !drag.told) {
+        drag.told = true;
+        options.onGesture?.();
       }
       if (drag.moved && drag.which === 'left') {
         box = { a: drag.start, b: p };
@@ -362,6 +385,7 @@ export function createMapView(canvas, options) {
     (e) => {
       e.preventDefault();
       cam.panTarget = null;
+      options.onGesture?.();
       const p = localPoint(e);
       const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       zoomAt(cam, p.x, p.y, Math.exp(-delta * 0.0015), extent);
@@ -424,6 +448,14 @@ export function createMapView(canvas, options) {
     /** Slides world point (x, y) into the middle if it is out of view (once the map shown is drawn). */
     reveal(x, y) {
       reveal = { x, y };
+      invalidate();
+    },
+    /**
+     * For the next `ms`, the free area (getSafeArea) may change size without
+     * the picture moving: a phone's sheet being dragged or folding down.
+     */
+    holdView(ms = 300) {
+      holdUntil = Math.max(holdUntil, performance.now() + ms);
       invalidate();
     },
     /** Slides the view so world point (x, y) sits in the middle. */

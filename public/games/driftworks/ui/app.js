@@ -29,6 +29,7 @@ import { galaxyPanel, gatePanel, systemPanel } from './panels/system.js';
 import { signalPanel } from './panels/signal.js';
 import { plannedArea } from './panels/commander.js';
 import { currentGuide, guideCard, markGuided } from './tutorial.js';
+import { createSheet } from './sheet.js';
 
 const TOAST_KINDS = new Set(['sale', 'goal', 'arrival', 'warning', 'purchase']);
 const TOAST_MS = 4200;
@@ -45,6 +46,8 @@ export function createApp(session, doc = document) {
     map: $('map'),
     top: doc.querySelector('.dw-top'),
     panel: $('panel'),
+    panelBody: $('panel-body'),
+    panelGrip: $('panel-grip'),
     underway: $('underway'),
     guide: $('guide'),
     nav: $('nav'),
@@ -67,6 +70,8 @@ export function createApp(session, doc = document) {
   const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null };
   let shownCredits = null;
   let panelKey = null;
+  // On phones, the panel's sheet (created with the map, below).
+  let sheet = null;
   // While a slider is being dragged, panels and the menu wait to re-render,
   // so the drag is not cut short.
   let dragging = false;
@@ -350,12 +355,16 @@ export function createApp(session, doc = document) {
     els.panel.hidden = !visible;
     els.app.classList.toggle('is-panel-closed', !visible);
     if (visible) {
-      renderInto(els.panel, panelContent(ctx));
-      // A different thing in the panel starts at the top.
+      renderInto(els.panelBody, panelContent(ctx));
+      // A different thing in the panel starts at the top, and on phones
+      // opens the sheet again.
       const key = `${ui.view}:${ui.selection?.kind}:${ui.selection?.id}`;
-      if (key !== panelKey) els.panel.scrollTop = 0;
+      if (key !== panelKey) {
+        els.panelBody.scrollTop = 0;
+        sheet?.open();
+      }
       panelKey = key;
-    }
+    } else panelKey = null;
     // The ship list scrolls on its own; a refresh keeps its place.
     const runsScroll = els.underway.querySelector('.dw-runs')?.scrollTop ?? 0;
     renderInto(els.underway, underwayCard(ctx));
@@ -422,7 +431,9 @@ export function createApp(session, doc = document) {
     if (card && key !== guideKey) renderInto(els.guide, card);
     guideKey = key;
     if (card) els.app.style.setProperty('--dw-guide-h', `${els.guide.offsetHeight}px`);
-    markGuided(doc.body, ui.guide);
+    // A new step that points into a folded sheet opens it.
+    const shown = markGuided(doc.body, ui.guide);
+    if (shown && els.panel.contains(shown)) sheet?.open();
   }
 
   // ---------- Toasts ----------
@@ -509,6 +520,8 @@ export function createApp(session, doc = document) {
     },
     onBoxSelect: (ids, mods) => selectShips(ids, mods),
     onContextMenu: openMenu,
+    // Moving the map folds a phone's sheet down, so the map has the room.
+    onGesture: () => sheet?.fold(),
     getSafeArea(width, height) {
       const gap = 12;
       let top = els.top.getBoundingClientRect().bottom + gap;
@@ -529,6 +542,18 @@ export function createApp(session, doc = document) {
     },
   });
 
+  sheet = createSheet({
+    panel: els.panel,
+    grip: els.panelGrip,
+    body: els.panelBody,
+    app: els.app,
+    isPhone,
+    // The sheet may reach up to just below the top bar.
+    tallest: () => els.panel.getBoundingClientRect().bottom - els.top.getBoundingClientRect().bottom - 8,
+    // What the player does to the sheet leaves the map where it is.
+    onResize: (byPlayer) => (byPlayer ? map.holdView() : map.redraw()),
+  });
+
   // ---------- Wiring ----------
 
   els.nav.addEventListener('click', (e) => {
@@ -538,6 +563,7 @@ export function createApp(session, doc = document) {
   doc.getElementById('settings-btn').addEventListener('click', openSettings);
   doc.querySelector('.dw-zoom').addEventListener('click', (e) => {
     const action = e.target.closest('button')?.dataset.zoom;
+    if (action) sheet.fold();
     if (action === 'in') map.zoomIn();
     if (action === 'out') map.zoomOut();
     if (action === 'fit') map.fit();

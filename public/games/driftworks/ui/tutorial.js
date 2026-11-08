@@ -332,16 +332,20 @@ export function guideCard(guide, { onSkip }) {
 
 let scrolledTo = null;
 
-/** Puts the glow on the element the guide points at, and scrolls it into view when it first shows. */
+/**
+ * Puts the glow on the element the guide points at, and scrolls it into view
+ * when it first shows. Returns the element then, and null otherwise.
+ */
 export function markGuided(root, guide) {
   for (const el of root.querySelectorAll('.is-guided')) el.classList.remove('is-guided');
   const el = guide?.selector ? root.querySelector(`${guide.selector}:not(:disabled)`) : null;
   if (!el) {
     scrolledTo = null;
-    return;
+    return null;
   }
   el.classList.add('is-guided');
-  if (scrolledTo === guide.selector) return;
+  if (scrolledTo === guide.selector) return null;
   scrolledTo = guide.selector;
   el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  return el;
 }
