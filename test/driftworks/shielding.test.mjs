@@ -70,10 +70,10 @@ test('each hazard shielding costs more than the one before, whichever hazard it 
   assert.equal(researchCost(state, ion), 2_500_000);
   assert.ok(startResearch(state, 'shield-ion', state.now).ok);
   // One in the lab counts too.
-  assert.equal(researchCost(state, debris), 3_500_000);
+  assert.equal(researchCost(state, debris), 3_000_000);
   state.research.active = null;
   state.research.done.push('shield-ion', 'shield-radiation');
-  assert.equal(researchCost(state, debris), 5_000_000);
+  assert.equal(researchCost(state, debris), 4_000_000);
   assert.equal(canStartResearch(state, 'deep-shielding').ok, false);
   state.research.done.push('shield-debris');
   assert.equal(researchStatus(state, findResearch('deep-shielding')), 'open');

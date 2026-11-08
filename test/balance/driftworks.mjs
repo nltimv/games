@@ -847,6 +847,12 @@ function print(report) {
     console.log(`    routes between systems pay ${ratio ? ratio.toFixed(2) : '-'}x the best home trade (median of ${report.tradeRates.length} picks)`);
     console.log(`    standing: ${Object.entries(state.standing).map(([id, p]) => `${id} ${Math.floor(p)}`).join(', ')}`);
     if (warp) console.log(`    first hazard shielding ${shielded ? `${((shielded - warp.at) / (24 * HOUR)).toFixed(1)} days after starting the warp drive` : 'not reached'}`);
+    // Act 3's length: from the first shielding, or from the start of a run from a save made then.
+    const blueprints = report.goals['station-blueprints'];
+    if (blueprints > -Infinity) {
+      const since = shielded > -Infinity ? shielded : report.T0;
+      console.log(`    Station blueprints ${((blueprints - since) / (24 * HOUR)).toFixed(1)} days after ${shielded > -Infinity ? 'the first hazard shielding' : 'the start of this run'}`);
+    }
     const missions = report.missions.filter((m) => !m.hired);
     if (missions.length) {
       const fleetEarned = missions.reduce((sum, m) => sum + m.credits, 0);

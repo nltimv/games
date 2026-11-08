@@ -51,15 +51,15 @@ export const RESEARCH = [
   { id: 'shield-radiation', name: 'Radiation shielding', hazard: 'radiation', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
   // Act 3: Pathfinder.
   { id: 'fleet-1', name: 'Fleet command I', shields: 1, cost: 1000000, minutes: 480, effect: 'Shipyards offer commanders, who lead wings of 4 ships on missions within 1 jump, for up to 4 hours.' },
-  { id: 'fleet-2', name: 'Fleet command II', needs: ['fleet-1'], cost: 2000000, minutes: 720, effect: 'Wings of 6, areas of 2 jumps and missions of up to 8 hours.' },
-  { id: 'fleet-3', name: 'Fleet command III', needs: ['fleet-2'], shields: 2, cost: 3500000, minutes: 960, effect: 'Wings of 8, areas of 3 jumps and missions of up to 12 hours.' },
-  { id: 'deep-shielding', name: 'Deep shielding', shields: 3, cost: 6000000, minutes: 960, effect: 'Every ship can enter the systems past 8 lanes from home, whatever their hazard.' },
+  { id: 'fleet-2', name: 'Fleet command II', needs: ['fleet-1'], cost: 1500000, minutes: 600, effect: 'Wings of 6, areas of 2 jumps and missions of up to 8 hours.' },
+  { id: 'fleet-3', name: 'Fleet command III', needs: ['fleet-2'], shields: 2, cost: 2500000, minutes: 840, effect: 'Wings of 8, areas of 3 jumps and missions of up to 12 hours.' },
+  { id: 'deep-shielding', name: 'Deep shielding', shields: 3, cost: 4000000, minutes: 720, effect: 'Every ship can enter the systems past 8 lanes from home, whatever their hazard.' },
   {
     id: 'station-blueprints',
     name: 'Station blueprints',
     needs: ['deep-shielding', 'fleet-2'],
-    cost: 7000000,
-    minutes: 1440,
+    cost: 4500000,
+    minutes: 720,
     effect: 'Plans for your own stations.',
   },
 ];
@@ -70,8 +70,8 @@ export const RESEARCH = [
  */
 export const SHIELDING_STEPS = [
   { cost: 2500000, minutes: 600 },
-  { cost: 3500000, minutes: 720 },
-  { cost: 5000000, minutes: 840 },
+  { cost: 3000000, minutes: 660 },
+  { cost: 4000000, minutes: 720 },
 ];
 
 /** Hazard shieldings get their own names in requirement lines. */

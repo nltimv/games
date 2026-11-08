@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "test": "node --test \"test/**/*.test.mjs\"",
     "check": "npm run lint && npm test",
-    "balance": "node test/balance/driftworks.mjs"
+    "balance": "node test/balance/driftworks.mjs",
+    "balance:fleets": "node test/balance/fleets.mjs"
   },
   "dependencies": {
     "express": "^4.21.2"
