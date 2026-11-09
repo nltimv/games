@@ -13,7 +13,7 @@ const HAIR_SHAPES = [
   'M21.6 26.4c0-7.8 4.6-11.8 10.4-11.8s10.4 4 10.4 11.8c-2.2-4-5.6-5.8-10.4-5.8s-8.2 1.8-10.4 5.8zM32 7.4a4.6 4.6 0 1 1 0 9.2 4.6 4.6 0 0 1 0-9.2z',
   'M20.6 38c-1.8-14 2.4-23.6 11.4-23.6S45.2 24 43.4 38c-1.2-6-1.2-11.6-3-14.2-2.2 1.4-5.4 2-8.4 2s-6.2-.6-8.4-2c-1.8 2.6-1.8 8.2-3 14.2z',
   'M22.4 24.4c.8-6 4.6-8.6 9.6-8.6s8.8 2.6 9.6 8.6c-2.6-2.4-5.8-3.2-9.6-3.2s-7 .8-9.6 3.2z',
-  'M20.8 27.6c-2.4-3-1-7.6 2-8.6.6-3.4 4-5.6 6.6-4.8 1.8-1.8 5.4-1.8 7.2 0 2.6-.8 6 1.4 6.6 4.8 3 1 4.4 5.6 2 8.6-1.4-3.6-3.6-5.4-6.4-6-2 1.4-5.2 1.4-7.2 0-1.8 1.4-4.8 1.4-6.4 0-2.8.6-5 2.4-4.4 6z',
+  'M19.8 27.6C17.4 24.6 18.8 20 21.8 19c.6-3.4 4-5.6 6.6-4.8 1.8-1.8 5.4-1.8 7.2 0 2.6-.8 6 1.4 6.6 4.8 3 1 4.4 5.6 2 8.6-1.4-3.6-3.6-5.4-6.4-6-2 1.4-3.8 1.4-5.8 0-2 1.4-3.8 1.4-5.8 0-2.8.6-5 2.4-6.4 6z',
 ];
 
 /** The portrait as an <svg> element, `size` px square. */
@@ -40,11 +40,11 @@ export function portrait(commander, size = 48) {
     </defs>
     <circle cx="32" cy="32" r="30" fill="url(#${bg})"/>
     <g clip-path="url(#pclip)">
-      <rect x="27.4" y="31" width="9.2" height="18" rx="3.6" fill="${skin}"/>
+      <rect x="27.4" y="31" width="9.2" height="15" rx="3.6" fill="${skin}"/>
       <ellipse cx="32" cy="37.2" rx="4.4" ry="2.2" fill="#3a2418" fill-opacity="0.18"/>
-      <path d="M6 64c.4-11.6 6.8-18 16-19.8 2.4 2.8 5.8 4.2 10 4.2s7.6-1.4 10-4.2C51.2 46 57.6 52.4 58 64z" fill="${suit}"/>
-      <path d="M22 44.2c2.4 2.8 5.8 4.2 10 4.2s7.6-1.4 10-4.2" fill="none" stroke="#fff" stroke-opacity="0.7" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M32 48.4V64" stroke="#fff" stroke-opacity="0.28" stroke-width="1.2"/>
+      <path d="M6 64c.4-11.4 7.4-18.6 18.4-22 2 2.2 4.6 3.4 7.6 3.4s5.6-1.2 7.6-3.4C50.6 45.4 57.6 52.6 58 64z" fill="${suit}"/>
+      <path d="M24.4 42c2 2.2 4.6 3.4 7.6 3.4s5.6-1.2 7.6-3.4" fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="1.1" stroke-linecap="round"/>
+      <path d="M32 45.4V64" stroke="#fff" stroke-opacity="0.28" stroke-width="1.2"/>
       <circle cx="44" cy="55" r="2.6" fill="${badge}" stroke="#fff" stroke-width="0.8"/>
       <circle cx="22.3" cy="28.2" r="2.3" fill="${skin}"/>
       <circle cx="41.7" cy="28.2" r="2.3" fill="${skin}"/>
