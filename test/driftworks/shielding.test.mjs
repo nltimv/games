@@ -133,7 +133,7 @@ test('factories stand only in the deep galaxy and make components from processed
     const sells = marketEntries(st.id).filter((e) => e.side === 'sells');
     assert.equal(sells.length, 2);
     for (const e of sells) {
-      assert.equal(e.curve.cap, findEntry('halcyon-refinery', 'iron').curve.cap / 4, 'components keep a quarter of the storage');
+      assert.equal(e.curve.cap, findEntry('halcyon-refinery', 'iron').curve.cap, 'components keep full stores, so a Heron load fills');
     }
   }
   assert.equal(findEntry('halcyon-shipyard', 'sensor-arrays').side, 'buys');

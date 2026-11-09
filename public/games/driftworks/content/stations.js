@@ -20,11 +20,13 @@ export const CURVES = {
 };
 
 /**
- * Stations keep less of the higher tiers: a tier 3 good's storage is half
- * the curve's cap. Each tonne pays more, so a full hold is not the only
- * good answer.
+ * Stations keep less of tier 3 goods: their storage is half the curve's cap.
+ * Each tonne pays more, so a full hold is not the only good answer. Tier 4
+ * goods, which only a Heron carries, come in full stores, so its big racks
+ * fill: a load there goes well past the 800 to 900 t where tier 3 prices
+ * sag.
  */
-export const TIER_STORAGE = { 3: 0.5, 4: 0.25 };
+export const TIER_STORAGE = { 3: 0.5, 4: 1 };
 
 export const STATION_TYPES = {
   refinery: {

@@ -23,9 +23,10 @@ export const SECOND_TRAIT_LEVEL = 3;
 /**
  * How much of a ship's time goes to work instead of waiting for the
  * commander's next order, per level: a fleet earns about this share of what
- * the same ships make under the player's own orders.
+ * the same ships make under the player's own orders. A new commander costs
+ * a little; from level 4 a wing matches hand play, point for point.
  */
-export const LEVEL_EFFICIENCY = [0.75, 0.79, 0.83, 0.87, 0.9];
+export const LEVEL_EFFICIENCY = [0.85, 0.9, 0.95, 1, 1];
 
 /** What each Fleet command research allows: wing size, area reach in jumps, mission lengths in hours. */
 export const FLEET_COMMAND = [
