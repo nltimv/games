@@ -40,10 +40,14 @@ export function portrait(commander, size = 48) {
     </defs>
     <circle cx="32" cy="32" r="30" fill="url(#${bg})"/>
     <g clip-path="url(#pclip)">
-      <path d="M10 64c1-12 9.6-18.6 22-18.6S53 52 54 64z" fill="${suit}"/>
-      <path d="M26.4 45.8 32 52l5.6-6.2" fill="none" stroke="#fff" stroke-opacity="0.7" stroke-width="1.6" stroke-linejoin="round"/>
-      <circle cx="44" cy="54" r="2.6" fill="${badge}" stroke="#fff" stroke-width="0.8"/>
-      <rect x="28.6" y="34" width="6.8" height="9" rx="3" fill="${skin}"/>
+      <rect x="27.4" y="31" width="9.2" height="18" rx="3.6" fill="${skin}"/>
+      <ellipse cx="32" cy="37.2" rx="4.4" ry="2.2" fill="#3a2418" fill-opacity="0.18"/>
+      <path d="M6 64c.4-11.6 6.8-18 16-19.8 2.4 2.8 5.8 4.2 10 4.2s7.6-1.4 10-4.2C51.2 46 57.6 52.4 58 64z" fill="${suit}"/>
+      <path d="M22 44.2c2.4 2.8 5.8 4.2 10 4.2s7.6-1.4 10-4.2" fill="none" stroke="#fff" stroke-opacity="0.7" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M32 48.4V64" stroke="#fff" stroke-opacity="0.28" stroke-width="1.2"/>
+      <circle cx="44" cy="55" r="2.6" fill="${badge}" stroke="#fff" stroke-width="0.8"/>
+      <circle cx="22.3" cy="28.2" r="2.3" fill="${skin}"/>
+      <circle cx="41.7" cy="28.2" r="2.3" fill="${skin}"/>
       <circle cx="32" cy="27" r="10" fill="${skin}"/>
       <path d="${HAIR_SHAPES[p.hair % HAIR_SHAPES.length]}" fill="${hair}"/>
       <circle cx="28.4" cy="28.4" r="1" fill="#2a2430" fill-opacity="0.75"/>
