@@ -13,7 +13,7 @@
 /** The Fleet licence line: the allowance each level gives, its cost and time, and what it waits for. */
 const LICENCES = [
   { allowance: 4, cost: 300, minutes: 1 },
-  { allowance: 6, cost: 2500, minutes: 5 },
+  { allowance: 6, cost: 1500, minutes: 3 },
   { allowance: 8, cost: 15000, minutes: 15 },
   { allowance: 10, cost: 60000, minutes: 30 },
   { allowance: 12, cost: 150000, minutes: 60 },
@@ -67,6 +67,7 @@ export const RESEARCH = [
   // Act 2: the galaxy.
   { id: 'scout-licence', name: 'Scout licence', needs: ['warp-drive'], cost: 50000, minutes: 30, effect: 'Shipyards sell Lark-class scouts, which survey unknown systems.' },
   { id: 'market-charts', name: 'Market charts', needs: ['warp-drive'], cost: 80000, minutes: 45, effect: 'The galaxy map shows where each good sells cheapest and pays best.' },
+  { id: 'trade-desk', name: 'Trade desk', needs: ['warp-drive'], cost: 150000, minutes: 90, effect: 'The trade card and Buy notes look at systems up to 2 jumps away.' },
   { id: 'lane-charts', name: 'Lane charts', needs: ['warp-drive'], cost: 300000, minutes: 120, effect: 'Jump fees are halved.' },
   { id: 'jump-1', name: 'Jump drive I', needs: ['warp-drive'], cost: 400000, minutes: 180, effect: 'Jumps take 25% less time.' },
   { id: 'scanners', name: 'Long-range scanners', needs: ['scout-licence'], cost: 600000, minutes: 240, effect: 'Surveys take half as long, and systems next to your ships show live prices.' },
@@ -84,6 +85,7 @@ export const RESEARCH = [
   { id: 'fleet-1', name: 'Fleet command I', shields: 1, cost: 1000000, minutes: 480, effect: 'Shipyards offer commanders, who lead wings of 4 ships on missions within 1 jump, for up to 4 hours.' },
   { id: 'fleet-2', name: 'Fleet command II', needs: ['fleet-1'], cost: 1500000, minutes: 600, effect: 'Wings of 6, areas of 2 jumps and missions of up to 8 hours.' },
   { id: 'fleet-3', name: 'Fleet command III', needs: ['fleet-2'], shields: 2, cost: 2500000, minutes: 840, effect: 'Wings of 8, areas of 3 jumps and missions of up to 12 hours.' },
+  { id: 'trade-network', name: 'Trade network', needs: ['trade-desk'], shields: 1, cost: 1200000, minutes: 360, effect: 'The trade card and Buy notes look at every surveyed system.' },
   { id: 'deep-shielding', name: 'Deep shielding', shields: 3, cost: 4000000, minutes: 720, effect: 'Every ship can enter the systems past 8 lanes from home, whatever their hazard.' },
   {
     id: 'station-blueprints',

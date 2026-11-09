@@ -3,7 +3,7 @@
 // None of these change the state.
 
 import { HULLS } from '../content/ships.js';
-import { findGate, findStation, findSystem, gateTo, systemOf } from '../content/galaxy.js';
+import { findGate, findStation, findSystem, gateTo, lanesFrom, systemOf } from '../content/galaxy.js';
 import { affordableQty, findEntry, marketEntries, marketView, quote } from './market.js';
 import { canCarry, cargoTotal, freeHold } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
@@ -15,7 +15,54 @@ import { knownAt } from './knowledge.js';
 import { canJump, plotCourse, travelTime } from './travel.js';
 import { isShielded } from './shielding.js';
 import { derelictLeft, isInvestigated } from './signals.js';
+import { isResearched } from './research.js';
 import { findSignal } from '../content/galaxy.js';
+
+// ---------- The advisor's range ----------
+
+/**
+ * How many jumps out the trade card and the Buy notes look: the systems next
+ * to this one, two jumps with Trade desk, and every surveyed system with
+ * Trade network. Commanders weigh every buyer they know.
+ */
+export function advisorReach(state) {
+  if (isResearched(state, 'trade-network')) return Infinity;
+  return isResearched(state, 'trade-desk') ? 2 : 1;
+}
+
+/** The ids of the systems at most `reach` lanes from `systemId`, itself included. */
+export function systemsWithin(systemId, reach) {
+  const seen = new Set([systemId]);
+  let edge = [systemId];
+  for (let step = 0; step < reach && edge.length; step += 1) {
+    const next = [];
+    for (const id of edge) {
+      for (const { to } of lanesFrom(id)) {
+        if (seen.has(to)) continue;
+        seen.add(to);
+        next.push(to);
+      }
+    }
+    edge = next;
+  }
+  return seen;
+}
+
+/** Known stations within the advisor's range of `placeId`. */
+export function stationsInRange(state, placeId) {
+  const reach = advisorReach(state);
+  if (reach === Infinity) return knownStations(state);
+  const near = systemsWithin(systemOf(placeId), reach);
+  return knownStations(state).filter((station) => near.has(systemOf(station.id)));
+}
+
+/** Stations in range of `fromId` that pay more for `good` than `fromId` asks. */
+export function buyersAbove(state, good, fromId, at = state.now) {
+  const asks = marketView(state, fromId, good, knownAt(state, fromId, at))?.price ?? Infinity;
+  return stationsInRange(state, fromId).filter(
+    (station) => station.id !== fromId && findEntry(station.id, good)?.side === 'buys' && marketView(state, station.id, good, knownAt(state, station.id, at)).price > asks,
+  );
+}
 
 /** What selling `qty` of `good` at a station pays, at the prices known there. */
 export function saleValue(state, stationId, good, qty, at = state.now) {
@@ -153,27 +200,6 @@ export function bestTradeQty(state, ship, good, destId, maxQty, at = state.now, 
   return best;
 }
 
-// Buyers checked for a trade from a station: the best-paying few it knows.
-const ROUTE_CANDIDATES = 8;
-
-/**
- * The most profitable known buyer for `good` bought at `fromId`, sized to
- * what still pays and with jump fees counted: { destId, plan, profit }, or
- * null when no buyer pays more than the station asks.
- */
-export function bestRoute(state, ship, good, fromId, maxQty, at = state.now) {
-  const asks = marketView(state, fromId, good, knownAt(state, fromId, at))?.price ?? Infinity;
-  let best = null;
-  const buyers = buyersOf(state, good, at).filter(({ station, view }) => station.id !== fromId && view.price > asks);
-  for (const { station } of buyers.slice(0, ROUTE_CANDIDATES)) {
-    const { qty, profit } = bestTradeQty(state, ship, good, station.id, maxQty, at, fromId);
-    if (qty > 0 && profit > (best?.profit ?? 0)) best = { destId: station.id, qty, profit };
-  }
-  if (!best) return null;
-  const plan = tradePlan(state, ship, good, best.qty, best.destId, at, fromId);
-  return { destId: best.destId, plan, profit: plan.profit };
-}
-
 function slotNote(free, needed) {
   return free >= needed ? null : 'Orders full';
 }
@@ -191,12 +217,12 @@ function slotNote(free, needed) {
  *   store        { stationId, goods, qty, builds, completes,     hands the builds planned at
  *                  endsAt, now }                                 this yard what they need
  *                                                                (`goods`: { good: t })
- *   buy          { stationId, good, qty, cost, endsAt, destId,   haulers; sized for a contract
- *                  profit, contract, completes, reward, build }  elsewhere (`contract`), or a
+ *   buy          { stationId, good, qty, cost, endsAt, buyers,   haulers; sized for a contract
+ *                  destId, contract, completes, reward, build }  elsewhere (`contract`), or a
  *                                                                planned build (`build`), else
- *                                                                for the best buyer it knows
- *                                                                (`destId`, `profit`), else a
- *                                                                full hold
+ *                                                                a full hold or what the
+ *                                                                credits cover; `buyers`: how
+ *                                                                many in range pay more
  *   refit        { stationId, cost, modules, endsAt }            at a shipyard
  *   fly          { stationId, endsAt }                           any place in its system
  *   jump         { systemId, stationId, endsAt, jumps, fees }    to another system's gate
@@ -296,7 +322,7 @@ export function orderOptions(state, ship, target, at = state.now) {
   }
 
   if (findStation(stationId)?.type === 'shipyard') {
-    const offer = refitOffer(state, ship);
+    const offer = refitOffer(state, ship, stationId);
     if (offer) {
       const poor = state.credits < offer.cost ? 'Not enough credits' : null;
       const times = timesOf({ type: 'refit', modules: offer.modules, stationId });
@@ -331,10 +357,10 @@ function signalOptions(state, view, signalId, timesOf, gated) {
 
 /**
  * What a hauler can buy at a station: one order per good it sells that the
- * ship can carry and afford. Each is sized for where the goods can go: what
- * a running contract elsewhere still needs, else the amount that still pays
- * at the best buyer the company knows (jump fees counted), else a full hold.
- * Selling or delivering them is the next order, given at that station.
+ * ship can carry and afford, for a full hold or what the credits cover. A
+ * running contract elsewhere sizes it to what it still needs, and so does a
+ * planned build. `buyers` counts the stations in range that pay more than
+ * the ask; which of them is best is the player's call.
  */
 function buyOptions(state, view, stationId, free, at, timesOf) {
   const known = knownAt(state, stationId, at);
@@ -346,12 +372,12 @@ function buyOptions(state, view, stationId, free, at, timesOf) {
     if (max < 1) continue;
     // Getting to the station (jump fees included) comes before any of it.
     const there = timesOf({ type: 'buy', stationId, good, qty: max });
-    const use = contractUse(state, view, stationId, good, max, there, at) ?? buildUse(state, view, good, max) ?? routeUse(state, view, stationId, good, max, there, at) ?? { qty: max };
+    const use = contractUse(state, view, stationId, good, max, there, at) ?? buildUse(state, view, good, max) ?? { qty: max };
     const cost = quote(state, stationId, good, use.qty, known).total;
-    options.push({ kind: 'buy', stationId, good, cost, ...use, ...timesOf({ type: 'buy', stationId, good, qty: use.qty }) });
+    options.push({ kind: 'buy', stationId, good, cost, buyers: buyersAbove(state, good, stationId, at).length, ...use, ...timesOf({ type: 'buy', stationId, good, qty: use.qty }) });
   }
-  const rank = (option) => (option.contract ? 3 : option.build ? 2 : option.destId ? 1 : 0);
-  return options.sort((a, b) => rank(b) - rank(a) || (b.profit ?? 0) - (a.profit ?? 0));
+  const rank = (option) => (option.contract ? 2 : option.build ? 1 : 0);
+  return options.sort((a, b) => rank(b) - rank(a));
 }
 
 /**
@@ -387,14 +413,6 @@ function contractUse(state, view, fromId, good, max, there, at) {
   if (!best) return null;
   const qty = Math.min(max, best.needed);
   return { qty, contract: best.contract, destId: best.contract.stationId, completes: qty >= best.needed, reward: best.contract.reward };
-}
-
-/** The best known buyer for `good` bought at `fromId`: { qty, destId, profit }, or null when none pays. */
-function routeUse(state, view, fromId, good, max, there, at) {
-  const route = bestRoute(state, view, good, fromId, max, at);
-  if (!route) return null;
-  const profit = route.profit - (there.fees ?? 0);
-  return profit > 0 ? { qty: route.plan.qty, destId: route.destId, profit } : null;
 }
 
 /**
@@ -489,9 +507,7 @@ function sharePurchase(state, ships, group, at) {
   if (first.contract) wanted = Math.min(wanted, stillNeeded(first.contract));
   else if (first.build) wanted = Math.min(wanted, stillNeededAt(state, first.build.stationId, good));
   const known = knownAt(state, stationId, at);
-  let qty = affordableQty(state, stationId, good, state.credits, wanted, known);
-  const ship = ships.find((s) => s.id === group.members[0].shipId);
-  if (!first.contract && !first.build && first.destId) qty = bestTradeQty(state, ship, good, first.destId, qty, at, stationId).qty;
+  const qty = affordableQty(state, stationId, good, state.credits, wanted, known);
   const members = [];
   let left = qty;
   for (const member of group.members) {
@@ -501,14 +517,10 @@ function sharePurchase(state, ships, group, at) {
     left -= take;
   }
   const cost = quote(state, stationId, good, qty, known).total;
-  const use = { contract: first.contract ?? null, build: first.build ?? null, destId: first.destId ?? null };
+  const use = { contract: first.contract ?? null, build: first.build ?? null, destId: first.destId ?? null, buyers: first.buyers };
   if (first.build) return { ...group, ...use, members, qty, cost, completes: qty >= stillNeededAt(state, first.build.stationId, good) };
   if (first.contract) return { ...group, ...use, members, qty, cost, completes: qty >= stillNeeded(first.contract), reward: first.contract.reward };
-  if (!first.destId) return { ...group, ...use, members, qty, cost };
-  // Each ship pays its own way there and on to the buyer.
-  const plan = tradePlan(state, ship, good, qty, first.destId, at, stationId);
-  const fees = members.reduce((sum, member) => sum + (member.option.fees ?? 0), 0) + plan.fees * members.length;
-  return { ...group, ...use, members, qty, cost, profit: plan.sell.total - cost - fees };
+  return { ...group, ...use, members, qty, cost };
 }
 
 /**
@@ -554,11 +566,11 @@ export function groupOrderOptions(state, ships, target, at = state.now) {
     const disabled = group.members.length === 0;
     return { ...group, of: ships.length, disabled, note: disabled ? (notes[0] ?? null) : null };
   });
-  // Buys for a contract first, then for a build, then those for a buyer, best first.
-  const rank = (option) => (option.contract ? 3 : option.build ? 2 : option.destId ? 1 : 0);
+  // Buys for a contract first, then for a build.
+  const rank = (option) => (option.contract ? 2 : option.build ? 1 : 0);
   return GROUP_KINDS.flatMap((kind) => {
     const ofKind = merged.filter((option) => option.kind === kind);
-    return kind === 'buy' ? ofKind.sort((a, b) => rank(b) - rank(a) || (b.profit ?? 0) - (a.profit ?? 0)) : ofKind;
+    return kind === 'buy' ? ofKind.sort((a, b) => rank(b) - rank(a)) : ofKind;
   });
 }
 

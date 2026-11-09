@@ -55,6 +55,27 @@ export function refitTarget(state, ship) {
   return Object.fromEntries(linesFor(ship.hull).map((line) => [line, Math.max(best[line], ship.modules[line] ?? 0)]));
 }
 
+// Big refits take goods as well as credits: steel for each level of Cargo
+// racks from V on (per Mule hold of the hull's size), titanium alloy for a
+// sealed hold.
+export const REFIT_GOODS = {
+  hold: { from: 5, good: 'steel', perScale: 4 },
+  seal: { from: 1, good: 'titanium-alloy', each: 20 },
+};
+
+/** The goods a refit to `modules` takes: { good: t }. */
+export function refitGoods(ship, modules) {
+  const goods = {};
+  const scale = HULLS[ship.hull].holdScale;
+  for (const [line, rule] of Object.entries(REFIT_GOODS)) {
+    const have = ship.modules[line] ?? 0;
+    for (let level = Math.max(have + 1, rule.from); level <= (modules[line] ?? have); level += 1) {
+      goods[rule.good] = (goods[rule.good] ?? 0) + (rule.each ?? rule.perScale * scale);
+    }
+  }
+  return goods;
+}
+
 /**
  * A refit's price grows with the levels fitted: 40 cr x 2^(levels / 2),
  * about 60 cr for the first rack and a few thousand for the last modules.

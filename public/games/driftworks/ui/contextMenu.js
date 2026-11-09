@@ -23,7 +23,7 @@ import { h } from './dom.js';
 import { fieldIcon, gateIcon, signalIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
 import { richnessLabel } from './panels/field.js';
-import { at, minusCredits, plural, plusCredits, routeText, signedCredits, span, timing, tonnes } from './format.js';
+import { at, minusCredits, plural, plusCredits, routeText, span, timing, tonnes } from './format.js';
 
 /** Note parts joined with dots, leaving out the empty ones. */
 const joinNote = (...parts) => parts.filter(Boolean).join(' · ');
@@ -155,12 +155,12 @@ function storeValue(option) {
   return option.completes ? 'completes the recipe' : 'part of the recipe';
 }
 
-/** Where a buy is headed: a contract, a planned build, the best buyer known, or nowhere better yet. */
+/** Where a buy is headed: a contract or a planned build, else how many buyers in range pay more. */
 function buyUse(option) {
   if (option.contract) return `For the contract at ${placeName(option.destId, option.stationId)}${option.completes ? `, which pays ${formatCredits(option.reward)}` : ''}`;
   if (option.build) return `For ${option.build.name} at ${placeName(option.destId, option.stationId)}`;
-  if (option.destId) return `Sells for about ${signedCredits(option.profit)} at ${placeName(option.destId, option.stationId)}`;
-  return 'No known buyer pays more';
+  if (!option.buyers) return 'No buyer in range pays more';
+  return `${option.buyers === 1 ? '1 buyer' : `${option.buyers} buyers`} in range ${option.buyers === 1 ? 'pays' : 'pay'} more`;
 }
 
 /** "40 t of 120 t delivered": how far a contract is. */

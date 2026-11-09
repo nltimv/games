@@ -4,7 +4,7 @@
 import { ENDING, GOALS } from '../../content/goals.js';
 import { HULLS } from '../../content/ships.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
-import { allFactions, allSystems, findSystem } from '../../content/galaxy.js';
+import { allFactions, allSystems, findStation, findSystem } from '../../content/galaxy.js';
 import { MISSIONS } from '../../content/commanders.js';
 import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/format.js';
 import { CONTRACT_RULES, boardOpen, contractPlace } from '../../systems/contracts.js';
@@ -13,9 +13,10 @@ import { isSurveyed } from '../../systems/explore.js';
 import { canJump } from '../../systems/travel.js';
 import { findShip } from '../../systems/fleet.js';
 import { wingOf } from '../../systems/commanders.js';
+import { allowance, pointsUsed } from '../../systems/shipyard.js';
 import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, runAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
+import { button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { plural, tonnes } from '../format.js';
 import { factionRow } from './factions.js';
 
@@ -28,11 +29,34 @@ export function fleetPanel(ctx) {
   const ships = state.ships.filter((ship) => !ship.fleet).sort((a, b) => ends(a) - ends(b));
   const idle = ships.filter((s) => !s.order && !s.mission).length;
   const rows = ships.map((ship) => shipRow(ctx, ship));
+  const builds = (state.builds ?? []).map((build) => buildRow(ctx, build));
   return [
     panelHead({ title: 'Fleet', subtitle: `${plural(state.ships.length, 'ship')} · ${idle} waiting for orders`, onClose: ctx.close }),
-    h('ul', { class: 'dw-list' }, rows),
-    button('Buy ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
+    h(
+      'div',
+      { class: 'dw-section' },
+      line('Fleet allowance', `${pointsUsed(state)} / ${allowance(state)} points`),
+      h('p', { class: 'dw-note' }, `Points per ship: ${Object.values(HULLS).map((hull) => `${hull.namePrefix} ${hull.points}`).join(', ')}.`),
+    ),
+    h('ul', { class: 'dw-list' }, rows, builds),
+    button('Build ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
   ];
+}
+
+/** A ship being built or planned: where, and when it is ready or what it waits for. */
+function buildRow(ctx, build) {
+  const yard = findStation(build.stationId)?.name ?? 'the yard';
+  const status = build.status === 'queued' ? h('small', null, `Being built at ${yard} · ready `, countdown(build.endsAt, { className: '' })) : h('small', null, `Planned at ${yard} · waiting for its recipe`);
+  return h(
+    'li',
+    null,
+    h(
+      'button',
+      { type: 'button', class: 'dw-ship-row is-plain is-building', onClick: () => ctx.select('station', build.stationId), dataset: { key: `fleet-${build.id}` } },
+      shipGlyph(build.hull),
+      h('span', { class: 'dw-grow' }, h('strong', null, build.name), status),
+    ),
+  );
 }
 
 // ---------- Several ships ----------

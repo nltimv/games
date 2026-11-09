@@ -13,14 +13,14 @@ import { CONTRACT_RULES, acceptContract, activeAt, boardOpen, contractFor, deliv
 import { findShip, hullsForSale } from '../../systems/fleet.js';
 import { allowance, buildFee, buildLock, buildNowCost, buildPlannedNow, buildShip, buildsAt, buildsFor, buildsWanting, cancelPlan, planBuild, pointsUsed, recipeAt, storeAll, storeAt, storeGoods } from '../../systems/shipyard.js';
 import { mapShips } from '../../systems/commanders.js';
-import { marketEntries, marketView } from '../../systems/market.js';
+import { findEntry, marketEntries, marketView, quote } from '../../systems/market.js';
 import { knownAt, seenAt } from '../../systems/knowledge.js';
 import { holdClassOf, holdOf, maxTierOf } from '../../systems/modules.js';
 import { giveOrder, orderRefit, refitAll, refitOffer } from '../../systems/orders.js';
 import { bestModules } from '../../systems/research.js';
 import { canJump, plotCourse } from '../../systems/travel.js';
 import { standingLevel } from '../../systems/standing.js';
-import { bestTradeQty, buyersOf, maxPurchase, saleHere, tradePlan } from '../../systems/advisor.js';
+import { bestTradeQty, maxPurchase, saleHere, stationsInRange, tradePlan } from '../../systems/advisor.js';
 import { bar, countdown, h } from '../dom.js';
 import { buildTag, button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
@@ -171,44 +171,56 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note is-warn' }, reason));
   }
 
-  const buyers = buyersOf(state, good, now).filter(({ station: s }) => s.id !== station.id && tradePlan(state, hauler, good, 1, s.id, now).reachable);
+  // Buyers in range, nearest first. None is picked until the player picks one.
+  const buyers = stationsInRange(state, station.id)
+    .filter((dest) => dest.id !== station.id && findEntry(dest.id, good)?.side === 'buys')
+    .map((dest) => ({ dest, course: plotCourse(state, hauler, station.id, dest.id) }))
+    .filter((row) => row.course.ok)
+    .sort((x, y) => x.course.time - y.course.time);
   if (!buyers.length) {
-    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note' }, `Nobody else you know of buys ${goodName(good).toLowerCase()} yet.`));
+    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note' }, `No station in range buys ${goodName(good).toLowerCase()}.`));
   }
 
-  // Default destination: the best profit at the best quantity.
-  const options = buyers.map(({ station: dest }) => {
-    const best = bestTradeQty(state, hauler, good, dest.id, maxQty, now);
-    return { dest, best };
-  });
-  const chosen = options.find((o) => o.dest.id === trade.dest) ?? [...options].sort((a, b) => b.best.profit - a.best.profit)[0];
-  const best = chosen.best.qty > 0 ? chosen.best.qty : Math.min(maxQty, 10);
+  const qty = Math.max(1, Math.min(maxQty, trade.qty ?? maxQty));
   const half = Math.max(1, Math.floor(maxQty / 2));
-  const presets = [
-    { id: 'best', label: 'Best', qty: best },
-    { id: 'half', label: 'Half', qty: half },
-    { id: 'full', label: 'Full', qty: maxQty },
-  ].filter((p, i, all) => all.findIndex((o) => o.qty === p.qty) === i);
-  const preset = presets.find((p) => p.id === trade.preset) ?? presets[0];
-  const qty = preset.qty;
-  const plan = tradePlan(state, hauler, good, qty, chosen.dest.id, now);
+  const chosen = buyers.find((row) => row.dest.id === trade.dest) ?? null;
+  const plan = chosen ? tradePlan(state, hauler, good, qty, chosen.dest.id, now, station.id, chosen.course) : null;
+  const cost = quote(state, station.id, good, qty, knownAt(state, station.id, now));
+  // Where the chosen buyer's price stops paying for one more tonne.
+  const stopsAt = chosen ? bestTradeQty(state, hauler, good, chosen.dest.id, maxQty, now).qty : null;
+  const setQty = (value) => ctx.update({ trade: { ...trade, qty: value } });
+
+  const amount = h(
+    'div',
+    { class: 'dw-amount' },
+    h(
+      'div',
+      { class: 'dw-seg', role: 'group', 'aria-label': 'Amount' },
+      [
+        { id: 'half', label: 'Half', qty: half },
+        { id: 'full', label: 'Full', qty: maxQty },
+      ].map((p) => h('button', { type: 'button', 'aria-pressed': String(qty === p.qty), dataset: { key: `trade-qty-${p.id}` }, onClick: () => setQty(p.qty) }, `${p.label} · ${tonnes(p.qty)}`)),
+    ),
+    maxQty > 1 ? tradeSlider(qty, maxQty, stopsAt, setQty) : null,
+  );
 
   const destChoices = h(
     'div',
     { class: 'dw-choices', role: 'group', 'aria-label': 'Sell at' },
-    options.map(({ dest }) => {
-      const p = tradePlan(state, hauler, good, qty, dest.id, now);
+    buyers.map(({ dest, course }) => {
+      const p = tradePlan(state, hauler, good, qty, dest.id, now, station.id, course);
+      const price = marketView(state, dest.id, good, knownAt(state, dest.id, now)).price;
       return h(
         'button',
         {
           type: 'button',
           class: 'dw-choice',
-          'aria-pressed': String(dest.id === chosen.dest.id),
+          'aria-pressed': String(dest.id === chosen?.dest.id),
           dataset: { key: `trade-dest-${dest.id}` },
-          onClick: () => ctx.update({ trade: { ...trade, dest: dest.id } }),
+          onClick: () => ctx.update({ trade: { ...trade, dest: dest.id === chosen?.dest.id ? null : dest.id } }),
         },
         h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, signedCredits(p.profit))),
-        h('span', null, `${p.jumps ? routeText({ jumps: p.jumps, time: p.travel, fees: p.fees }) : `${trip(p.travel)} away`} · sells for about ${formatCredits(p.sell.total)}`),
+        h('span', null, `${formatPrice(price)} · ${p.jumps ? routeText({ jumps: p.jumps, time: p.travel, fees: p.fees }) : `${trip(p.travel)} away`}`),
       );
     }),
   );
@@ -224,25 +236,48 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     { class: 'dw-card is-aqua', role: 'group', 'aria-label': `Trade for ${hauler.name}`, 'data-trade-card': true },
     title,
     pickShip,
-    h(
-      'div',
-      { class: 'dw-seg', role: 'group', 'aria-label': 'Amount' },
-      presets.map((p) =>
-        h('button', { type: 'button', 'aria-pressed': String(p.id === preset.id), dataset: { key: `trade-qty-${p.id}` }, onClick: () => ctx.update({ trade: { ...trade, preset: p.id } }) }, `${p.label} · ${tonnes(p.qty)}`),
-      ),
-    ),
+    amount,
     destChoices,
-    line(`Buy ${tonnes(plan.qty, good)} here`, minusCredits(plan.buy.total)),
-    line(`Sell at ${chosen.dest.name}`, `about ${plusCredits(plan.sell.total)}`),
-    plan.fees ? line(`Jump fees · ${plural(plan.jumps, 'jump')}`, minusCredits(plan.fees)) : null,
-    line('Expected profit', signedCredits(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`),
-    plan.profit <= 0 ? h('p', { class: 'dw-note is-warn' }, 'Prices here and there are too close right now. They drift back over a few hours.') : null,
+    line(`Buy ${tonnes(cost.qty, good)} here`, minusCredits(cost.total)),
+    plan ? line(`Sell at ${chosen.dest.name}`, `about ${plusCredits(plan.sell.total)}`) : null,
+    plan?.fees ? line(`Jump fees · ${plural(plan.jumps, 'jump')}`, minusCredits(plan.fees)) : null,
+    plan ? line('Expected profit', signedCredits(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`) : null,
     h(
       'div',
       { class: 'dw-row-actions' },
-      button(`Buy ${tonnes(plan.qty, good)}`, { variant: 'primary', onClick: buy, key: 'trade-buy', sub: minusCredits(plan.buy.total) }),
+      button(`Buy ${tonnes(cost.qty, good)}`, { variant: 'primary', onClick: buy, key: 'trade-buy', sub: minusCredits(cost.total) }),
     ),
   );
+}
+
+/** The amount slider, with a mark where the chosen buyer's price stops paying. It applies on release. */
+function tradeSlider(qty, max, stopsAt, onSet) {
+  const label = h('strong', null, tonnes(qty));
+  const range = h('input', {
+    type: 'range',
+    class: 'dw-range',
+    min: '1',
+    max: String(max),
+    step: '1',
+    value: String(qty),
+    'aria-label': 'Amount',
+    'aria-valuetext': tonnes(qty),
+    dataset: { key: 'trade-qty-range' },
+    onInput: (e) => {
+      label.textContent = tonnes(Number(e.target.value));
+      e.target.setAttribute('aria-valuetext', tonnes(Number(e.target.value)));
+    },
+    onChange: (e) => onSet(Number(e.target.value)),
+  });
+  const mark =
+    stopsAt > 0 && stopsAt < max
+      ? h('span', { class: 'dw-range-mark', style: `left: calc(12px + (100% - 24px) * ${(stopsAt - 1) / (max - 1)})`, title: `Past ${tonnes(stopsAt)} the price stops paying` })
+      : null;
+  return [
+    h('div', { class: 'dw-amount-label' }, h('span', null, 'Amount'), label),
+    h('div', { class: 'dw-range-wrap' }, range, mark),
+    h('div', { class: 'dw-amount-scale', 'aria-hidden': 'true' }, h('span', null, '1 t'), stopsAt > 0 && stopsAt < max ? h('span', null, `stops paying past ${tonnes(stopsAt)}`) : null, h('span', null, tonnes(max))),
+  ];
 }
 
 // ---------- Shipyard ----------
@@ -379,9 +414,19 @@ function shipyardSection(ctx, station) {
   ];
 }
 
+/** "Takes 40 t steel: 30 t from store, 10 t bought here": the goods a big refit uses. */
+function refitGoodsNote(offer) {
+  const parts = Object.entries(offer.goods).map(([good, qty]) => {
+    const stored = offer.stored[good] ?? 0;
+    const where = stored >= qty ? 'from store' : stored > 0 ? `${tonnes(stored)} from store, the rest bought here` : 'bought here';
+    return `${tonnes(qty)} ${goodName(good).toLowerCase()} (${where})`;
+  });
+  return parts.length ? h('small', null, `Takes ${parts.join(', ')}`) : null;
+}
+
 function refitSection(ctx, station) {
   const { state } = ctx;
-  const behind = mapShips(state).map((ship) => ({ ship, offer: refitOffer(state, ship) })).filter((r) => r.offer);
+  const behind = mapShips(state).map((ship) => ({ ship, offer: refitOffer(state, ship, station.id) })).filter((r) => r.offer);
   if (!behind.length) return null;
   const total = behind.reduce((sum, r) => sum + r.offer.cost, 0);
   const rows = behind.map(({ ship, offer }) =>
@@ -389,7 +434,7 @@ function refitSection(ctx, station) {
       'li',
       { class: 'dw-ship-row' },
       shipGlyph(ship.hull),
-      h('span', { class: 'dw-grow' }, h('strong', null, ship.name), h('small', null, refitChanges(ship, offer.modules))),
+      h('span', { class: 'dw-grow' }, h('strong', null, ship.name), h('small', null, refitChanges(ship, offer.modules)), refitGoodsNote(offer)),
       button(formatCredits(offer.cost), {
         small: true,
         key: `refit-${ship.id}`,

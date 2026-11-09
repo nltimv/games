@@ -80,7 +80,7 @@ export function addToStore(state, stationId, good, qty, at = state.now) {
   startCompleted(state, stationId, at);
 }
 
-function takeFromStore(state, stationId, good, qty) {
+export function takeFromStore(state, stationId, good, qty) {
   const store = state.stores?.[stationId];
   if (!store || !qty) return;
   store[good] = (store[good] ?? 0) - qty;
@@ -97,7 +97,7 @@ export function recipeAt(state, hullId, stationId) {
   });
 }
 
-/** What a yard charges per tonne for a good missing from a recipe. */
+/** What a yard charges per tonne for a good missing from a recipe or a refit. */
 export function markupPrice(good) {
   return Math.ceil((GOODS[good]?.value ?? 0) * BUILD_MARKUP);
 }

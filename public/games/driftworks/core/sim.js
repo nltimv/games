@@ -118,6 +118,24 @@ function afterOrder(state, ship, finished, at) {
   if (finished?.missionBy) finishIfDone(state, findShip(state, finished.missionBy), at);
 }
 
+/**
+ * Runs a ship's step and counts the credits it brought in or cost (sales,
+ * purchases, fees) by hull, and by whether a commander gave the order:
+ * stats.shipCash = { hull: { hand, fleet } }, for the balance reports.
+ */
+function countCash(state, ship, run) {
+  const mode = ship.order?.missionBy ? 'fleet' : 'hand';
+  const before = state.credits;
+  const result = run();
+  const delta = state.credits - before;
+  if (delta) {
+    state.stats.shipCash ??= {};
+    const row = (state.stats.shipCash[ship.hull] ??= { hand: 0, fleet: 0 });
+    row[mode] += delta;
+  }
+  return result;
+}
+
 /** Runs every event due up to `until` and moves the clock there. */
 export function advance(state, until) {
   wakeFleets(state, state.now);
@@ -136,11 +154,11 @@ export function advance(state, until) {
     } else if (due.jump) {
       const { ship } = due;
       const order = ship.order;
-      const paid = trackMission(state, ship, null, () => payJump(state, ship, due.jump));
+      const paid = countCash(state, ship, () => trackMission(state, ship, null, () => payJump(state, ship, due.jump)));
       if (!paid?.ok) afterOrder(state, ship, order, due.at);
     } else {
       const { ship, step } = due;
-      trackMission(state, ship, step, () => STEP_HANDLERS[step.kind]?.(state, ship, step));
+      countCash(state, ship, () => trackMission(state, ship, step, () => STEP_HANDLERS[step.kind]?.(state, ship, step)));
       markSeen(state, systemOf(ship.at ?? step.station), step.at);
       ship.order.stepIndex += 1;
       if (ship.order.stepIndex >= ship.order.steps.length) {

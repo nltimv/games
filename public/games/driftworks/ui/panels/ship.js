@@ -24,6 +24,7 @@ import {
   isBusy,
   giveOrder,
   lowerFirst,
+  nearestShipyard,
   orderPhase,
   orderRefit,
   orderTimes,
@@ -35,9 +36,9 @@ import {
   specLabel,
 } from '../../systems/orders.js';
 import { bestModules, orderSlots } from '../../systems/research.js';
-import { minePreview, saleValue } from '../../systems/advisor.js';
+import { minePreview, saleValue, stationsInRange } from '../../systems/advisor.js';
 import { findEntry } from '../../systems/market.js';
-import { knownStations, surveyable, surveyorOf } from '../../systems/explore.js';
+import { surveyable, surveyorOf } from '../../systems/explore.js';
 import { plotCourse } from '../../systems/travel.js';
 import { bar, countdown, h } from '../dom.js';
 import { buildTag, button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
@@ -308,7 +309,7 @@ function newOrders(ctx, ship) {
   if (aboard.length) {
     const near = [];
     const far = [];
-    for (const station of knownStations(state)) {
+    for (const station of stationsInRange(state, view.at)) {
       const goods = aboard.filter((g) => findEntry(station.id, g)?.side === 'buys');
       if (!goods.length) continue;
       const local = systemOf(station.id) === homeSystem;
@@ -451,7 +452,7 @@ function modulesSection(ctx, ship) {
     const newer = best[line] > level ? h('span', { class: 'dw-module-new' }, `newest ${value(best[line])}`) : null;
     return h('div', null, h('dt', null, `${MODULES[line].name}:`), h('dd', null, value(level), newer));
   });
-  const offer = refitOffer(state, ship);
+  const offer = refitOffer(state, ship, nearestShipyard(state, ship));
   const short = offer ? offer.cost - state.credits : 0;
   return h(
     'div',

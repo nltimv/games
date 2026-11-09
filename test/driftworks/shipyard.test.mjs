@@ -5,7 +5,7 @@ import { GOODS } from '../../public/games/driftworks/content/goods.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { deserialize, serialize } from '../../public/games/driftworks/core/save.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
-import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { cancelOrder, giveOrder, orderRefit, refitOffer } from '../../public/games/driftworks/systems/orders.js';
 import { orderOptions } from '../../public/games/driftworks/systems/advisor.js';
 import {
   addToStore,
@@ -185,4 +185,27 @@ test('an old save in the tutorial picks up the new steps where it is', () => {
   const loaded = deserialize(JSON.stringify(old));
   assert.ok(loaded.goals.includes('carry-goods'), 'no Kite, and past it');
   assert.ok(!loaded.goals.includes('first-build'));
+});
+
+test('big refits take steel or titanium alloy, from the build store first, and give it back if dropped', () => {
+  const state = newGame({ credits: 1e6 });
+  const kite = state.ships.find((ship) => ship.hull === 'kite');
+  kite.at = YARD;
+  state.research.done.push('hold-1', 'hold-2', 'hold-3', 'hold-4');
+  assert.deepEqual(refitOffer(state, kite, YARD).goods, {}, 'small racks need only credits');
+  state.research.done.push('hold-5', 'warp-drive', 'sealed-holds');
+  const offer = refitOffer(state, kite, YARD);
+  assert.deepEqual(offer.goods, { steel: 4 * HULLS.kite.holdScale, 'titanium-alloy': 20 });
+  assert.equal(offer.cost, offer.fitting + offer.bought);
+  addToStore(state, YARD, 'steel', 10);
+  const cheaper = refitOffer(state, kite, YARD);
+  assert.deepEqual(cheaper.stored, { steel: 10 });
+  assert.ok(cheaper.cost < offer.cost);
+  const credits = state.credits;
+  assert.ok(orderRefit(state, kite, YARD).ok);
+  assert.equal(state.credits, credits - cheaper.cost);
+  assert.deepEqual(storeAt(state, YARD), {});
+  cancelOrder(state, kite);
+  assert.equal(state.credits, credits, 'the refit is refunded');
+  assert.deepEqual(storeAt(state, YARD), { steel: 10 }, 'and the steel goes back');
 });

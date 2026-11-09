@@ -48,8 +48,8 @@ import { MINUTE, SECOND } from '../core/time.js';
 import { findEntry } from './market.js';
 import { canCarry, cargoTotal, holdNote } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
-import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
-import { buildsFor, storeGoods } from './shipyard.js';
+import { holdOf, laserOf, refitCost, refitGoods, refitTarget } from './modules.js';
+import { addToStore, buildsFor, markupPrice, storeAt, storeGoods, takeFromStore } from './shipyard.js';
 import { isResearched, orderSlots } from './research.js';
 import { flightTimeFrom, plotCourse, shipPosition, travelTime } from './travel.js';
 import { flight, route, stationLegs } from './courses.js';
@@ -613,8 +613,11 @@ export function startNextOrder(state, ship, at) {
   }
 }
 
+/** A refit that will not happen gives back what it paid, and the goods it took from a build store. */
 function refund(state, spec) {
-  if (spec?.type === 'refit' && spec.paid) state.credits += spec.paid;
+  if (spec?.type !== 'refit') return;
+  if (spec.paid) state.credits += spec.paid;
+  for (const [good, qty] of Object.entries(spec.stored ?? {})) addToStore(state, spec.stationId ?? SHIPYARD_ID, good, qty);
 }
 
 const placeName = (id) => findPlace(id)?.name ?? 'its target';
@@ -759,9 +762,26 @@ export function clearQueue(state, ship) {
 // ---------- Refits ----------
 
 /** What a refit would fit and cost for this ship now, or null. */
-export function refitOffer(state, ship) {
+/**
+ * What a refit at a yard would fit and cost: { modules, cost, fitting,
+ * goods, stored, bought }. `cost` is the fitting plus the goods the yard's
+ * build store lacks (`bought`, at the build markup); `stored` comes out of
+ * the store.
+ */
+export function refitOffer(state, ship, stationId = SHIPYARD_ID) {
   const modules = refitTarget(state, ship);
-  return modules ? { modules, cost: refitCost(modules) } : null;
+  if (!modules) return null;
+  const fitting = refitCost(modules);
+  const goods = refitGoods(ship, modules);
+  const store = storeAt(state, stationId);
+  const stored = {};
+  let bought = 0;
+  for (const [good, qty] of Object.entries(goods)) {
+    const have = Math.min(qty, Math.floor(store[good] ?? 0));
+    if (have > 0) stored[good] = have;
+    bought += (qty - have) * markupPrice(good);
+  }
+  return { modules, cost: fitting + bought, fitting, goods, stored, bought };
 }
 
 /** The known shipyard a ship reaches first (the home one when none is nearer). */
@@ -779,12 +799,13 @@ export function nearestShipyard(state, ship) {
 /** Pays for a refit and gives the order to fly to a shipyard (the nearest, by default) for it. */
 export function orderRefit(state, ship, stationId = nearestShipyard(state, ship)) {
   if (!ship) return fail('No such ship.');
-  const offer = refitOffer(state, ship);
+  const offer = refitOffer(state, ship, stationId);
   if (!offer) return fail(`${ship.name} already has the newest modules.`);
   if (state.credits < offer.cost) return fail(`A refit costs ${formatCredits(offer.cost)}. You need ${formatCredits(offer.cost - state.credits)} more.`);
-  const result = giveOrder(state, ship, { type: 'refit', modules: offer.modules, paid: offer.cost, stationId });
+  const result = giveOrder(state, ship, { type: 'refit', modules: offer.modules, paid: offer.cost, stationId, ...(Object.keys(offer.stored).length ? { stored: offer.stored } : {}) });
   if (!result.ok) return result;
   state.credits -= offer.cost;
+  for (const [good, qty] of Object.entries(offer.stored)) takeFromStore(state, stationId, good, qty);
   addLog(state, state.now, `${ship.name} booked a refit for ${formatCredits(offer.cost)}`, 'purchase', -offer.cost);
   return { ...result, cost: offer.cost };
 }

@@ -1596,6 +1596,23 @@ button.dw-price-row[aria-pressed='true'] {
   color: var(--glass-faint);
 }
 
+.dw-range-wrap {
+  position: relative;
+}
+
+/* Where the chosen buyer's price stops paying. */
+.dw-range-mark {
+  position: absolute;
+  top: 4px;
+  width: 3px;
+  height: 20px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--gold);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
 .dw-amount-note {
   padding: 0 4px;
 }
@@ -1816,6 +1833,14 @@ button.dw-price-row[aria-pressed='true'] {
 
 .dw-recipe li.is-full .dw-recipe-qty {
   color: var(--aqua);
+}
+
+.dw-ship-row.is-planned {
+  flex-wrap: wrap;
+}
+
+.dw-ship-row.is-planned .dw-grow {
+  flex: 1 1 180px;
 }
 
 .dw-ship-row.is-planned .dw-btn {

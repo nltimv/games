@@ -10,18 +10,27 @@
 //   newcomer  one long first session (60 min), watching closely
 //   worker    a 30 min first session, then a 50/10 work rhythm from 9 to 17
 //             with a look at the start of each break and again 8 min later
-//   casual    a 15 min first session, then three looks a day
+//   casual    a 15 min first session, then three looks a day, trading
+//             only with buyers in the advisor's range and what Market
+//             charts show
 //
 // After the warp drive the bot plays act 2 too: it keeps a scout surveying
 // the nearest systems, trades and mines wherever routes pay best (jump fees
-// included), and buys Heron freighters once a shipyard's faction trusts it.
+// included), and builds Heron freighters once a shipyard's faction trusts it.
+//
+// Ships: the bot builds the next ship while its points fit the fleet
+// allowance, and researches the next Fleet licence once they don't. While
+// credits are short it plans the build and has a hauler fetch the recipe;
+// once a build costs little next to its credits it uses Build now. At the
+// cap it salvages Kites into Herons once Herons are open.
 // Run it for two weeks or so to see act 2: npm run balance -- worker 16
 //
 // In act 3 it investigates signals near its surveys, salvages derelicts,
-// and, once Fleet command I is in, hires a commander for every two free
-// ships of a kind (the trait that suits them), sends ships to join the
-// fleets, and sends each fleet out, once every ship is aboard, for as long
-// as a mission may last. --no-fleets plays act 3 by hand instead, to compare.
+// and, once Fleet command I is in, hires a commander (the trait that suits
+// a kind of ship it has two free of) for each Fleet command level, sends
+// ships to join the fleets once the command ship is built, and sends each
+// fleet out, once every ship is aboard, for as long as a mission may last.
+// --no-fleets plays act 3 by hand instead, to compare.
 //
 // Contracts: the bot accepts offers that pay better per minute than its
 // best market round and that its fleet can fill in time (two clicks: open
@@ -47,13 +56,27 @@ import { deserialize, serialize } from '../../public/games/driftworks/core/save.
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { HOUR, MINUTE, SECOND } from '../../public/games/driftworks/core/time.js';
 import { GOALS } from '../../public/games/driftworks/content/goals.js';
-import { RESEARCH, SHIELDINGS } from '../../public/games/driftworks/content/research.js';
+import { LICENCE_LINE, RESEARCH, SHIELDINGS } from '../../public/games/driftworks/content/research.js';
 import { HULLS } from '../../public/games/driftworks/content/ships.js';
 import { GOODS } from '../../public/games/driftworks/content/goods.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
 import { allSystems, lanesFrom, systemOf, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
 import { checkGoals } from '../../public/games/driftworks/systems/goals.js';
-import { buyShip, hullLock, missingLicence, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
+import { hullLock, missingLicence } from '../../public/games/driftworks/systems/fleet.js';
+import {
+  allowance,
+  buildNowCost,
+  buildPlannedNow,
+  buildShip,
+  freePoints,
+  planBuild,
+  pointsLock,
+  pointsUsed,
+  salvageLock,
+  salvageShip,
+  stillNeededAt,
+  storeGoods,
+} from '../../public/games/driftworks/systems/shipyard.js';
 import { isSurveyed, knownStations, surveyable, surveyorOf } from '../../public/games/driftworks/systems/explore.js';
 import { canJump, plotCourse } from '../../public/games/driftworks/systems/travel.js';
 import { acceptContract, boardOpen, contractFor, CONTRACT_RULES, stillNeeded } from '../../public/games/driftworks/systems/contracts.js';
@@ -74,14 +97,14 @@ import {
   runAgain,
   clearQueue,
 } from '../../public/games/driftworks/systems/orders.js';
-import { freeLab, orderSlots, researchCost, researchStatus, shieldingsDone, startResearch } from '../../public/games/driftworks/systems/research.js';
+import { freeLab, isResearched, orderSlots, researchCost, researchStatus, shieldingsDone, startResearch } from '../../public/games/driftworks/systems/research.js';
 import { SHIELDED_DEPTH, isShielded } from '../../public/games/driftworks/systems/shielding.js';
-import { bestBuyer, bestTradeQty, saleValue, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
+import { bestTradeQty, saleValue, stationsInRange, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
 import { affordableQty, marketEntries, marketView, findEntry } from '../../public/games/driftworks/systems/market.js';
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { canCarry, cargoTotal } from '../../public/games/driftworks/systems/cargo.js';
 import { derelictLeft, foundSignals, isGateOpen, isInvestigated, workerAt } from '../../public/games/driftworks/systems/signals.js';
-import { candidates, commanderLevel, commanderPrice, commanders, fleetCommand, hireCommander, joiningOf, mapShips, onMap, wingOf } from '../../public/games/driftworks/systems/commanders.js';
+import { candidates, commanderLevel, commanders, commandersComing, fleetCommand, hireCommander, hireCost, joiningOf, mapShips, onMap, wingOf } from '../../public/games/driftworks/systems/commanders.js';
 import { areaAround, joinFleet, startMission } from '../../public/games/driftworks/systems/missions.js';
 
 const PROFILES = {
@@ -91,13 +114,19 @@ const PROFILES = {
     // A look at the start of each break and one 8 minutes later, 9:50 to 16:50.
     checks: (day) => [...Array(8).keys()].flatMap((h) => [day + (9 + h) * HOUR + 50 * MINUTE, day + (9 + h) * HOUR + 58 * MINUTE]),
   },
-  casual: { firstSession: 15, checks: (day) => [9, 13, 17].map((h) => day + h * HOUR) },
+  // A casual player trades by what the menus show: buyers in the advisor's range, plus Market charts.
+  casual: { firstSession: 15, local: true, checks: (day) => [9, 13, 17].map((h) => day + h * HOUR) },
 };
 
 // Re-run a ship's last route unless a fresh one would earn this much more.
 const RERUN_AT = 0.6;
 // A trade must make at least this much to be worth a hauler's trip.
 const MIN_TRADE = 20;
+// Build now once a build costs less than this share of the credits; else plan it and haul the recipe.
+const BUILD_NOW_SHARE = 0.05;
+// The researches the act 1 tutorial asks for, in its order.
+const TUTORIAL_RESEARCH = ['hold-1', 'brokerage', 'licence-1'];
+const YARD = 'halcyon-shipyard';
 
 function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {}) {
   const profile = PROFILES[profileName];
@@ -107,7 +136,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
   useGalaxy(state.seed);
   // A run from a save starts at 9:00 on the morning after it.
   const T0 = from ? Math.floor(state.now / DAY) * DAY + DAY + 9 * HOUR : state.now;
-  const report = { profileName, days, from, fleets, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [], contracts: [], missions: [] };
+  const report = { profileName, days, from, fleets, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [], contracts: [], missions: [], salvaged: [], actEnds: {}, pointHours: {} };
   for (const id of state.goals) report.goals[id] = -Infinity;
   report.startStats = structuredClone(state.stats);
   let clicks = 0;
@@ -127,6 +156,12 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
   let contractMargin = 0;
   const step = (t) => {
     const watched = [...state.contracts.active];
+    // Points held by each hull over time, run by hand or by a commander, for profit per point.
+    const hours = Math.max(0, t - state.now) / HOUR;
+    for (const ship of state.ships) {
+      const row = (report.pointHours[ship.hull] ??= { hand: 0, fleet: 0 });
+      row[ship.fleet || ship.commander ? 'fleet' : 'hand'] += HULLS[ship.hull].points * hours;
+    }
     advance(state, t);
     for (const c of watched) {
       if (!state.contracts.active.includes(c) && c.delivered >= c.qty) {
@@ -140,6 +175,35 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
 
   // ---------- Choosing routes ----------
 
+  /**
+   * Stations the player weighs from `placeId`: every known one, or for a
+   * profile that reads the menus, those in the advisor's range plus the one
+   * Market charts names for the good.
+   */
+  function weighed(placeId, good, side) {
+    if (!profile.local || !placeId) return knownStations(state);
+    const near = stationsInRange(state, placeId);
+    if (!isResearched(state, 'market-charts') || !good) return near;
+    let chart = null;
+    for (const station of knownStations(state)) {
+      if (findEntry(station.id, good)?.side !== side) continue;
+      const price = marketView(state, station.id, good, state.now).price;
+      if (!chart || (side === 'buys' ? price > chart.price : price < chart.price)) chart = { station, price };
+    }
+    return chart && !near.includes(chart.station) ? [...near, chart.station] : near;
+  }
+
+  /** The best place to sell `qty` of `good` from `placeId` (in one system, if given), among the stations weighed. */
+  function bestBuyer(good, qty, now, placeId, systemId = null) {
+    let best = null;
+    for (const station of weighed(placeId, good, 'buys')) {
+      if ((systemId && systemOf(station.id) !== systemId) || findEntry(station.id, good)?.side !== 'buys') continue;
+      const sale = saleValue(state, station.id, good, qty, now);
+      if (sale.qty > 0 && (!best || sale.total > best.sale.total)) best = { stationId: station.id, sale };
+    }
+    return best;
+  }
+
   // Fields and stations in surveyed systems: Aurel's in act 1.
   const knownFields = () => allSystems().filter((system) => isSurveyed(state, system.id)).flatMap((system) => system.fields);
 
@@ -152,7 +216,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       if (!mine.ok) continue;
       const amount = mine.order.steps[0].amount;
       // The best buyer in the field's system, and the best anywhere.
-      const buyers = [bestBuyer(state, field.good, amount, now, systemOf(field.id)), bestBuyer(state, field.good, amount, now)].filter(Boolean);
+      const buyers = [bestBuyer(field.good, amount, now, field.id, systemOf(field.id)), bestBuyer(field.good, amount, now, field.id)].filter(Boolean);
       for (const buyer of buyers) {
         const after = { ...view, at: field.id, cargo: { ...view.cargo, [field.good]: amount } };
         const sell = buildOrder(state, after, { type: 'sell', stationId: buyer.stationId }, mine.order.endsAt);
@@ -192,7 +256,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     let best = null;
     const stations = homeOnly ? HOME_SYSTEM.stations : knownStations(state);
     const room = holdOf(ship) - cargoTotal(ship);
-    for (const from of stations) {
+    // A player reading the menus starts from stations in range of the ship.
+    const starts = profile.local && !homeOnly ? stationsInRange(state, ship.at) : stations;
+    for (const from of starts) {
       const start = ship.at === from.id ? { ok: true, time: 0, fees: 0 } : plotCourse(state, ship, ship.at, from.id);
       if (!start.ok) continue;
       for (const entry of marketEntries(from.id)) {
@@ -200,7 +266,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
         const max = affordableQty(state, from.id, entry.good, cash() * 0.8, room, now);
         if (max <= 0) continue;
         const cost = marketView(state, from.id, entry.good, now).price;
-        for (const to of stations) {
+        for (const to of homeOnly ? stations : weighed(from.id, entry.good, 'buys')) {
           if (to.id === from.id || findEntry(to.id, entry.good)?.side !== 'buys') continue;
           if (marketView(state, to.id, entry.good, now).price <= cost) continue;
           const qty = bestTradeQty(state, ship, entry.good, to.id, max, now, from.id);
@@ -347,16 +413,146 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     return best;
   }
 
-  /** Hands cargo to a contract that wants it, or sells it where it pays best. */
+  /** Hands cargo to a contract or a planned build that wants it, or sells it where it pays best. */
   function unload(ship, now) {
+    const yard = plannedYard();
+    if (yard && Object.keys(storeGoods(state, yard, ship.cargo)).length && giveOrder(state, ship, { type: 'store', stationId: yard }).ok) click();
     for (const good of Object.keys(ship.cargo)) {
+      if (yard && stillNeededAt(state, yard, good) > 0) continue;
       const contract = running(now).find((c) => c.good === good && openNeed(c) >= 1);
       if (contract && giveOrder(state, ship, { type: 'deliver', stationId: contract.stationId, good }).ok) {
         click();
         continue;
       }
-      const buyer = bestBuyer(state, good, ship.cargo[good], now);
+      const buyer = bestBuyer(good, ship.cargo[good], now, ship.at ?? ship.order?.target);
       if (buyer && giveOrder(state, ship, { type: 'sell', stationId: buyer.stationId, good }).ok) click();
+    }
+  }
+
+  // ---------- Building ----------
+
+  /** The yard with a planned build waiting for goods, or null. */
+  const plannedYard = () => (state.builds ?? []).find((b) => b.status === 'planned')?.stationId ?? null;
+
+  /** Tonnes of `good` a yard's plans still need after what ships already bring. */
+  function buildNeed(yard, good) {
+    const lined = state.ships.reduce((sum, ship) => sum + (projectShip(state, ship).stored[`${yard}:${good}`] ?? 0), 0);
+    return stillNeededAt(state, yard, good) - lined;
+  }
+
+  /**
+   * A buy-and-deliver run for a planned build: the first good its recipe
+   * still lacks, from the nearest station selling it. { from, good, qty,
+   * yard }, or null.
+   */
+  function buildRun(ship, now) {
+    const yard = plannedYard();
+    if (!yard) return null;
+    const build = state.builds.find((b) => b.status === 'planned');
+    const room = holdOf(ship) - cargoTotal(ship);
+    for (const good of Object.keys(HULLS[build.hull].recipe)) {
+      const need = Math.min(buildNeed(yard, good), room);
+      if (need < 1 || !canCarry(ship, good)) continue;
+      let best = null;
+      for (const from of knownStations(state)) {
+        if (findEntry(from.id, good)?.side !== 'sells') continue;
+        const qty = affordableQty(state, from.id, good, cash() * 0.8, need, now);
+        if (qty < 1) continue;
+        const start = ship.at === from.id ? { ok: true, time: 0 } : plotCourse(state, ship, ship.at, from.id);
+        const there = plotCourse(state, ship, from.id, yard);
+        if (!start.ok || !there.ok) continue;
+        const time = start.time + there.time;
+        if (!best || time < best.time) best = { from: from.id, good, qty, yard, time };
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+
+  /** Which hull to build next: a scout while short of them, a hauler while short of those, else a Mule. */
+  function nextHull() {
+    const mules = state.ships.filter((s) => s.hull === 'mule').length;
+    const haulers = state.ships.filter((s) => role(s) === 'hauler').length;
+    const wantHaulers = (mules >= 2 ? 1 : 0) + (mules >= 5 ? 1 : 0) + (mules >= 9 ? 1 : 0) + (canJump(state) ? Math.floor(mules / 2) : 0);
+    const scouts = state.ships.filter((s) => role(s) === 'scout').length + (state.builds ?? []).filter((b) => b.hull === 'lark').length;
+    const hauler = !hullLock(state, 'heron', YARD) ? 'heron' : 'kite';
+    // One scout in act 2; three once shielding opens the deep galaxy.
+    const wantScouts = shieldingsDone(state) > 0 ? 3 : 1;
+    if (!missingLicence(state, 'lark') && scouts < wantScouts) return 'lark';
+    return haulers < wantHaulers ? hauler : 'mule';
+  }
+
+  /** Points kept free for a commander's Osprey, one per Fleet command level. */
+  function commandReserve() {
+    if (!fleets || !fleetCommand(state)) return 0;
+    const levels = ['fleet-1', 'fleet-2', 'fleet-3'].filter((id) => state.research.done.includes(id)).length;
+    return commanders(state).length + commandersComing(state).length < levels ? HULLS.osprey.points : 0;
+  }
+
+  // Kites on their way to the yard to be salvaged for a Heron's points.
+  const retiring = new Set();
+
+  /** At the cap with Herons open: salvage idle Kites at the yard, and send more there. */
+  function retireKites(now) {
+    for (const ship of state.ships) {
+      if (!retiring.has(ship.id) || ship.order) continue;
+      if (ship.at !== YARD) {
+        if (giveOrder(state, ship, { type: 'fly', stationId: YARD }).ok) click(2);
+        continue;
+      }
+      if (cargoTotal(ship) > 0) continue;
+      if (!salvageLock(state, ship) && salvageShip(state, ship.id, now).ok) {
+        click(3);
+        retiring.delete(ship.id);
+        report.salvaged.push({ at: now, hull: ship.hull });
+      }
+    }
+    // Two Kites make room for a Heron, once Herons are open and the licences are the limit.
+    if (retiring.size || hullLock(state, 'heron', YARD) || freePoints(state) - commandReserve() >= HULLS.heron.points) return;
+    if (!LICENCE_LINE.every((l) => state.research.done.includes(l.id)) && !canJump(state)) return;
+    const kites = state.ships.filter((s) => s.hull === 'kite' && !s.fleet && !s.commander);
+    const herons = state.ships.filter((s) => s.hull === 'heron').length;
+    if (kites.length < 2 || herons >= kites.length) return;
+    for (const kite of kites.slice(0, 2)) retiring.add(kite.id);
+  }
+
+  /** Builds while points fit: Build now when it costs little, else plans one build at a time and hauls its recipe. */
+  function buildShips(now) {
+    let opened = false;
+    // A plan waits for its recipe; once credits are plentiful, it is built now.
+    for (const build of (state.builds ?? []).filter((b) => b.status === 'planned')) {
+      const cost = buildNowCost(state, build.hull, build.stationId, { feePaid: true }).total;
+      if (cost <= cash() * BUILD_NOW_SHARE && buildPlannedNow(state, build.id, now).ok) {
+        click(opened ? 1 : 2);
+        opened = true;
+        // Bought outright only when the haulers had brought less than half of it.
+        const row = report.buys.find((b) => b.id === build.id);
+        if (row && cost > row.cost / 2) row.own = false;
+      }
+    }
+    for (let i = 0; i < 3; i += 1) {
+      const hull = nextHull();
+      if (freePoints(state) - commandReserve() < HULLS[hull].points || hullLock(state, hull, YARD)) break;
+      const next = nextResearch();
+      const cost = buildNowCost(state, hull, YARD);
+      const forResearch = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? costOf(next) : Math.min(costOf(next), cost.total);
+      // Saves up for the first commander once Fleet command I is in.
+      const reserve = forResearch + (commandReserve() ? hireCost(state, YARD).total : 0);
+      const own = cost.total > cash() * BUILD_NOW_SHARE && state.ships.some((s) => role(s) === 'hauler' && !retiring.has(s.id));
+      if (own) {
+        if (plannedYard() || cash() < cost.fee + reserve) break;
+        const planned = planBuild(state, hull, YARD, now);
+        if (!planned.ok) break;
+        click(opened ? 1 : 2);
+        report.buys.push({ at: now, n: state.ships.length + state.builds.length, hull, cost: cost.total, own: true, id: planned.build.id });
+        break;
+      }
+      if (cash() < cost.total + reserve) break;
+      const built = buildShip(state, hull, YARD, now);
+      if (!built.ok) break;
+      click(opened ? 1 : 2);
+      opened = true;
+      report.buys.push({ at: now, n: state.ships.length + state.builds.length, hull, cost: cost.total, own: false, id: built.build.id });
     }
   }
 
@@ -412,10 +608,13 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     const coming = joining();
     return state.ships.filter((s) => role(s) === r && onMap(s) && !coming.has(s));
   };
-  /** The kind of ship a commander leads: its wing's, or what its trait suits. */
+  // The kind of ship each new commander was hired for, by name.
+  const wanted = new Map();
+  /** The kind of ship a commander leads: its wing's, what it was hired for, or what its trait suits. */
   function wingRole(commander) {
     const wing = wingOf(state, commander);
     if (wing.length) return role(wing[0]);
+    if (wanted.has(commander.name)) return wanted.get(commander.name);
     const trait = commander.commander.traits[0];
     return Object.keys(WANTED_TRAITS).find((r) => WANTED_TRAITS[r][0] === trait) ?? 'hauler';
   }
@@ -451,23 +650,27 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     const command = fleetCommand(state);
     if (!fleets || !command) return;
     const next = nextResearch();
+    const price = hireCost(state, YARD).total;
     // The first commander comes before anything else; later ones leave money for research, as ships do.
-    const reserve = commanders(state).length && freeLab(state) && next ? Math.min(costOf(next), commanderPrice(state)) : 0;
+    const reserve = commanders(state).length && freeLab(state) && next ? Math.min(costOf(next), price) : 0;
     for (const r of ['miner', 'hauler', 'scout']) {
       // A commander away on a mission takes no ships until it is back, so only one at hand counts as room.
       const room = (c) => !c.mission && wingOf(state, c).length + joiningOf(state, c).length < command.wing;
       if (freeShips(r).length < 2 || commanders(state).some((c) => wingRole(c) === r && room(c))) continue;
-      if (cash() < commanderPrice(state) + reserve) continue;
+      // One commander at a time: the next waits until the last one's Osprey is built.
+      if (commandersComing(state).length || pointsLock(state, 'osprey')) continue;
+      if (cash() < price + reserve) continue;
       const rank = (c) => {
         const i = WANTED_TRAITS[r].indexOf(c.traits[0]);
         return i < 0 ? 99 : i;
       };
       const pick = [...candidates(state)].sort((a, b) => rank(a) - rank(b))[0];
-      const hired = hireCommander(state, pick.id, 'halcyon-shipyard', now);
+      const hired = hireCommander(state, pick.id, YARD, now);
       if (!hired.ok) continue;
       click(2);
       report.missions.push({ hired: true, at: now, trait: pick.traits[0], role: r });
-      for (const ship of freeShips(r).slice(0, command.wing)) enlist(ship, hired.ship, now);
+      // The wing joins once the Osprey is built.
+      wanted.set(hired.build.name, r);
     }
     for (const c of commanders(state)) {
       if (c.mission) continue;
@@ -534,17 +737,26 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
 
   /**
    * Research in the list's order, but the act's last one first once it is
-   * the goal, and scouts right after the warp drive. Market charts only
-   * change what the galaxy map shows, and the bot reads every price anyway.
+   * the goal, and scouts right after the warp drive. Market charts, Trade
+   * desk and Trade network only change what the menus show: only a profile
+   * that trades by the menus takes them.
    * Of the hazard shieldings it takes the one that opens the most systems.
    */
   function nextResearch() {
+    // In the tutorial, the researches its guide asks for, in its order.
+    const guided = TUTORIAL_RESEARCH.map((id) => RESEARCH.find((r) => r.id === id)).find((r) => researchStatus(state, r) === 'open');
+    if (guided && GOALS.some((g) => g.tutorial && !g.act && !state.goals.includes(g.id))) return guided;
     const scouts = RESEARCH.find((r) => r.id === 'scout-licence');
     if (researchStatus(state, scouts) === 'open') return scouts;
     // With fleets: Fleet command I as soon as the first shielding opens it.
     const command = RESEARCH.find((r) => r.id === 'fleet-1');
     if (fleets && researchStatus(state, command) === 'open') return command;
-    const next = actEnd() ?? RESEARCH.find((r) => r.id !== 'market-charts' && researchStatus(state, r) === 'open');
+    // The next Fleet licence once the fleet fills its allowance, in place of buying ships.
+    const licence = LICENCE_LINE.find((r) => researchStatus(state, r) === 'open');
+    const atCap = freePoints(state) - commandReserve() < HULLS[nextHull()].points;
+    // Market charts and the trade research only change what the menus show; only a profile that reads them wants them.
+    const menusOnly = (r) => ['market-charts', 'trade-desk', 'trade-network'].includes(r.id) && !profile.local;
+    const next = actEnd() ?? (licence && atCap ? licence : null) ?? RESEARCH.find((r) => !menusOnly(r) && r.line !== 'licence' && researchStatus(state, r) === 'open');
     return next?.hazard ? bestShielding() : next;
   }
 
@@ -570,30 +782,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
 
     if (boardOpen(state)) takeContracts(now, active);
 
-    // Ships: buy while it leaves money for the next research.
-    for (let i = 0; i < 3; i += 1) {
-      const mules = state.ships.filter((s) => s.hull === 'mule').length;
-      const haulers = state.ships.filter((s) => role(s) === 'hauler').length;
-      const wantHaulers = (mules >= 2 ? 1 : 0) + (mules >= 5 ? 1 : 0) + (mules >= 9 ? 1 : 0) + (canJump(state) ? Math.floor(mules / 2) : 0);
-      const scouts = state.ships.filter((s) => role(s) === 'scout').length;
-      const hauler = !hullLock(state, 'heron', 'halcyon-shipyard') ? 'heron' : 'kite';
-      // One scout in act 2; three once shielding opens the deep galaxy.
-      const wantScouts = shieldingsDone(state) > 0 ? 3 : 1;
-      const hull = !missingLicence(state, 'lark') && scouts < wantScouts ? 'lark' : !missingLicence(state, 'kite') && haulers < wantHaulers ? hauler : 'mule';
-      const next = nextResearch();
-      const forResearch = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? costOf(next) : Math.min(costOf(next), shipPrice(state));
-      // Saves up for the first commander once Fleet command I is in.
-      const reserve = forResearch + (fleets && fleetCommand(state) && !commanders(state).length ? commanderPrice(state) : 0);
-      const price = shipPrice(state);
-      if (cash() < price + reserve) break;
-      const bought = buyShip(state, hull, 'halcyon-shipyard');
-      if (!bought.ok) break;
-      click();
-      report.buys.push({ at: now, n: state.ships.length, hull, price });
-      // A new ship copies a sister ship's orders when one has a plan.
-      const source = state.ships.find((s) => canCopy(state, s, bought.ship));
-      if (source && copyOrders(state, bought.ship, source).ok) click();
-    }
+    // Ships: build while points fit, and make room for Herons.
+    retireKites(now);
+    buildShips(now);
 
     // Refits: book them all once the money is there twice over.
     const behind = mapShips(state).filter((s) => refitOffer(state, s));
@@ -615,6 +806,15 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       // A ship just booked for a refit gets its next orders queued after it.
       const refitting = ship.order?.type === 'refit' && !ship.queue.length;
       if (ship.order && !refitting) continue;
+      if (retiring.has(ship.id)) continue;
+      // A new ship copies a sister ship's orders when one has a plan.
+      if (!ship.plan.length && !refitting && role(ship) === 'miner') {
+        const source = state.ships.find((s) => canCopy(state, s, ship));
+        if (source && copyOrders(state, ship, source).ok) {
+          click();
+          continue;
+        }
+      }
       if (!refitting && ship.plan.length && keepPlan(ship, now)) {
         rerun.push(ship);
         continue;
@@ -634,6 +834,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
 
     checkGoals(state, now);
     for (const id of state.goals) {
+      if (report.goals[id] == null && ['warp-drive', 'first-shielding', 'station-blueprints'].includes(id)) {
+        report.actEnds[id] = { at: now, credits: Math.round(state.credits), spend: { ...state.stats.shipSpend }, points: pointsUsed(state), allowance: allowance(state), ships: state.ships.length };
+      }
       report.goals[id] ??= now;
       if (saveAt[id]) {
         writeFileSync(saveAt[id], serialize(state));
@@ -654,7 +857,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       const contract = contractFor(state, delivery.stationId, delivery.good, now);
       return Boolean(contract) && openNeed(contract) >= 1 && cargoTotal(ship) === 0;
     }
-    // A contract that pays better than the round comes first.
+    // A contract that pays better than the round comes first, and a planned build's recipe before that.
+    if (role(ship) === 'hauler' && (retiring.has(ship.id) || ship.plan.some((s) => s.type === 'store') || plannedYard())) return false;
     if (role(ship) === 'hauler' && bestSupply(ship, now)) return false;
     if (role(ship) === 'hauler') {
       const buy = ship.plan.find((s) => s.type === 'buy');
@@ -704,7 +908,17 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
         click(given.given ?? 0);
       }
     } else {
-      // Free cargo: a derelict comes before any trade.
+      if (retiring.has(ship.id)) return;
+      // A planned build's recipe comes first, then a derelict, then trade.
+      const run = cargoTotal(ship) === 0 ? buildRun(ship, now) : null;
+      if (run) {
+        const given = giveOrders(state, ship, [
+          { type: 'buy', stationId: run.from, good: run.good, qty: run.qty },
+          { type: 'store', stationId: run.yard },
+        ]);
+        if (given.given) click(given.given);
+        return;
+      }
       if (cargoTotal(ship) === 0 && salvage(ship)) return;
       // A player after "Sell steel or glass" (or a tier 4 good) sends a hauler on such a run, even if another route pays more.
       const goalTier = { 'sell-processed': 3, 'sell-component': 4 }[currentGoalId()];
@@ -754,8 +968,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     const checks = profile.checks(dayStart).filter((c) => c >= t);
     let last = null;
     for (const at of checks) {
+      const act = state.goals.includes('first-shielding') ? 3 : state.goals.includes('warp-drive') ? 2 : 1;
       const n = check(at, false);
-      report.breaks.push({ day: day + 1, clicks: n });
+      report.breaks.push({ day: day + 1, clicks: n, act });
       for (const ship of state.ships) {
         if (role(ship) === 'miner' && ship.order) report.spans.push({ day: day + 1, minutes: (projectShip(state, ship).time - at) / MINUTE });
       }
@@ -777,6 +992,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       day: day + 1,
       earned: Math.round(state.stats.earned - earnedBefore),
       ships: state.ships.length,
+      points: `${pointsUsed(state)}/${allowance(state)}`,
       credits: Math.round(state.credits),
       contracts: contractsDone - doneBefore,
       contractPay: Math.round(contractPay - payBefore),
@@ -817,7 +1033,13 @@ function print(report) {
       `  first session ${String(a).padStart(2)}-${String(b).padEnd(2)} min: ${String(inWindow.length).padStart(2)} moments to act, ${String(inWindow.reduce((s, x) => s + x.n, 0)).padStart(3)} clicks, longest wait ${Math.max(trailing, ...gaps).toFixed(1)} min`,
     );
   }
-  console.log(`  ships: ${report.buys.map((b) => `#${b.n}${b.hull === 'kite' ? ' Kite' : ''} ${clock(report, b.at)} (${b.price})`).join(', ')}`);
+  const hullName = { mule: '', kite: ' Kite', lark: ' Lark', heron: ' Heron' };
+  console.log(`  builds: ${report.buys.map((b) => `#${b.n}${hullName[b.hull] ?? ''} ${clock(report, b.at)} (${b.own ? 'own' : 'now'} ${b.cost})`).join(', ')}`);
+  const own = report.buys.filter((b) => b.own).length;
+  const spend = state.stats.shipSpend ?? {};
+  console.log(
+    `  ${report.buys.length} builds, ${own} from hauled goods and ${report.buys.length - own} with Build now; ${report.salvaged.length} salvaged; spent ${Math.round(spend.licences ?? 0)} cr on licences, ${Math.round(spend.materials ?? 0)} on materials, ${Math.round(spend.fees ?? 0)} on fees`,
+  );
   console.log(`  research: ${report.research.map((r) => `${r.id} ${clock(report, r.at)}`).join(', ')}`);
   for (const d of report.perDay) {
     const breaks = report.breaks.filter((x) => x.day === d.day);
@@ -826,7 +1048,7 @@ function print(report) {
     const spans = report.spans.filter((x) => x.day === d.day).map((x) => x.minutes);
     const idle = report.idleAfter[d.day - 1];
     console.log(
-      `  day ${d.day}: earned ${String(d.earned).padStart(8)} cr, ${String(d.ships).padStart(2)} ships, ${clicks} clicks a look, miner queues ${median(spans)?.toFixed(0) ?? '-'} min, fleet busy ${idle?.toFixed(0) ?? '-'} min after the last look, ${d.contracts} contracts paid ${d.contractPay} cr, ${d.surveyed}/${d.enterable} systems surveyed/open`,
+      `  day ${d.day}: earned ${String(d.earned).padStart(8)} cr, ${String(d.ships).padStart(2)} ships, ${d.points.padStart(5)} points, credits ${String(d.credits).padStart(8)}, ${clicks} clicks a look, miner queues ${median(spans)?.toFixed(0) ?? '-'} min, fleet busy ${idle?.toFixed(0) ?? '-'} min after the last look, ${d.contracts} contracts paid ${d.contractPay} cr, ${d.surveyed}/${d.enterable} systems surveyed/open`,
     );
   }
   console.log('  goals:');
@@ -835,6 +1057,27 @@ function print(report) {
     console.log(`    ${goal.title.padEnd(42)} ${at == null ? 'not reached' : at === -Infinity ? 'before the save' : clock(report, at)}`);
   }
   console.log(`  total clicks ${report.clicks}, credits ${Math.round(state.credits)}, earned ${Math.round(state.stats.earned)}, research ${state.research.done.length}/${RESEARCH.length}`);
+  for (const act of [1, 2, 3]) {
+    const looks = report.breaks.filter((b) => b.act === act).map((b) => b.clicks);
+    if (!looks.length) continue;
+    const sorted = [...looks].sort((a, b) => a - b);
+    const pct = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+    console.log(`  act ${act} clicks a look: median ${median(looks)}, 10th to 90th percentile ${pct(0.1)} to ${pct(0.9)}, most ${sorted.at(-1)} (${looks.length} looks)`);
+  }
+  for (const [id, end] of Object.entries(report.actEnds)) {
+    console.log(`  at ${id} (${clock(report, end.at)}): ${end.credits} cr on hand, ${end.ships} ships, ${end.points}/${end.allowance} points, spent ${Math.round(end.spend.licences ?? 0)} licences, ${Math.round(end.spend.materials ?? 0)} materials, ${Math.round(end.spend.fees ?? 0)} fees`);
+  }
+  // Credits a hull brought in per point it held, per hour: by hand and in fleets.
+  const cash = state.stats.shipCash ?? {};
+  const start = report.startStats.shipCash ?? {};
+  const rows = Object.entries(report.pointHours).map(([hull, hours]) => {
+    const rate = (mode) => {
+      const earned = (cash[hull]?.[mode] ?? 0) - (start[hull]?.[mode] ?? 0);
+      return hours[mode] > 1 ? `${Math.round(earned / hours[mode])}` : '-';
+    };
+    return `${hull} ${rate('hand')} by hand, ${rate('fleet')} in fleets (${Math.round(hours.hand + hours.fleet)} point-hours)`;
+  });
+  console.log(`  cr per point-hour: ${rows.join('; ')}`);
   const share = (report.contractPay / Math.max(1, state.stats.earned)) * 100;
   const first = report.contracts[0];
   console.log(
