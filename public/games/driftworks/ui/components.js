@@ -1,19 +1,16 @@
 // Small building blocks shared by the panels.
 
-import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
 import { assetUrl, tintedUrl } from '../render/assets.js';
 import { h, svgIcon } from './dom.js';
+import { goodIconMarkup } from './goodIcons.js';
 import { isInvestigated } from '../systems/signals.js';
 import { ANCIENT_TINT } from '../content/scenery.js';
 
 export function swatch(good) {
-  const look = GOODS[good]?.look ?? { shape: 'round', light: '#fff', mid: '#aaa', dark: '#555' };
-  const background =
-    look.shape === 'round'
-      ? `radial-gradient(circle at 35% 30%, #ffffff 0, ${look.light} 22%, ${look.mid} 70%, ${look.dark} 100%)`
-      : `linear-gradient(160deg, #ffffff 0, ${look.light} 30%, ${look.mid} 65%, ${look.dark} 100%)`;
-  return h('span', { class: `dw-swatch${look.shape === 'round' ? '' : ' is-square'}`, style: { background }, 'aria-hidden': 'true' });
+  const icon = h('span', { class: 'dw-swatch', 'aria-hidden': 'true' });
+  icon.append(svgIcon(goodIconMarkup(good)));
+  return icon;
 }
 
 export function chip(text, variant, props = {}) {
