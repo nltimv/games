@@ -36,6 +36,13 @@ export const GOALS = [
     done: (s) => researched(s, 'hold-1') || s.research.active?.id === 'hold-1',
   },
   {
+    id: 'first-refit',
+    title: 'Refit a ship with bigger cargo racks',
+    reward: 100,
+    tutorial: true,
+    done: (s) => s.stats.refits > 0,
+  },
+  {
     id: 'second-mule',
     title: 'Buy a second Mule and give it orders',
     reward: 100,
@@ -55,13 +62,6 @@ export const GOALS = [
     reward: 200,
     tutorial: true,
     done: (s) => mules(s).length >= 3,
-  },
-  {
-    id: 'first-refit',
-    title: 'Refit a ship with bigger cargo racks',
-    reward: 100,
-    tutorial: true,
-    done: (s) => s.stats.refits > 0,
   },
   {
     id: 'queue-research',

@@ -5,6 +5,7 @@
 import { formatCredits } from '../../../shared/js/format.js';
 import { findShip } from '../systems/fleet.js';
 import { minePreview } from '../systems/advisor.js';
+import { isBusy } from '../systems/orders.js';
 import { h } from './dom.js';
 import { timing, tonnes } from './format.js';
 
@@ -25,7 +26,7 @@ export function amountSlider(ctx, { shipId, fieldId, amount, onChange, onConfirm
   const id = `${key}-range`;
 
   const label = h('label', { class: 'dw-amount-label', for: id }, h('span', null, 'Amount'), h('strong', null, tonnes(value)));
-  const note = h('p', { class: 'dw-note dw-amount-note' }, readout(minePreview(ctx.state, ship, fieldId, value, ctx.now), Boolean(ship.order)));
+  const note = h('p', { class: 'dw-note dw-amount-note' }, readout(minePreview(ctx.state, ship, fieldId, value, ctx.now), isBusy(ctx.state, findShip(ctx.state, shipId))));
   const go = h(
     'button',
     { type: 'button', class: 'dw-btn gloss is-block', dataset: { key: `${key}-go`, menuItem: '' }, disabled: !full.ok, onClick: () => onConfirm(value) },
@@ -46,7 +47,7 @@ export function amountSlider(ctx, { shipId, fieldId, amount, onChange, onConfirm
       value = Number(e.target.value);
       const preview = minePreview(ctx.state, findShip(ctx.state, shipId), fieldId, value, Date.now());
       label.lastChild.textContent = tonnes(value);
-      note.textContent = readout(preview, Boolean(ship.order));
+      note.textContent = readout(preview, isBusy(ctx.state, findShip(ctx.state, shipId)));
       go.textContent = `Mine ${tonnes(value)}`;
       e.target.setAttribute('aria-valuetext', tonnes(value));
       onChange?.(value);

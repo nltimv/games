@@ -47,7 +47,7 @@ import { canCarry, cargoTotal, holdNote } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
 import { isResearched, orderSlots } from './research.js';
-import { plotCourse, travelTime } from './travel.js';
+import { flightTimeFrom, plotCourse, shipPosition, travelTime } from './travel.js';
 import { flight, route, stationLegs } from './courses.js';
 import { buildInvestigate, buildSalvage } from './signalOrders.js';
 import { buildStandby } from './standby.js';
@@ -405,8 +405,76 @@ export function shipRoute(state, ship, now = state.now) {
 // ---------- Giving orders ----------
 
 export function freeSlots(state, ship) {
-  return Math.max(0, orderSlots(state) - (ship.order ? 1 : 0) - ship.queue.length);
+  return Math.max(0, orderSlots(state) - (isBusy(state, ship) ? 1 : 0) - ship.queue.length);
 }
+
+/**
+ * Whether a ship's current order holds up new ones. A ship whose order was
+ * cancelled mid-flight (and has nothing queued) takes a new order at once:
+ * it turns around where it is (see redirectOrder).
+ */
+export function isBusy(state, ship) {
+  return Boolean(ship.order) && !canRedirect(ship, state.now);
+}
+
+/** The in-system flight a cancelled order is still finishing, or null. */
+function cancelledLeg(ship, now) {
+  if (!ship.order?.cancelled || ship.queue.length) return null;
+  const leg = ship.order.legs.find((l) => now >= l.start && now < l.end);
+  return leg && !leg.jump && leg.from !== leg.to ? leg : null;
+}
+
+const canRedirect = (ship, now) => Boolean(cancelledLeg(ship, now));
+
+/**
+ * The order a ship finishing a cancelled flight would take now: built as if
+ * from the place it was heading to, then its first flight starts from where
+ * the ship is instead, and every later time moves with it. { ok, order } or
+ * { ok: false, error }; null when the ship is not finishing such a flight.
+ */
+export function buildRedirect(state, ship, spec) {
+  const now = state.now;
+  const leg = cancelledLeg(ship, now);
+  if (!leg) return null;
+  const pos = shipPosition(ship, now);
+  const view = projectShip(state, ship);
+  view.at = leg.to;
+  const built = buildOrder(state, view, spec, now);
+  if (!built.ok) return built;
+  const order = built.order;
+  const point = { x: pos.x, y: pos.y };
+  const first = order.legs[0];
+  let delta;
+  let legs;
+  if (first && !first.jump && first.from === leg.to && first.to !== leg.to) {
+    // It was going to leave from there anyway: fly straight from here instead.
+    const time = flightTimeFrom(ship, point, first.to);
+    delta = time - (first.end - first.start);
+    legs = [{ ...first, from: leg.from, fromPoint: point, end: first.start + time }, ...order.legs.slice(1).map((l) => shift(l, delta))];
+  } else {
+    // Its job starts where it was heading (or it jumps from there): finish the way there first.
+    delta = flightTimeFrom(ship, point, leg.to);
+    legs = [{ from: leg.from, fromPoint: point, to: leg.to, start: now, end: now + delta }, ...order.legs.map((l) => shift(l, delta))];
+  }
+  return {
+    ok: true,
+    order: { ...order, legs, steps: order.steps.map((step) => ({ ...step, at: step.at + delta })), endsAt: order.endsAt + delta },
+  };
+}
+
+/** Starts the order from buildRedirect on the ship. */
+function redirectOrder(state, ship, spec) {
+  const built = buildRedirect(state, ship, spec);
+  if (!built.ok) return built;
+  const fees = built.order.fees ?? 0;
+  if (fees > state.credits) return fail(`The jump fees are ${formatCredits(fees)}. You need ${formatCredits(fees - state.credits)} more.`);
+  ship.order = { ...built.order, spec, stepIndex: 0, jumpsPaid: 0 };
+  ship.at = null;
+  if (spec.type === 'mine') state.stats.miningTrips += 1;
+  return { ok: true, order: ship.order };
+}
+
+const shift = (leg, delta) => ({ ...leg, start: leg.start + delta, end: leg.end + delta });
 
 /** Starts a spec now on an idle ship. Its jump fees are paid at the gates. */
 /** Starts an order on an idle ship now, without touching its plan. */
@@ -449,6 +517,14 @@ export function giveOrder(state, ship, spec) {
   const away = awayNote(state, ship);
   if (away) return fail(away);
   if ([ship.order?.spec, ...ship.queue].some((s) => s?.type === 'join')) return fail(`${ship.name} is on its way to join a fleet.`);
+  if (canRedirect(ship, state.now)) {
+    const midRoute = cargoTotal(ship) > 0;
+    const result = redirectOrder(state, ship, spec);
+    if (!result.ok) return result;
+    if (spec.type !== 'refit' && !midRoute) ship.plan = [];
+    remember(ship, spec);
+    return { ok: true, queued: false, order: result.order };
+  }
   if (ship.order) {
     if (freeSlots(state, ship) <= 0) return fail(`${ship.name}'s orders are full.`);
     const view = projectShip(state, ship);
@@ -571,7 +647,8 @@ export function cargoNow(ship, now) {
  * Cancels a ship's current order. At its target the job stops now: a
  * mining ship keeps what it has mined, and a refit is refunded. A ship
  * still flying cannot stop in open space, so it finishes the flight and
- * waits there without doing the job. Queued orders carry on after that.
+ * waits there without doing the job. Queued orders carry on after that; a
+ * ship with none takes its next order at once, from where it is.
  * Returns { ok, mined, flying }.
  */
 export function cancelOrder(state, ship, at = state.now) {
@@ -584,7 +661,12 @@ export function cancelOrder(state, ship, at = state.now) {
   if (phase.flying) {
     const leg = order.legs.find((l) => l.from !== l.to && at < l.end) ?? order.legs.find((l) => l.from !== l.to);
     const name = placeName(leg.to);
-    if (order.type === 'fly' && leg.to === order.target) return fail(`${ship.name} cannot stop in open space. It waits at ${name} when it gets there.`);
+    if (order.type === 'fly' && leg.to === order.target) {
+      if (order.cancelled) return fail(`${ship.name} cannot stop in open space. It waits at ${name} when it gets there.`);
+      order.cancelled = true;
+      addLog(state, at, `${ship.name} cancelled its order and waits at ${name} when it gets there`, 'order');
+      return { ok: true, flying: true, mined: 0 };
+    }
     // Jumps not yet entered are never paid for.
     refund(state, order.spec);
     ship.order = {
@@ -597,6 +679,8 @@ export function cancelOrder(state, ship, at = state.now) {
       steps: [{ at: leg.end, kind: 'arrive', station: leg.to }],
       legs: order.legs.filter((l) => l.end <= leg.end),
       spec: { type: 'fly', stationId: leg.to },
+      // A new order takes over from here (see redirectOrder).
+      cancelled: true,
       stepIndex: 0,
       fees: 0,
       jumps: 0,

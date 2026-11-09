@@ -14,7 +14,7 @@ import { carryOut, carryOutGroup } from '../systems/commands.js';
 import { marketEntries } from '../systems/market.js';
 import { findShip } from '../systems/fleet.js';
 import { isSurveyed } from '../systems/explore.js';
-import { freeSlots, giveOrder, lowerFirst, orderTimes } from '../systems/orders.js';
+import { freeSlots, giveOrder, isBusy, lowerFirst, orderTimes } from '../systems/orders.js';
 import { orderSlots } from '../systems/research.js';
 import { canJump } from '../systems/travel.js';
 import { hazardNote, isShielded } from '../systems/shielding.js';
@@ -183,6 +183,7 @@ function shipLine(state, ship) {
     const place = findPlace(ship.at);
     return `${ship.name} at ${place?.name ?? 'its post'}`;
   }
+  if (!isBusy(state, ship)) return `${ship.name} turns around for a new order`;
   const free = freeSlots(state, ship);
   return `${ship.name} is busy · ${free} of ${orderSlots(state)} orders free`;
 }

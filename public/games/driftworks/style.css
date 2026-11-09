@@ -1752,6 +1752,16 @@ button.dw-price-row[aria-pressed='true'] {
   margin-right: 0;
 }
 
+/* Beats .dw-card-head span, which would make the ! pale on the gold disc. */
+.dw-card-head .dw-contract-mark {
+  font-size: 12px;
+  color: #3a2a00;
+}
+
+.dw-card-head .dw-contract-mark.is-running {
+  color: var(--aqua-ink);
+}
+
 .dw-contract-mark.is-running {
   color: var(--aqua-ink);
   background: radial-gradient(circle at 35% 30%, #e6fff9 0%, var(--aqua) 45%, #22b8a0 100%);

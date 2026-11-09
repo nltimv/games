@@ -14,6 +14,7 @@ import { knownStations, surveyable } from '../systems/explore.js';
 import { tutorialGoal } from '../systems/goals.js';
 import { findEntry, marketEntries } from '../systems/market.js';
 import { canCopy, projectShip } from '../systems/orders.js';
+import { holdOf } from '../systems/modules.js';
 import { isResearched } from '../systems/research.js';
 import { shipSystem, travelTime } from '../systems/travel.js';
 import { formatCredits } from '../../../shared/js/format.js';
@@ -56,7 +57,7 @@ function buyMule(state, ui, why) {
 /** Steps that send a selected ship to mine a full hold at Carbon Drift. */
 function mineSteps(ui, ship, lead, tip) {
   if (!isSelected(ui, 'ship', ship.id)) return { text: `${lead}Select ${ship.name}: click it on the map.`, map: { kind: 'ship', id: ship.id }, tip };
-  if (menuOn(ui, FIELD)) return { text: 'Pick Mine a full hold. A Mule fills its 10 t hold in about a minute.', selector: key('menu-mine-'), tip };
+  if (menuOn(ui, FIELD)) return { text: `Pick Mine a full hold. A Mule fills its ${holdOf(ship)} t hold in ${holdOf(ship) > 10 ? 'a few minutes' : 'about a minute'}.`, selector: key('menu-mine-'), tip };
   return { text: 'Right-click Carbon Drift (on a touch screen, press and hold it) and pick Mine a full hold.', map: { kind: 'field', id: FIELD }, tip };
 }
 
@@ -121,6 +122,16 @@ const GUIDES = {
   'first-research'(state, ui) {
     return research(state, ui, 'hold-1', 'Cargo racks I', 'Bigger holds mean longer trips and fewer orders.');
   },
+  'first-refit'(state, ui) {
+    // Wait for Cargo racks I first: the refit fits what the lab has finished.
+    if (!isResearched(state, 'hold-1')) return research(state, ui, 'hold-1', 'Cargo racks I', 'Bigger holds mean longer trips and fewer orders.');
+    const booked = state.ships.find((ship) => [ship.order?.spec, ...ship.queue].some((spec) => spec?.type === 'refit'));
+    if (booked) return { text: `${booked.name} flies to Halcyon Shipyard for its refit when its current orders are done.`, map: { kind: 'ship', id: booked.id } };
+    if (!isSelected(ui, 'station', SHIPYARD)) {
+      return { text: 'Cargo racks I is done. New ships come with it; ships you have get it with a refit: click Halcyon Shipyard.', map: { kind: 'station', id: SHIPYARD } };
+    }
+    return { text: 'Refit your Mule. It flies to the shipyard when its current orders are done, and its hold grows from 10 t to 25 t.', selector: '[data-key^="refit-"]' };
+  },
   'second-mule'(state, ui) {
     const fleet = mules(state);
     if (fleet.length < 2) return buyMule(state, ui, `A second Mule costs ${formatCredits(150)}.`);
@@ -138,12 +149,6 @@ const GUIDES = {
   },
   'third-mule'(state, ui) {
     return { ...buyMule(state, ui, 'A third Mule pays for itself in about an hour.'), tip: hasMouse() ? BOX_TIP : undefined };
-  },
-  'first-refit'(state, ui) {
-    if (!isSelected(ui, 'station', SHIPYARD)) {
-      return { text: 'New ships come with Cargo racks I. Older ships get them with a refit: click Halcyon Shipyard.', map: { kind: 'station', id: SHIPYARD } };
-    }
-    return { text: 'Refit a ship. It flies to the shipyard when its current orders are done, and its hold grows from 10 t to 25 t.', selector: '[data-key^="refit-"]' };
   },
   'queue-research'(state, ui) {
     return {
