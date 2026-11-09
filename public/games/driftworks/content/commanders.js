@@ -64,6 +64,15 @@ export const FIRST_NAMES = [
   'Ansel', 'Petra', 'Lio', 'Hale', 'Ysolde', 'Bram', 'Kesi', 'Dag', 'Elin', 'Fenna', 'Ravi', 'Odile',
 ];
 
+// First names read as women's names; the rest as men's. Portraits follow
+// them (see ui/portrait.js), so a commander looks like their name.
+const WOMEN = new Set(['Tamsin', 'Ilka', 'Wren', 'Juno', 'Cass', 'Mara', 'Noor', 'Sabine', 'Petra', 'Ysolde', 'Kesi', 'Elin', 'Fenna', 'Odile']);
+
+/** 'f' or 'm', from a commander's first name. */
+export function nameGender(name) {
+  return WOMEN.has(String(name ?? '').split(' ')[0]) ? 'f' : 'm';
+}
+
 export const LAST_NAMES = [
   'Vey', 'Calder', 'Morrow', 'Ashby', 'Quill', 'Strand', 'Okafor', 'Lindqvist', 'Harrow', 'Pell', 'Sorensen', 'Achebe',
   'Rook', 'Varga', 'Ember', 'Tanaka', 'Wilde', 'Brask', 'Ivanova', 'Hollis', 'Marchetti', 'Dunmore', 'Keel', 'Sato',
