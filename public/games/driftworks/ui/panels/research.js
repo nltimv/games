@@ -21,7 +21,9 @@ export function researchEffect(research, state = null) {
   switch (research.line) {
     case 'hold': {
       const mule = MODULES.hold.levels[level];
-      return `Cargo racks of ${mule} t on a Mule, ${mule * HULLS.kite.holdScale} t on a Kite. Fitted at the shipyard.`;
+      // Past a Kite's top racks, the Heron is the hauler that takes them.
+      const hauler = level > (HULLS.kite.maxRacks ?? Infinity) ? HULLS.heron : HULLS.kite;
+      return `Cargo racks of ${mule} t on a Mule, ${mule * hauler.holdScale} t on a ${hauler.namePrefix}. Fitted at the shipyard.`;
     }
     case 'laser':
       return `Mining lasers of ${MODULES.laser.levels[level]} t/min. Fitted at the shipyard.`;
@@ -32,7 +34,7 @@ export function researchEffect(research, state = null) {
     case 'queue':
       return `Every ship holds ${ORDER_SLOTS[level]} orders.`;
     case 'seal':
-      return 'Haulers carry processed materials and components. Fitted at the shipyard.';
+      return `Haulers carry processed materials, and Herons components too. Fitted at the shipyard.`;
     case 'licence':
       return `A fleet allowance of ${research.allowance} points.`;
     default:
