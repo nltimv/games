@@ -5,7 +5,7 @@ import { advance } from '../../public/games/driftworks/core/sim.js';
 import { markSurveyed } from '../../public/games/driftworks/systems/explore.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { guideSkipped, skipGuide } from '../../public/games/driftworks/systems/goals.js';
-import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { giveOrder, orderRefit } from '../../public/games/driftworks/systems/orders.js';
 import { acceptContract } from '../../public/games/driftworks/systems/contracts.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
 import { currentGuide } from '../../public/games/driftworks/ui/tutorial.js';
@@ -76,9 +76,25 @@ test('the first sale can wait for the hold to fill; queuing it now is only a tip
   assert.equal(full.tip, undefined);
 });
 
-test('a second Mule can be given any orders; copying is a tip', () => {
+test('the refit guide waits for Cargo racks I, then sends the first Mule to the shipyard', () => {
   const state = newGame();
   state.goals = ['first-sale', 'first-research'];
+  state.research.active = { id: 'hold-1', endsAt: T0 + MINUTE };
+  assert.match(currentGuide(state, onMap()).text, /Cargo racks I is done at/);
+  state.research.active = null;
+  state.research.done.push('hold-1');
+  const find = currentGuide(state, onMap());
+  assert.equal(find.goal.id, 'first-refit');
+  assert.deepEqual(find.map, { kind: 'station', id: 'halcyon-shipyard' });
+  const mule = firstShip(state);
+  assert.equal(currentGuide(state, onMap({ kind: 'station', id: 'halcyon-shipyard' })).selector, '[data-key^="refit-"]');
+  assert.ok(orderRefit(state, mule, 'halcyon-shipyard').ok);
+  assert.deepEqual(currentGuide(state, onMap()).map, { kind: 'ship', id: mule.id });
+});
+
+test('a second Mule can be given any orders; copying is a tip', () => {
+  const state = newGame();
+  state.goals = ['first-sale', 'first-research', 'first-refit'];
   const a = firstShip(state);
   giveOrder(state, a, { type: 'mine', fieldId: 'carbon-drift', amount: null });
   giveOrder(state, a, { type: 'sell', stationId: 'halcyon-refinery' });
@@ -90,7 +106,7 @@ test('a second Mule can be given any orders; copying is a tip', () => {
 
 test('the contract guide finds the offer, then has its ore mined and delivered', () => {
   const state = newGame();
-  state.goals = ['first-sale', 'first-research', 'second-mule'];
+  state.goals = ['first-sale', 'first-research', 'first-refit', 'second-mule'];
   state.research.done.push('brokerage');
   advance(state, T0);
   const [offer] = state.contracts.offers;

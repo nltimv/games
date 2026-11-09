@@ -8,7 +8,7 @@ import { affordableQty, findEntry, marketEntries, marketView, quote } from './ma
 import { canCarry, cargoTotal, freeHold } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf } from './modules.js';
-import { buildOrder, freeSlots, orderTimes, projectShip, refitOffer } from './orders.js';
+import { buildOrder, buildRedirect, freeSlots, isBusy, orderTimes, projectShip, refitOffer } from './orders.js';
 import { isSurveyed, knownStations, surveyable } from './explore.js';
 import { knownAt } from './knowledge.js';
 import { canJump, plotCourse, travelTime } from './travel.js';
@@ -87,7 +87,8 @@ export function saleHere(state, ship, good, at = state.now) {
 export function minePreview(state, ship, fieldId, amount = null, at = state.now) {
   const view = projectShip(state, ship);
   const max = Math.floor(Math.max(0, holdOf(view) - cargoTotal(view)));
-  const built = buildOrder(state, view, { type: 'mine', fieldId, amount }, view.time);
+  const spec = { type: 'mine', fieldId, amount };
+  const built = buildRedirect(state, ship, spec) ?? buildOrder(state, view, spec, view.time);
   if (!built.ok) return { ok: false, error: built.error, amount: 0, max, value: 0 };
   const step = built.order.steps[0];
   // What the ore fetches in the field's own system, or anywhere known.
@@ -97,10 +98,10 @@ export function minePreview(state, ship, fieldId, amount = null, at = state.now)
     amount: step.amount,
     max,
     value: best?.sale.total ?? 0,
-    startsAt: view.time,
+    startsAt: built.order.startedAt,
     endsAt: built.order.endsAt,
     ...orderTimes(built.order),
-    queued: Boolean(ship.order),
+    queued: isBusy(state, ship),
   };
 }
 
@@ -204,11 +205,11 @@ export function orderOptions(state, ship, target, at = state.now) {
   const role = HULLS[ship.hull].role;
   const view = projectShip(state, ship);
   const free = freeSlots(state, ship);
-  const queued = Boolean(ship.order);
+  const queued = isBusy(state, ship);
   const options = [];
   // When the order would end, and how long it flies and works.
   const timesOf = (spec) => {
-    const built = buildOrder(state, view, spec, view.time);
+    const built = buildRedirect(state, ship, spec) ?? buildOrder(state, view, spec, view.time);
     if (!built.ok) return { endsAt: null, error: built.error };
     return { endsAt: built.order.endsAt, ...orderTimes(built.order), fees: built.order.fees ?? 0, jumps: built.order.jumps ?? 0 };
   };

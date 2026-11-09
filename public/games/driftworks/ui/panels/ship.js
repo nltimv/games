@@ -20,6 +20,7 @@ import {
   clearQueue,
   copyOrders,
   freeSlots,
+  isBusy,
   giveOrder,
   lowerFirst,
   orderPhase,
@@ -222,7 +223,7 @@ function newOrders(ctx, ship) {
   const hull = HULLS[ship.hull];
   const view = projectShip(state, ship);
   const free = freeSlots(state, ship);
-  const queued = Boolean(ship.order);
+  const queued = isBusy(state, ship);
   if (queued && free <= 0) return null;
   const sections = [];
   const give = (spec) => {

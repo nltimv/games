@@ -2,8 +2,9 @@
 // stations price around it depending on their stock. Each tier is worth
 // roughly 1.3 to 1.6 times the goods it is made from.
 //
-// `look` drives the little resource swatches in the UI: raw goods are round,
-// refined and processed goods are square.
+// `look` colours the good's icon in the UI (ui/goodIcons.js draws its shape)
+// and its asteroid field on the map. `shape` is round for raw goods and
+// square for the rest.
 
 export const GOODS = {
   'ferrite-ore': {

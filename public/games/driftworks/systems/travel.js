@@ -33,6 +33,14 @@ export function flightTime(ship, fromId, toId) {
   return Math.round(ms / (5 * SECOND)) * 5 * SECOND;
 }
 
+/** A flight from a point in open space (a ship turned around mid-flight) to a place, in ms. */
+export function flightTimeFrom(ship, point, toId) {
+  const to = findPlace(toId);
+  if (!to) return 0;
+  const ms = DOCK_SECONDS * SECOND + (Math.hypot(to.x - point.x, to.y - point.y) / speedOf(ship)) * MINUTE;
+  return Math.round(ms / (5 * SECOND)) * 5 * SECOND;
+}
+
 /** How long a lane's jump takes, after Jump drive research. */
 export function jumpTime(state, lane) {
   const factor = isResearched(state, 'jump-2') ? 0.6 : isResearched(state, 'jump-1') ? 0.75 : 1;
@@ -193,7 +201,8 @@ export function shipPosition(ship, at, index = 0) {
     return { jump: { from: systemOf(leg.from), to: systemOf(leg.to), t }, system: null, moving: true, to: leg.to };
   }
   if (leg.from === leg.to) return parkedPosition(leg.from, at, index);
-  const a = findPlace(leg.from);
+  // A leg that starts in open space (a new order given after a cancel) has its start point.
+  const a = leg.fromPoint ?? findPlace(leg.from);
   const b = findPlace(leg.to);
   const eased = t * t * (3 - 2 * t);
   return { x: a.x + (b.x - a.x) * eased, y: a.y + (b.y - a.y) * eased, system: systemOf(leg.from), moving: true, to: leg.to };

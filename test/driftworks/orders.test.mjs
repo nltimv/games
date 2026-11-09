@@ -329,6 +329,58 @@ test('a ship cancelled in flight finishes the flight and waits there', () => {
   assert.equal(cancelOrder(state, ship).ok, false, 'nothing to cancel');
 });
 
+test('a ship cancelled in flight turns around for a new order from where it is', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine('carbon-drift'));
+  const arrival = ship.order.legs[0].end;
+  const half = T0 + Math.round((arrival - T0) / 2);
+  advance(state, half);
+  assert.ok(cancelOrder(state, ship, half).ok);
+  assert.equal(freeSlots(state, ship), 2, 'the cancelled flight holds up nothing');
+  const queuedEnd = projectShip(state, ship).time + travelTime(state, ship, 'carbon-drift', 'aurel-post');
+  const result = giveOrder(state, ship, { type: 'fly', stationId: 'aurel-post' });
+  assert.equal(result.ok, true);
+  assert.equal(result.queued, false);
+  assert.equal(ship.queue.length, 0);
+  assert.equal(ship.order.type, 'fly');
+  assert.equal(ship.order.legs[0].start, half);
+  assert.ok(ship.order.legs[0].fromPoint, 'the first flight starts in open space');
+  assert.ok(ship.order.endsAt < queuedEnd, 'sooner than going to Carbon Drift first');
+  assert.ok(orderPhase(ship.order, half).flying);
+  advance(state, ship.order.endsAt + 1000);
+  assert.equal(ship.at, 'aurel-post');
+  assert.deepEqual(ship.cargo, {});
+});
+
+test('a new order after a cancel at the place it was heading for finishes that flight first', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine('carbon-drift'));
+  const arrival = ship.order.legs[0].end;
+  advance(state, T0 + 1000);
+  assert.ok(cancelOrder(state, ship, T0 + 1000).ok);
+  giveOrder(state, ship, mine('carbon-drift'));
+  assert.equal(ship.order.type, 'mine');
+  assert.ok(ship.order.legs[0].fromPoint);
+  assert.equal(ship.order.legs[0].to, 'carbon-drift');
+  assert.ok(Math.abs(ship.order.legs[1].start - arrival) <= 10_000, 'mining starts about when it gets there');
+  advance(state, ship.order.endsAt + 1000);
+  assert.equal(ship.cargo['carbon-ore'], 10);
+});
+
+test('a fly order can be cancelled once; a ship with orders queued still queues new ones', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  giveOrder(state, ship, { type: 'fly', stationId: 'aurel-post' });
+  assert.ok(giveOrder(state, ship, { type: 'fly', stationId: 'halcyon-refinery' }).queued);
+  advance(state, T0 + 1000);
+  assert.ok(cancelOrder(state, ship, T0 + 1000).ok);
+  assert.match(cancelOrder(state, ship, T0 + 2000).error, /cannot stop in open space/);
+  assert.match(giveOrder(state, ship, mine('carbon-drift')).error, /orders are full/, 'the queue still waits behind the flight');
+  assert.equal(ship.queue.length, 1);
+});
+
 test('a cancelled refit is refunded', () => {
   const state = newGame({ credits: 1000 });
   state.research.done.push('hold-1');
