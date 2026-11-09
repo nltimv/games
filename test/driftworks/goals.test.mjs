@@ -4,6 +4,7 @@ import { checkGoals, currentGoal, tutorialGoal } from '../../public/games/driftw
 import { GOALS } from '../../public/games/driftworks/content/goals.js';
 import { findResearch } from '../../public/games/driftworks/content/research.js';
 import { newGame } from './helpers.mjs';
+import { STARTING_CREDITS } from '../../public/games/driftworks/core/state.js';
 
 test('the first goal is the first tutorial step', () => {
   const state = newGame();
@@ -19,10 +20,10 @@ test('a goal pays its reward exactly once', () => {
   state.stats.oreSold = 1;
   const done = checkGoals(state);
   assert.deepEqual(done.map((g) => g.id), ['first-sale']);
-  assert.equal(state.credits, 250 + GOALS[0].reward);
+  assert.equal(state.credits, STARTING_CREDITS + GOALS[0].reward);
   assert.deepEqual(checkGoals(state), []);
-  assert.equal(state.credits, 250 + GOALS[0].reward);
-  assert.equal(currentGoal(state).id, 'first-research');
+  assert.equal(state.credits, STARTING_CREDITS + GOALS[0].reward);
+  assert.equal(currentGoal(state).id, 'carry-goods');
 });
 
 test('goals complete in order: a later goal waits for the ones before it', () => {
@@ -31,7 +32,9 @@ test('goals complete in order: a later goal waits for the ones before it', () =>
   assert.deepEqual(checkGoals(state), []);
   state.stats.oreSold = 1;
   state.research.done.push('hold-1');
-  assert.deepEqual(checkGoals(state).map((g) => g.id), ['first-sale', 'first-research']);
+  assert.deepEqual(checkGoals(state).map((g) => g.id), ['first-sale']);
+  state.stats.haulerSales = 1;
+  assert.deepEqual(checkGoals(state).map((g) => g.id), ['carry-goods', 'first-research']);
 });
 
 test("goal ids are unique, each act's tutorial comes first, and only each act's last goal is unpaid", () => {
@@ -46,6 +49,11 @@ test("goal ids are unique, each act's tutorial comes first, and only each act's 
   }
   assert.equal(GOALS.find((g) => !g.act && g.reward === 0).id, 'warp-drive');
   assert.equal(GOALS.filter((g) => g.act === 2).at(-1).id, 'first-shielding');
+});
+
+test('the act 1 tutorial teaches the Kite, building and the Fleet licence', () => {
+  const tutorial = GOALS.filter((g) => g.tutorial && !g.act).map((g) => g.id);
+  assert.deepEqual(tutorial, ['first-sale', 'carry-goods', 'first-research', 'first-build', 'first-contract', 'first-licence', 'first-refit']);
 });
 
 test('act 3 ends with Station blueprints, which needs deep shielding and Fleet command II', () => {

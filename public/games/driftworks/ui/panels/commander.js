@@ -7,7 +7,7 @@ import { HULLS } from '../../content/ships.js';
 import { allFactions, allSystems, findPlace, findSystem, systemOf } from '../../content/galaxy.js';
 import { goodName } from '../../content/goods.js';
 import { formatCredits, formatNumber } from '../../../../shared/js/format.js';
-import { candidates, commanderLevel, commanderPrice, commanders, fleetCommand, hireCommander, hireLock, joiningOf, leaderOf, levelProgress, onMap, traitText, wingOf } from '../../systems/commanders.js';
+import { candidates, commanderLevel, commanders, fleetCommand, hireCommander, hireCost, hireLock, hireShortfall, joiningOf, leaderOf, levelProgress, onMap, traitText, wingOf } from '../../systems/commanders.js';
 import { areaAround, canStartMission, doctrineOf, joinFleet, leaveFleet, missionArea, setDoctrine, startMission } from '../../systems/missions.js';
 import { findShip } from '../../systems/fleet.js';
 import { isSurveyed } from '../../systems/explore.js';
@@ -329,13 +329,15 @@ export function aboardSection(ctx, ship) {
 export function hireSection(ctx, station) {
   const { state } = ctx;
   if (hireLock(state, station.id)) return null;
-  const price = commanderPrice(state);
-  const short = price - state.credits;
+  const cost = hireCost(state, station.id);
+  const short = hireShortfall(state, station.id);
+  const hours = HULLS.osprey.buildMinutes / 60;
   return h(
     'div',
     { class: 'dw-section' },
-    sectionTitle('Commanders for hire', formatCredits(price)),
-    h('p', { class: 'dw-note' }, 'Each comes with an Osprey-class command ship.'),
+    sectionTitle('Commanders for hire', formatCredits(cost.total)),
+    h('p', { class: 'dw-note' }, `${formatCredits(cost.price)} for the commander and ${formatCredits(cost.ship)} for their Osprey-class command ship, built here in ${plural(hours, 'hour')}.`),
+    short ? h('p', { class: 'dw-note' }, short) : null,
     candidates(state).map((candidate) => {
       const trait = TRAITS[candidate.traits[0]];
       return h(
@@ -343,13 +345,13 @@ export function hireSection(ctx, station) {
         { class: 'dw-card dw-commander' },
         h('div', { class: 'dw-commander-head' }, portrait(candidate, 52), h('div', { class: 'dw-grow' }, h('strong', null, candidate.name), h('span', { class: 'dw-note' }, `Level 1 · ${trait.name}`))),
         h('p', { class: 'dw-note' }, trait.note),
-        button(short > 0 ? `Need ${formatCredits(short)} more` : `Hire for ${formatCredits(price)}`, {
+        button(`Hire for ${formatCredits(cost.total)}`, {
           variant: 'primary',
-          disabled: short > 0,
+          disabled: Boolean(short),
           key: `hire-${candidate.id}`,
           onClick: () => {
             const result = ctx.act((s) => hireCommander(s, candidate.id, station.id));
-            if (result?.ok) ctx.select('ship', result.ship.id);
+            if (result?.ok) ctx.toast(`${candidate.name} is hired. Their Osprey is ready in ${plural(hours, 'hour')}`, 'purchase');
           },
         }),
       );

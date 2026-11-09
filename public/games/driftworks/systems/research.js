@@ -113,6 +113,11 @@ export function startResearch(state, id, at = state.now) {
   state.credits -= cost;
   state.research[freeLab(state)] = { id, startedAt: at, endsAt: at + minutes * MINUTE };
   state.stats.research += 1;
+  // Fleet licences count as money spent on growing the fleet (see shipyard.spend).
+  if (research.line === 'licence') {
+    const spent = { licences: 0, materials: 0, fees: 0, ...state.stats.shipSpend };
+    state.stats.shipSpend = { ...spent, licences: spent.licences + cost };
+  }
   addLog(state, at, `Research started: ${research.name}`, 'research', -cost);
   return { ok: true, research, cost };
 }

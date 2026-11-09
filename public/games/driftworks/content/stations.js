@@ -61,7 +61,7 @@ export const STATION_TYPES = {
   },
   shipyard: {
     label: 'Shipyard',
-    description: 'Sells ships, fits new modules and buys hull materials.',
+    description: 'Builds ships, fits new modules and buys hull materials.',
     buys: ['steel', 'titanium-alloy', 'hull-plating', 'circuits', 'sensor-arrays'],
     sells: [],
     buyCurve: 'materials',

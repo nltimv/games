@@ -9,7 +9,7 @@ import { HULLS, ORDER_SLOTS } from '../content/ships.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { allSystems, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { cargoTotal } from '../systems/cargo.js';
-import { joiningOf, mapShips, wingOf } from '../systems/commanders.js';
+import { commandersComing, joiningOf, mapShips, wingOf } from '../systems/commanders.js';
 import { knownStations, surveyable } from '../systems/explore.js';
 import { tutorialGoal } from '../systems/goals.js';
 import { findEntry, marketEntries } from '../systems/market.js';
@@ -18,11 +18,13 @@ import { holdOf } from '../systems/modules.js';
 import { isResearched } from '../systems/research.js';
 import { shipSystem, travelTime } from '../systems/travel.js';
 import { formatCredits } from '../../../shared/js/format.js';
+import { allowance, pointsLock, pointsUsed, recipeAt } from '../systems/shipyard.js';
 import { h } from './dom.js';
 import { at, tonnes } from './format.js';
 
 const FIELD = 'carbon-drift';
 const REFINERY = 'halcyon-refinery';
+const FOUNDRY = 'halcyon-foundry';
 const SHIPYARD = 'halcyon-shipyard';
 
 const mules = (state) => state.ships.filter((ship) => ship.hull === 'mule');
@@ -48,10 +50,15 @@ function research(state, ui, id, name, why) {
   return { text: `Start ${name}. Research keeps going while the game is closed.`, selector: key(`research-${id}`) };
 }
 
-/** Steps that send the player to the shipyard to buy a Mule. */
-function buyMule(state, ui, why) {
-  if (!isSelected(ui, 'station', SHIPYARD)) return { text: `${why} Click Halcyon Shipyard on the map.`, map: { kind: 'station', id: SHIPYARD } };
-  return { text: 'Buy a Mule-class miner.', selector: key('buy-hull-mule') };
+/** The orders a ship has given and queued. */
+const specsOf = (ship) => [ship.order?.spec, ...ship.queue].filter(Boolean);
+
+/** Steps that have a selected hauler buy `good` at the refinery. */
+function buyAtRefinery(ui, kite, good, lead, tip) {
+  const name = goodName(good).toLowerCase();
+  if (!isSelected(ui, 'ship', kite.id)) return { text: `${lead}Select ${kite.name}: click it on the map.`, map: { kind: 'ship', id: kite.id }, tip };
+  if (menuOn(ui, REFINERY)) return { text: `Pick Buy ${name}.`, selector: key(`menu-buy-${good}`), tip };
+  return { text: `${lead}Right-click Halcyon Refinery (on a touch screen, press and hold it) and pick Buy ${name}.`, map: { kind: 'station', id: REFINERY }, tip };
 }
 
 /** Steps that send a selected ship to mine a full hold at Carbon Drift. */
@@ -100,6 +107,13 @@ function deliverSteps(state, ui, contract) {
   return { text: `${lead}Right-click ${field.name} and pick Mine a full hold.`, map: { kind: 'field', id: field.id } };
 }
 
+function firstContract(state, ui) {
+  if (!isResearched(state, 'brokerage')) return research(state, ui, 'brokerage', 'Brokerage', 'Contracts pay a fixed price for ore you already mine.');
+  const contract = state.contracts.active.find((c) => c.deadline > state.now);
+  if (!contract) return acceptSteps(state, ui);
+  return deliverSteps(state, ui, contract);
+}
+
 const GUIDES = {
   'first-sale'(state, ui) {
     const mule = state.ships[0];
@@ -119,8 +133,59 @@ const GUIDES = {
     if (!isSelected(ui, 'ship', mule.id)) return { text: `${lead}${mining ? 'select' : 'Select'} it to sell the ore.`, map: { kind: 'ship', id: mule.id }, tip };
     return { text: `${lead}${mining ? 'right-click' : 'Right-click'} Halcyon Refinery and pick ${sale}.`, map: { kind: 'station', id: REFINERY }, tip };
   },
+  'carry-goods'(state, ui) {
+    const kite = state.ships.find((ship) => ship.hull === 'kite');
+    if (!kite) return null;
+    const selling = specsOf(kite).some((spec) => spec.type === 'sell');
+    if (selling) return { text: `${kite.name} sells the iron at Halcyon Foundry. A hauler earns the gap between what one station asks and another pays.`, map: { kind: 'ship', id: kite.id } };
+    const iron = projectShip(state, kite).cargo.iron ?? 0;
+    if (iron < 1) return buyAtRefinery(ui, kite, 'iron', 'Haulers buy goods where they are cheap and sell them where they pay more. ');
+    const tip = kite.order ? QUEUE_TIP : undefined;
+    const lead = kite.order ? `${kite.name} is buying iron. When it is done, ` : `${kite.name} has iron aboard. `;
+    if (!isSelected(ui, 'ship', kite.id)) return { text: `${lead}${kite.order ? 'select' : 'Select'} it to sell the iron.`, map: { kind: 'ship', id: kite.id }, tip };
+    if (menuOn(ui, FOUNDRY)) return { text: 'Pick Sell iron.', selector: key('menu-sell-iron'), tip };
+    return { text: `${lead}${kite.order ? 'right-click' : 'Right-click'} Halcyon Foundry and pick Sell iron.`, map: { kind: 'station', id: FOUNDRY }, tip };
+  },
   'first-research'(state, ui) {
     return research(state, ui, 'hold-1', 'Cargo racks I', 'Bigger holds mean longer trips and fewer orders.');
+  },
+  'first-build'(state, ui) {
+    const plan = (state.builds ?? []).find((build) => build.status === 'planned');
+    if (!plan) {
+      const lead = `Every ship takes points of your fleet allowance. ${pointsUsed(state)} of ${allowance(state)} are in use, so there is room for a Mule. `;
+      if (!isSelected(ui, 'station', SHIPYARD)) return { text: `${lead}Click Halcyon Shipyard on the map.`, map: { kind: 'station', id: SHIPYARD } };
+      return {
+        text: 'Plan the build of a Mule. The yard starts on it once its recipe is in store, and your Kite can fetch it from the refinery.',
+        selector: key('plan-mule'),
+        tip: 'Build now buys whatever the store is missing instead, at 1.75 times its value.',
+      };
+    }
+    const kite = state.ships.find((ship) => ship.hull === 'kite');
+    if (!kite) {
+      // Without a hauler, the yard sells the recipe.
+      if (!isSelected(ui, 'station', plan.stationId)) return { text: `${plan.name} waits for its recipe. Click Halcyon Shipyard.`, map: { kind: 'station', id: plan.stationId } };
+      return { text: `Build now buys what ${plan.name} still needs, at 1.75 times its value.`, selector: key(`build-now-${plan.id}`) };
+    }
+    const view = projectShip(state, kite);
+    const missing = recipeAt(state, plan.hull, plan.stationId).filter((line) => line.missing > 0);
+    const delivering = specsOf(kite).some((spec) => spec.type === 'store' && spec.stationId === plan.stationId);
+    if (delivering) return { text: `${kite.name} brings the goods to Halcyon Shipyard. The yard starts on ${plan.name} once the whole recipe is in store.`, map: { kind: 'ship', id: kite.id } };
+    const tip = kite.order ? QUEUE_TIP : undefined;
+    const short = missing.find((line) => (view.cargo[line.good] ?? 0) < line.missing);
+    if (short) {
+      const what = missing.map((line) => `${line.missing} t ${goodName(line.good).toLowerCase()}`).join(' and ');
+      return buyAtRefinery(ui, kite, short.good, `${plan.name} needs ${what}. `, tip);
+    }
+    const lead = kite.order ? `When ${kite.name} has the goods, ` : `${kite.name} has the goods. `;
+    if (!isSelected(ui, 'ship', kite.id)) return { text: `${lead}${kite.order ? 'select' : 'Select'} it to deliver them.`, map: { kind: 'ship', id: kite.id }, tip };
+    if (menuOn(ui, SHIPYARD)) return { text: `Pick Deliver for ${plan.name}. Goods for a build go into its store and are not sold.`, selector: key('menu-store-'), tip };
+    return { text: `${lead}${kite.order ? 'right-click' : 'Right-click'} Halcyon Shipyard and pick Deliver for ${plan.name}.`, map: { kind: 'station', id: SHIPYARD }, tip };
+  },
+  'first-licence'(state, ui) {
+    return {
+      ...research(state, ui, 'licence-1', 'Fleet licence I', `Your fleet uses ${pointsUsed(state)} of its ${allowance(state)} allowance points. Fleet licences raise the allowance.`),
+      tip: hasMouse() ? BOX_TIP : undefined,
+    };
   },
   'first-refit'(state, ui) {
     // Wait for Cargo racks I first: the refit fits what the lab has finished.
@@ -132,23 +197,12 @@ const GUIDES = {
     }
     return { text: 'Refit your Mule. It flies to the shipyard when its current orders are done, and its hold grows from 10 t to 25 t.', selector: '[data-key^="refit-"]' };
   },
-  'second-mule'(state, ui) {
-    const fleet = mules(state);
-    if (fleet.length < 2) return buyMule(state, ui, `A second Mule costs ${formatCredits(150)}.`);
-    const idle = fleet.find((ship) => !ship.order && !ship.plan.length);
-    if (!idle) return null;
-    const from = fleet.find((ship) => canCopy(state, ship, idle));
-    const tip = from ? `Copy orders from ${from.name}, in ${idle.name}'s panel, gives it the same orders in one click.` : undefined;
-    return mineSteps(ui, idle, 'It waits next to the shipyard. ', tip);
-  },
   'first-contract'(state, ui) {
-    if (!isResearched(state, 'brokerage')) return research(state, ui, 'brokerage', 'Brokerage', 'Contracts pay a fixed price for ore you already mine.');
-    const contract = state.contracts.active.find((c) => c.deadline > state.now);
-    if (!contract) return acceptSteps(state, ui);
-    return deliverSteps(state, ui, contract);
-  },
-  'third-mule'(state, ui) {
-    return { ...buyMule(state, ui, 'A third Mule pays for itself in about an hour.'), tip: hasMouse() ? BOX_TIP : undefined };
+    const guide = firstContract(state, ui);
+    // A new Mule waiting next to one with orders: copying is a shortcut.
+    const idle = mules(state).find((ship) => !ship.order && !ship.plan.length);
+    const from = idle && mules(state).find((ship) => canCopy(state, ship, idle));
+    return guide && from && !guide.tip ? { ...guide, tip: `Copy orders from ${from.name}, in ${idle.name}'s panel, gives ${idle.name} the same orders in one click.` } : guide;
   },
   'queue-research'(state, ui) {
     return {
@@ -195,8 +249,11 @@ function farBuyer(state, ship) {
 Object.assign(GUIDES, {
   'first-scout'(state, ui) {
     if (!isResearched(state, 'scout-licence')) return research(state, ui, 'scout-licence', 'Scout licence', 'The warp drive opens the gates, but only scouts can enter systems nobody has surveyed.');
-    if (!isSelected(ui, 'station', SHIPYARD)) return { text: 'Shipyards sell Lark-class scouts now. Click Halcyon Shipyard on the map.', map: { kind: 'station', id: SHIPYARD } };
-    return { text: 'Buy a Lark-class scout. It is fast and carries no cargo.', selector: key('buy-hull-lark') };
+    if ((state.builds ?? []).some((build) => build.hull === 'lark')) return { text: 'Halcyon Shipyard is building your Lark. Planned builds start once their recipe is in store.' };
+    const lock = pointsLock(state, 'lark');
+    if (lock) return { text: `Your fleet uses all ${allowance(state)} of its allowance points. The next Fleet licence raises it, and salvage at a shipyard frees a ship's points.` };
+    if (!isSelected(ui, 'station', SHIPYARD)) return { text: 'Shipyards build Lark-class scouts now. Click Halcyon Shipyard on the map.', map: { kind: 'station', id: SHIPYARD } };
+    return { text: 'Build a Lark-class scout. It is fast and carries no cargo.', selector: key('build-lark'), tip: 'Plan the build instead, and your haulers can bring its recipe for less.' };
   },
   'first-survey'(state, ui) {
     const scouts = state.ships.filter(isScout);
@@ -291,10 +348,12 @@ Object.assign(GUIDES, {
   'first-commander'(state, ui) {
     if (!isResearched(state, 'fleet-1')) return research(state, ui, 'fleet-1', 'Fleet command I', 'Commanders lead a wing of your ships on missions, picking every order themselves.');
     if (!isSelected(ui, 'station', SHIPYARD)) return { text: 'Shipyards offer commanders now. Click Halcyon Shipyard on the map.', map: { kind: 'station', id: SHIPYARD } };
-    return { text: 'Hire one of the three. Their trait shapes every pick they make: a Prospector for miners, a Thrifty or Greedy one for haulers, a Curious one for scouts.', selector: '[data-key^="hire-"]' };
+    return { text: 'Hire one of the three. Their trait shapes every pick they make: a Prospector for miners, a Thrifty or Greedy one for haulers, a Curious one for scouts. The yard builds their Osprey-class command ship.', selector: '[data-key^="hire-"]' };
   },
   'first-mission'(state, ui) {
     const commander = state.ships.find((ship) => ship.commander);
+    const hiring = commandersComing(state)[0];
+    if (!commander && hiring) return { text: `${hiring.name}'s Osprey is being built at ${findStation(hiring.stationId).name} and is ready at ${at(hiring.endsAt)}. Then give them a wing and send it out.` };
     if (!commander) return null;
     if (!(ui.selection?.kind === 'ship' && ui.selection.id === commander.id)) return { text: `Select ${commander.name}: pick them in the Fleet list.`, selector: ui.view === 'fleet' ? key(`fleet-${commander.id}`) : '[data-view="fleet"]' };
     const wing = wingOf(state, commander);

@@ -77,7 +77,10 @@ export function sellCargo(state, ship, good, qty = Infinity, at = state.now) {
   if (tier === 1) state.stats.oreSold += sale.qty;
   state.stats.tierTonnes = { ...state.stats.tierTonnes, [tier]: (state.stats.tierTonnes?.[tier] ?? 0) + sale.qty };
   state.stats.tierProfit = { ...state.stats.tierProfit, [tier]: (state.stats.tierProfit?.[tier] ?? 0) + profit };
-  if (HULLS[ship.hull].role === 'hauler') state.stats.tradeProfit += profit;
+  if (HULLS[ship.hull].role === 'hauler') {
+    state.stats.tradeProfit += profit;
+    state.stats.haulerSales = (state.stats.haulerSales ?? 0) + 1;
+  }
 
   const notes = [];
   if (HULLS[ship.hull].role === 'hauler') notes.push(`profit ${formatCredits(profit)}`);

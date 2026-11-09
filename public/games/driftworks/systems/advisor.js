@@ -8,6 +8,7 @@ import { affordableQty, findEntry, marketEntries, marketView, quote } from './ma
 import { canCarry, cargoTotal, freeHold } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf } from './modules.js';
+import { buildsFor, completesPlans, isShipyard, plansNeeding, stillNeededAt, storeGoods } from './shipyard.js';
 import { buildOrder, buildRedirect, freeSlots, isBusy, orderTimes, projectShip, refitOffer } from './orders.js';
 import { isSurveyed, knownStations, surveyable } from './explore.js';
 import { knownAt } from './knowledge.js';
@@ -187,8 +188,12 @@ function slotNote(free, needed) {
  *   deliver      { stationId, good, qty, contract, completes,    hands cargo to a contract
  *                  reward, endsAt, now }                         here; `completes`: the last
  *                                                                tonnes it needs
+ *   store        { stationId, goods, qty, builds, completes,     hands the builds planned at
+ *                  endsAt, now }                                 this yard what they need
+ *                                                                (`goods`: { good: t })
  *   buy          { stationId, good, qty, cost, endsAt, destId,   haulers; sized for a contract
- *                  profit, contract, completes, reward }         elsewhere (`contract`), else
+ *                  profit, contract, completes, reward, build }  elsewhere (`contract`), or a
+ *                                                                planned build (`build`), else
  *                                                                for the best buyer it knows
  *                                                                (`destId`, `profit`), else a
  *                                                                full hold
@@ -262,6 +267,19 @@ export function orderOptions(state, ship, target, at = state.now) {
     options.push(now ? { ...option, queued, disabled: false, note: null } : gated(option));
   }
 
+  // Hand the builds planned at this yard what they need.
+  if (isShipyard(stationId)) {
+    const goods = storeGoods(state, stationId, view.cargo, view.stored);
+    const builds = buildsFor(state, stationId, goods);
+    if (builds.length) {
+      const qty = Object.values(goods).reduce((sum, t) => sum + t, 0);
+      const now = !queued && ship.at === stationId;
+      const times = now ? { endsAt: at } : timesOf({ type: 'store', stationId });
+      const option = { kind: 'store', stationId, goods, qty, builds, completes: completesPlans(state, stationId, goods, view.stored), ...times, now };
+      options.push(now ? { ...option, queued, disabled: false, note: null } : gated(option));
+    }
+  }
+
   // Sell what it carries (or will carry).
   const goods = Object.keys(view.cargo).filter((g) => view.cargo[g] > 0 && findEntry(stationId, g)?.side === 'buys');
   if (goods.length) {
@@ -328,12 +346,27 @@ function buyOptions(state, view, stationId, free, at, timesOf) {
     if (max < 1) continue;
     // Getting to the station (jump fees included) comes before any of it.
     const there = timesOf({ type: 'buy', stationId, good, qty: max });
-    const use = contractUse(state, view, stationId, good, max, there, at) ?? routeUse(state, view, stationId, good, max, there, at) ?? { qty: max };
+    const use = contractUse(state, view, stationId, good, max, there, at) ?? buildUse(state, view, good, max) ?? routeUse(state, view, stationId, good, max, there, at) ?? { qty: max };
     const cost = quote(state, stationId, good, use.qty, known).total;
     options.push({ kind: 'buy', stationId, good, cost, ...use, ...timesOf({ type: 'buy', stationId, good, qty: use.qty }) });
   }
-  const rank = (option) => (option.contract ? 2 : option.destId ? 1 : 0);
+  const rank = (option) => (option.contract ? 3 : option.build ? 2 : option.destId ? 1 : 0);
   return options.sort((a, b) => rank(b) - rank(a) || (b.profit ?? 0) - (a.profit ?? 0));
+}
+
+/**
+ * The planned build that still needs most of `good`, and how much of it the
+ * ship can take: { qty, build, destId, completes }, or null.
+ */
+function buildUse(state, view, good, max) {
+  let best = null;
+  for (const { build } of plansNeeding(state, good)) {
+    const needed = stillNeededAt(state, build.stationId, good) - (view.stored[`${build.stationId}:${good}`] ?? 0);
+    if (needed >= 1 && (!best || needed > best.needed)) best = { build, needed };
+  }
+  if (!best) return null;
+  const qty = Math.min(max, best.needed);
+  return { qty, build: best.build, destId: best.build.stationId, completes: qty >= best.needed };
 }
 
 /**
@@ -400,7 +433,7 @@ function nearestGate(state, view, system) {
 }
 
 // Orders that make sense for a whole group of ships at once, in menu order.
-const GROUP_KINDS = ['mine', 'deliver', 'sell', 'buy', 'refit', 'jump', 'fly'];
+const GROUP_KINDS = ['mine', 'deliver', 'store', 'sell', 'buy', 'refit', 'jump', 'fly'];
 
 // Buys and deliveries are merged per good, the rest per kind.
 function groupKey(option) {
@@ -421,6 +454,27 @@ function shareDelivery(group) {
   return { ...group, members, qty: stillNeeded(group.contract) - left, completes: left < 1, reward: group.contract.reward };
 }
 
+/** Ships delivering to a yard's builds hand over no more than they still need, in order. */
+function shareStore(state, group) {
+  const left = {};
+  const members = [];
+  for (const member of group.members) {
+    const goods = {};
+    for (const [good, qty] of Object.entries(member.option.goods)) {
+      left[good] ??= stillNeededAt(state, group.stationId, good);
+      const take = Math.min(qty, left[good]);
+      if (take < 1) continue;
+      goods[good] = take;
+      left[good] -= take;
+    }
+    if (Object.keys(goods).length) members.push({ shipId: member.shipId, option: { ...member.option, goods } });
+  }
+  const goods = {};
+  for (const member of members) for (const [good, qty] of Object.entries(member.option.goods)) goods[good] = (goods[good] ?? 0) + qty;
+  const qty = Object.values(goods).reduce((sum, t) => sum + t, 0);
+  return { ...group, members, goods, qty, builds: buildsFor(state, group.stationId, goods), completes: completesPlans(state, group.stationId, goods) };
+}
+
 /**
  * Haulers that buy the same good in the same place share the credits and
  * the stock, and every tonne bought raises the price of the next. This
@@ -433,10 +487,11 @@ function sharePurchase(state, ships, group, at) {
   const first = group.members[0].option;
   let wanted = group.members.reduce((sum, member) => sum + member.option.qty, 0);
   if (first.contract) wanted = Math.min(wanted, stillNeeded(first.contract));
+  else if (first.build) wanted = Math.min(wanted, stillNeededAt(state, first.build.stationId, good));
   const known = knownAt(state, stationId, at);
   let qty = affordableQty(state, stationId, good, state.credits, wanted, known);
   const ship = ships.find((s) => s.id === group.members[0].shipId);
-  if (!first.contract && first.destId) qty = bestTradeQty(state, ship, good, first.destId, qty, at, stationId).qty;
+  if (!first.contract && !first.build && first.destId) qty = bestTradeQty(state, ship, good, first.destId, qty, at, stationId).qty;
   const members = [];
   let left = qty;
   for (const member of group.members) {
@@ -446,7 +501,8 @@ function sharePurchase(state, ships, group, at) {
     left -= take;
   }
   const cost = quote(state, stationId, good, qty, known).total;
-  const use = { contract: first.contract ?? null, destId: first.destId ?? null };
+  const use = { contract: first.contract ?? null, build: first.build ?? null, destId: first.destId ?? null };
+  if (first.build) return { ...group, ...use, members, qty, cost, completes: qty >= stillNeededAt(state, first.build.stationId, good) };
   if (first.contract) return { ...group, ...use, members, qty, cost, completes: qty >= stillNeeded(first.contract), reward: first.contract.reward };
   if (!first.destId) return { ...group, ...use, members, qty, cost };
   // Each ship pays its own way there and on to the buyer.
@@ -486,18 +542,20 @@ export function groupOrderOptions(state, ships, target, at = state.now) {
       group.total += option.total ?? 0;
       group.cost += option.cost ?? 0;
       group.contract ??= option.contract ?? null;
-      for (const good of option.goods ?? []) group.goods.add(good);
+      // Sales name their goods; a delivery's are counted in shareStore.
+      if (option.kind === 'sell') for (const good of option.goods) group.goods.add(good);
     }
   }
   const merged = [...groups.values()].map(({ notes, goods, ...rest }) => {
     let group = { ...rest, goods: [...goods] };
     if (group.kind === 'buy' && group.members.length) group = sharePurchase(state, ships, group, at);
     if (group.kind === 'deliver' && group.members.length) group = shareDelivery(group);
+    if (group.kind === 'store' && group.members.length) group = shareStore(state, group);
     const disabled = group.members.length === 0;
     return { ...group, of: ships.length, disabled, note: disabled ? (notes[0] ?? null) : null };
   });
-  // Buys for a contract first, then those for a buyer, best first.
-  const rank = (option) => (option.contract ? 2 : option.destId ? 1 : 0);
+  // Buys for a contract first, then for a build, then those for a buyer, best first.
+  const rank = (option) => (option.contract ? 3 : option.build ? 2 : option.destId ? 1 : 0);
   return GROUP_KINDS.flatMap((kind) => {
     const ofKind = merged.filter((option) => option.kind === kind);
     return kind === 'buy' ? ofKind.sort((a, b) => rank(b) - rank(a) || (b.profit ?? 0) - (a.profit ?? 0)) : ofKind;

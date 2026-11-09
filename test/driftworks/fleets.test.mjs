@@ -5,8 +5,9 @@ import { HOUR } from '../../public/games/driftworks/core/time.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { deserialize, serialize } from '../../public/games/driftworks/core/save.js';
 import { markSurveyed } from '../../public/games/driftworks/systems/explore.js';
-import { createShip, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
-import { candidates, commanderLevel, commanderPrice, hireCommander, hireLock, joiningOf, mapShips, onMap, traitsOf, wingOf } from '../../public/games/driftworks/systems/commanders.js';
+import { createShip } from '../../public/games/driftworks/systems/fleet.js';
+import { allowance, finishBuild, pointsUsed } from '../../public/games/driftworks/systems/shipyard.js';
+import { candidates, commanderLevel, commandersComing, hireCommander, hireCost, hireLock, joiningOf, mapShips, onMap, traitsOf, wingOf } from '../../public/games/driftworks/systems/commanders.js';
 import * as missions from '../../public/games/driftworks/systems/missions.js';
 import { areaAround, canStartMission, doctrineOf, joinFleet, leaveFleet, setDoctrine, startMission } from '../../public/games/driftworks/systems/missions.js';
 import { cancelOrder, giveOrder } from '../../public/games/driftworks/systems/orders.js';
@@ -15,7 +16,7 @@ import { buyersOf } from '../../public/games/driftworks/systems/advisor.js';
 import { sellToStation } from '../../public/games/driftworks/systems/market.js';
 import { newGame } from './helpers.mjs';
 
-const ACT_2 = ['warp-drive', 'scout-licence', 'lane-charts', 'jump-1', 'kite-licence', 'sealed-holds', 'hold-1', 'hold-2', 'hold-3', 'laser-1', 'laser-2'];
+const ACT_2 = ['warp-drive', 'scout-licence', 'lane-charts', 'jump-1', 'sealed-holds', 'hold-1', 'hold-2', 'hold-3', 'laser-1', 'laser-2'];
 
 /** A company early in act 3: one shielding, the near galaxy surveyed. */
 function act3({ fleet = true } = {}) {
@@ -26,10 +27,11 @@ function act3({ fleet = true } = {}) {
   return state;
 }
 
+/** Hires a commander and finishes their Osprey at once. */
 function hire(state, i = 0) {
   const result = hireCommander(state, candidates(state)[i].id, 'halcyon-shipyard');
   assert.ok(result.ok, result.error);
-  return result.ship;
+  return finishBuild(state, result.build, state.now);
 }
 
 test('Fleet command I brings three commanders to hire, each with a different trait', () => {
@@ -44,15 +46,37 @@ test('Fleet command I brings three commanders to hire, each with a different tra
   assert.equal(new Set(offered.map((c) => c.traits[0])).size, 3);
   assert.deepEqual(candidates(state), offered, 'the same three until a hire');
 
-  const price = shipPrice(state);
   const credits = state.credits;
+  const cost = hireCost(state, 'halcyon-shipyard');
+  assert.equal(cost.price, 750000);
+  assert.ok(cost.ship > 40000, 'the Osprey is built too');
   const tamsin = hire(state, 1);
   assert.equal(tamsin.name, offered[1].name);
   assert.equal(tamsin.hull, 'osprey');
-  assert.equal(state.credits, credits - 750000);
-  assert.equal(shipPrice(state), price, 'a commander does not raise ship prices');
-  assert.equal(commanderPrice(state), 1500000);
+  assert.equal(state.credits, credits - cost.total);
+  assert.equal(hireCost(state, 'halcyon-shipyard').price, 1500000);
   assert.notDeepEqual(candidates(state).map((c) => c.name), offered.map((c) => c.name));
+});
+
+test('a commander takes command once their Osprey is built, and needs its points free', () => {
+  const state = act3();
+  const used = pointsUsed(state);
+  const result = hireCommander(state, candidates(state)[0].id, 'halcyon-shipyard');
+  assert.ok(result.ok, result.error);
+  assert.ok(!state.ships.some((ship) => ship.commander), 'not yet');
+  assert.deepEqual(commandersComing(state), [result.build]);
+  assert.equal(pointsUsed(state), used + 2, 'its points are taken at once');
+  assert.equal(result.build.endsAt - state.now, 2 * HOUR);
+  advance(state, result.build.endsAt);
+  const lead = state.ships.find((ship) => ship.commander);
+  assert.equal(lead.name, result.build.name);
+  assert.equal(lead.at, 'halcyon-shipyard');
+  assert.deepEqual(commandersComing(state), []);
+  // No room for another Osprey: the hire waits.
+  while (pointsUsed(state) < allowance(state)) createShip(state, 'mule', 'halcyon-shipyard');
+  const next = hireCommander(state, candidates(state)[0].id, 'halcyon-shipyard');
+  assert.equal(next.ok, false);
+  assert.match(next.error, /allowance point/);
 });
 
 /** Ships of a hull, new at the shipyard where commanders are hired, so they go aboard at once. */

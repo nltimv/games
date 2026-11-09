@@ -67,7 +67,7 @@ export function createApp(session, doc = document) {
   // `map` is the map shown behind the panels ('system' or 'galaxy'),
   // `systemId` the system the System view shows and `marketGood` the good
   // whose prices the galaxy map shows (with Market charts).
-  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null };
+  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null, salvage: null };
   let shownCredits = null;
   let panelKey = null;
   // On phones, the panel's sheet (created with the map, below).

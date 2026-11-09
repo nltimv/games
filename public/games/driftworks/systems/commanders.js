@@ -1,6 +1,8 @@
 // Commanders: three seeded candidates at every shipyard, hired with their
 // Osprey-class command ship, who gain levels from hours on missions and
-// lead a wing of the company's ships (see systems/missions.js).
+// lead a wing of the company's ships (see systems/missions.js). Hiring pays
+// the commander's price and builds the Osprey at the yard (see
+// systems/shipyard.js): the commander takes command once it is built.
 //
 // A commander is a ship with a `commander` record:
 //   { traits: [first, second], portrait, missionTime, missions, report }
@@ -26,8 +28,9 @@ import { createRng, hashString } from '../core/rng.js';
 import { HOUR } from '../core/time.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { addLog } from './log.js';
-import { createShip, findShip } from './fleet.js';
+import { findShip } from './fleet.js';
 import { isResearched } from './research.js';
+import { buildLock, buildNowCost, buildShip } from './shipyard.js';
 
 const fail = (error) => ({ ok: false, error });
 
@@ -104,11 +107,31 @@ export function commanderPrice(state) {
   return COMMANDER_PRICES[Math.min(state.hires ?? 0, COMMANDER_PRICES.length - 1)];
 }
 
-/** Whether a commander can be hired at this station now, or why not. */
+/** Whether a commander can be hired at this station at all, or why not. */
 export function hireLock(state, stationId) {
   if (!fleetCommand(state)) return 'Needs the Fleet command I research.';
   if (findStation(stationId)?.type !== 'shipyard') return 'Commanders are hired at shipyards.';
   return null;
+}
+
+/** What hiring costs at a yard: the commander's price, and building their Osprey there. */
+export function hireCost(state, stationId) {
+  const price = commanderPrice(state);
+  const ship = buildNowCost(state, 'osprey', stationId);
+  return { price, ship: ship.total, total: price + ship.total };
+}
+
+/** Why the next hire can't happen now (the Osprey's build, or credits), or null. */
+export function hireShortfall(state, stationId) {
+  const build = buildLock(state, 'osprey', stationId);
+  if (build) return build;
+  const { total } = hireCost(state, stationId);
+  return state.credits < total ? `You need ${formatCredits(total - state.credits)} more.` : null;
+}
+
+/** Commanders whose Osprey is still being built. */
+export function commandersComing(state) {
+  return (state.builds ?? []).filter((build) => build.commander);
 }
 
 export function hireCommander(state, candidateId, stationId, at = state.now) {
@@ -116,15 +139,15 @@ export function hireCommander(state, candidateId, stationId, at = state.now) {
   if (lock) return fail(lock);
   const candidate = candidates(state).find((c) => c.id === candidateId);
   if (!candidate) return fail('That commander has taken other work.');
+  const short = hireShortfall(state, stationId);
+  if (short) return fail(short);
   const price = commanderPrice(state);
-  if (state.credits < price) return fail(`You need ${formatCredits(price - state.credits)} more.`);
   state.credits -= price;
-  const ship = createShip(state, 'osprey', stationId);
-  ship.name = candidate.name;
-  ship.commander = { traits: candidate.traits, portrait: candidate.portrait, missionTime: 0, missions: 0, report: null };
   state.hires = (state.hires ?? 0) + 1;
-  addLog(state, at, `Hired ${candidate.name}, a ${TRAITS[candidate.traits[0]].name.toLowerCase()} commander, with an Osprey-class command ship, for ${formatCredits(price)}`, 'purchase', -price);
-  return { ok: true, ship };
+  addLog(state, at, `Hired ${candidate.name}, a ${TRAITS[candidate.traits[0]].name.toLowerCase()} commander, for ${formatCredits(price)}`, 'purchase', -price);
+  const commander = { traits: candidate.traits, portrait: candidate.portrait, missionTime: 0, missions: 0, report: null };
+  const built = buildShip(state, 'osprey', stationId, at, { name: candidate.name, commander });
+  return { ok: built.ok, build: built.build, error: built.error };
 }
 
 // ---------- Levels and traits ----------

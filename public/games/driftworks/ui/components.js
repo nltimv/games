@@ -113,6 +113,14 @@ export function line(left, right, className) {
   return h('div', { class: `dw-line${className ? ` ${className}` : ''}` }, h('span', null, left), h('span', null, right));
 }
 
+/** "For Mule-3": goods a planned build still needs. */
+export function buildTag(builds) {
+  const names = builds.map((build) => build.name);
+  if (!names.length) return null;
+  const text = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+  return h('span', { class: 'dw-build-tag' }, `For ${text}`);
+}
+
 /** The "!" that marks contracts, as on the map: gold for an offer, aqua for one running. */
 export function contractMark(running = false) {
   return h('span', { class: `dw-contract-mark${running ? ' is-running' : ''}`, 'aria-hidden': 'true' }, '!');

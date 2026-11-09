@@ -33,6 +33,8 @@ export function researchEffect(research, state = null) {
       return `Every ship holds ${ORDER_SLOTS[level]} orders.`;
     case 'seal':
       return 'Haulers carry processed materials and components. Fitted at the shipyard.';
+    case 'licence':
+      return `A fleet allowance of ${research.allowance} points.`;
     default:
       return '';
   }

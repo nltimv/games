@@ -280,6 +280,7 @@ test('a refit is paid up front, fits the newest modules at the shipyard, and kee
 
 test('refit all books every ship that is behind, and clearing refunds a queued refit', () => {
   const state = newGame({ credits: 1000 });
+  state.ships = state.ships.slice(0, 1);
   const a = firstShip(state);
   const b = createShip(state, 'mule', 'halcyon-refinery');
   state.research.done.push('hold-1');

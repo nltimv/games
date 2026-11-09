@@ -10,9 +10,10 @@ import { randomSeed } from './rng.js';
 // Version 3 added the galaxy (act 2); version 2 saves upgrade (see save.js).
 // Version 4 made contracts a fixed price for a set amount.
 // Version 5 added sealed holds, hazard shielding, signals and act 3.
-export const SAVE_VERSION = 5;
+// Version 6 replaced ship prices with the fleet allowance and building.
+export const SAVE_VERSION = 6;
 export const OLDEST_SAVE_VERSION = 2;
-export const STARTING_CREDITS = 250;
+export const STARTING_CREDITS = 600;
 
 export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
   useGalaxy(seed);
@@ -45,6 +46,9 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
       signals: 0,
       salvaged: 0,
       missions: 0,
+      // Builds started, and what went into them: { licences, materials, fees }.
+      builds: 0,
+      shipSpend: { licences: 0, materials: 0, fees: 0 },
       // Profit from sales in other systems than the one the goods came from.
       farSales: 0,
       // Tonnes sold and profit made per goods tier: { [tier]: number }.
@@ -57,6 +61,13 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
     contracts: { offers: [], active: [], nextId: 1, checks: {} },
     ships: [],
     nextShipId: 1,
+    // Ships being built or planned at shipyards, and the goods delivered
+    // for builds at each yard (see systems/shipyard.js).
+    builds: [],
+    nextBuildId: 1,
+    stores: {},
+    // Allowance points an old save got so its whole fleet still fits.
+    allowanceBonus: 0,
     markets: {},
     // Systems your scouts have surveyed (Aurel is always known).
     surveyed: [],
@@ -73,6 +84,7 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
     log: [],
   };
   createShip(state, 'mule', START_STATION);
-  addLog(state, now, 'Your company starts in Aurel with one mining ship, Mule-1.', 'info');
+  createShip(state, 'kite', START_STATION);
+  addLog(state, now, 'Your company starts in Aurel with a mining ship, Mule-1, and a hauler, Kite-1.', 'info');
   return state;
 }

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buyCargo, canCarry, cargoTotal, freeHold, sellCargo } from '../../public/games/driftworks/systems/cargo.js';
-import { buyShip, createShip, shipPrice } from '../../public/games/driftworks/systems/fleet.js';
-import { SHIP_PRICES } from '../../public/games/driftworks/content/ships.js';
+import { createShip } from '../../public/games/driftworks/systems/fleet.js';
+import { STARTING_CREDITS } from '../../public/games/driftworks/core/state.js';
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { newGame, firstShip } from './helpers.mjs';
 
@@ -13,7 +13,7 @@ test('selling ore pays credits and counts toward stats', () => {
   const result = sellCargo(state, ship, 'ferrite-ore');
   assert.ok(result.ok);
   assert.equal(result.qty, 60);
-  assert.equal(state.credits, 250 + result.total);
+  assert.equal(state.credits, STARTING_CREDITS + result.total);
   assert.equal(state.stats.oreSold, 60);
   assert.equal(state.stats.earned, result.total);
   assert.equal(cargoTotal(ship), 0);
@@ -70,33 +70,4 @@ test('miners cannot buy goods and holds have a tier limit', () => {
   assert.equal(canCarry(kite, 'iron'), true);
   assert.equal(canCarry(kite, 'steel'), false);
   assert.equal(buyCargo(state, kite, 'steel', 10).ok, false);
-});
-
-test('ships are bought at a shipyard with enough credits', () => {
-  const state = newGame({ credits: 100 });
-  assert.equal(buyShip(state, 'mule', 'halcyon-shipyard').ok, false, 'too poor');
-  assert.equal(buyShip(state, 'mule', 'halcyon-refinery').ok, false, 'not a shipyard');
-  state.credits = 10_000;
-  const price = shipPrice(state);
-  const result = buyShip(state, 'mule', 'halcyon-shipyard');
-  assert.ok(result.ok);
-  assert.equal(result.ship.name, 'Mule-2');
-  assert.equal(result.ship.at, 'halcyon-shipyard');
-  assert.equal(state.credits, 10_000 - price);
-});
-
-test('each ship costs more than the last, whatever its hull', () => {
-  const state = newGame({ credits: 1_000_000 });
-  assert.equal(shipPrice(state), SHIP_PRICES[0]);
-  createShip(state, 'mule', 'halcyon-shipyard');
-  assert.equal(shipPrice(state), SHIP_PRICES[1]);
-  while (state.ships.length <= SHIP_PRICES.length) createShip(state, 'mule', 'halcyon-shipyard');
-  assert.equal(shipPrice(state), Math.round((SHIP_PRICES.at(-1) * 1.5) / 10000) * 10000);
-});
-
-test('Kites need the Hauler licence', () => {
-  const state = newGame({ credits: 10_000 });
-  assert.match(buyShip(state, 'kite', 'halcyon-shipyard').error, /Hauler licence/);
-  state.research.done.push('kite-licence');
-  assert.ok(buyShip(state, 'kite', 'halcyon-shipyard').ok);
 });

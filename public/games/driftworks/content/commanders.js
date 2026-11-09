@@ -75,5 +75,5 @@ export function nameGender(name) {
 
 export const LAST_NAMES = [
   'Vey', 'Calder', 'Morrow', 'Ashby', 'Quill', 'Strand', 'Okafor', 'Lindqvist', 'Harrow', 'Pell', 'Sorensen', 'Achebe',
-  'Rook', 'Varga', 'Ember', 'Tanaka', 'Wilde', 'Brask', 'Ivanova', 'Hollis', 'Marchetti', 'Dunmore', 'Keel', 'Sato',
+  'Rook', 'Ember', 'Tanaka', 'Wilde', 'Brask', 'Ivanova', 'Hollis', 'Marchetti', 'Dunmore', 'Keel', 'Sato',
 ];

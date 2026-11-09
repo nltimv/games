@@ -10,6 +10,9 @@
 //   { type: 'buy', stationId, good, qty }  haulers: fly there and buy
 //   { type: 'deliver', stationId, good }   fly to a station and hand `good`
 //                                       to the contract running there
+//   { type: 'store', stationId }        fly to a shipyard and put what the
+//                                       builds planned there need into its
+//                                       build store (systems/shipyard.js)
 //   { type: 'fly', stationId }
 //   { type: 'refit', modules, paid, stationId }  fly to a shipyard and fit
 //                                       modules (see orderRefit; paid up front)
@@ -46,6 +49,7 @@ import { findEntry } from './market.js';
 import { canCarry, cargoTotal, holdNote } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
+import { buildsFor, storeGoods } from './shipyard.js';
 import { isResearched, orderSlots } from './research.js';
 import { flightTimeFrom, plotCourse, shipPosition, travelTime } from './travel.js';
 import { flight, route, stationLegs } from './courses.js';
@@ -199,6 +203,32 @@ function buildDeliver(state, view, { stationId, good }, start) {
   };
 }
 
+function buildStore(state, view, { stationId }, start) {
+  const station = findStation(stationId);
+  if (station?.type !== 'shipyard') return fail('Only a shipyard keeps a build store.');
+  const goods = storeGoods(state, stationId, view.cargo, view.stored);
+  const names = buildsFor(state, stationId, goods).map((build) => build.name);
+  if (!names.length) return fail(`${view.name} carries nothing the builds planned at ${station.name} need.`);
+  const course = stationLegs(state, view, stationId, start);
+  if (!course.ok) return course;
+  const { end, legs } = course;
+  const what = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+  return {
+    ok: true,
+    order: {
+      type: 'store',
+      label: `Delivering goods for ${what} to ${station.name}`,
+      flightLabel: `Flying to ${station.name} with goods for ${what}`,
+      target: stationId,
+      startedAt: start,
+      endsAt: end,
+      steps: [{ at: end, kind: 'store', station: stationId, goods }],
+      legs,
+      ...route(course),
+    },
+  };
+}
+
 function buildFly(state, view, { stationId }, start) {
   // Any place will do: a station, a field or a gate.
   const station = findPlace(stationId);
@@ -300,6 +330,7 @@ const BUILDERS = {
   sell: buildSell,
   buy: buildBuy,
   deliver: buildDeliver,
+  store: buildStore,
   fly: buildFly,
   refit: buildRefit,
   survey: buildSurvey,
@@ -339,6 +370,15 @@ function applySteps(view, order, from = 0) {
       if (view.cargo[step.good] <= 0) delete view.cargo[step.good];
       view.delivered = { ...view.delivered, [step.contract]: (view.delivered?.[step.contract] ?? 0) + qty };
       view.at = step.station;
+    } else if (step.kind === 'store') {
+      for (const [good, wanted] of Object.entries(step.goods)) {
+        const qty = Math.min(wanted, view.cargo[good] ?? 0);
+        view.cargo[good] = (view.cargo[good] ?? 0) - qty;
+        if (view.cargo[good] <= 0) delete view.cargo[good];
+        const key = `${step.station}:${good}`;
+        view.stored = { ...view.stored, [key]: (view.stored?.[key] ?? 0) + qty };
+      }
+      view.at = step.station;
     } else if (step.kind === 'refit') {
       view.modules = { ...view.modules, ...step.modules };
       view.at = step.station;
@@ -366,6 +406,8 @@ export function projectShip(state, ship, built = null) {
     modules: { ...ship.modules },
     // Tonnes its orders will deliver to each contract: { [contractId]: t }.
     delivered: {},
+    // And to each yard's builds: { 'stationId:good': t }.
+    stored: {},
     time: state.now,
   };
   if (ship.order) {
@@ -917,6 +959,8 @@ export function specLabel(spec) {
       return `Buy ${formatNumber(spec.qty)} t ${lower(spec.good)} at ${findStation(spec.stationId)?.name ?? '?'}`;
     case 'deliver':
       return `Deliver ${lower(spec.good)} to ${findStation(spec.stationId)?.name ?? '?'}`;
+    case 'store':
+      return `Deliver for builds at ${findStation(spec.stationId)?.name ?? '?'}`;
     case 'fly':
       return `Fly to ${placeName(spec.stationId)}`;
     case 'refit':

@@ -1,6 +1,6 @@
 // The simulation clock. Instead of ticking every second, it jumps from one
-// event to the next (an order step, a research finishing), so catching up
-// after hours away is instant.
+// event to the next (an order step, a research or a build finishing), so
+// catching up after hours away is instant.
 //
 // Ships work through their queued orders on their own, then wait. How far a
 // company gets while the player is away is bounded by the queue length and
@@ -20,6 +20,7 @@ import { addLog } from '../systems/log.js';
 import { findEntry } from '../systems/market.js';
 import { dispatch, endMission, finishIfDone, meetCommander, nextMissionEnd, trackMission, wakeFleets } from '../systems/missions.js';
 import { findShip } from '../systems/fleet.js';
+import { finishBuild, nextBuild, storeCargo } from '../systems/shipyard.js';
 
 const MAX_STEPS = 50_000;
 
@@ -41,6 +42,8 @@ function nextDue(state, until) {
     const research = state.research[slot];
     if (research && research.endsAt <= until && (!best || research.endsAt < best.at)) best = { research, slot, at: research.endsAt };
   }
+  const build = nextBuild(state);
+  if (build && build.endsAt <= until && (!best || build.endsAt < best.at)) best = { build, at: build.endsAt };
   return best;
 }
 
@@ -82,6 +85,13 @@ const STEP_HANDLERS = {
     const result = deliverCargo(state, ship, step.good, step.at);
     if (!result.ok) addLog(state, step.at, `${ship.name} could not deliver: ${result.error}`, 'warning');
   },
+  store(state, ship, step) {
+    ship.at = step.station;
+    for (const [good, qty] of Object.entries(step.goods)) {
+      const result = storeCargo(state, ship, good, qty, step.at);
+      if (!result.ok) addLog(state, step.at, `${ship.name} could not deliver: ${result.error}`, 'warning');
+    }
+  },
   buy(state, ship, step) {
     ship.at = step.station;
     const result = buyCargo(state, ship, step.good, step.qty, step.at);
@@ -117,6 +127,8 @@ export function advance(state, until) {
     state.now = Math.max(state.now, due.at);
     if (due.mission) {
       endMission(state, due.mission, due.at);
+    } else if (due.build) {
+      finishBuild(state, due.build, due.at);
     } else if (due.research) {
       finishResearch(state, due.at, due.slot);
       openStanding(state);
@@ -152,6 +164,7 @@ export function nextEventAt(state) {
     state.research.second?.endsAt,
     ...state.ships.map((ship) => nextJump(ship.order)?.start ?? ship.order?.steps[ship.order.stepIndex]?.at),
     nextMissionEnd(state)?.at,
+    nextBuild(state)?.endsAt,
     nextContractEvent(state),
   ].filter((t) => t != null);
   return times.length ? Math.min(...times) : null;

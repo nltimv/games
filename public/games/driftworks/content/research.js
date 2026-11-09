@@ -3,15 +3,46 @@
 //
 // Module lines (hold, laser, engine) raise the level of a module; ships get
 // it from a refit at the shipyard, and new ships come with it. The queue
-// line and the single researches apply to the whole company at once.
-// Each level needs the one before it in its line.
+// line, the Fleet licence line (`allowance`: the fleet allowance it gives)
+// and the single researches apply to the whole company at once. Each level
+// needs the one before it in its line.
+//
+// The Hauler licence ('kite-licence') is gone: a new company starts with a
+// Kite. Old saves keep it in their done list, where it does nothing.
+
+/** The Fleet licence line: the allowance each level gives, its cost and time, and what it waits for. */
+const LICENCES = [
+  { allowance: 4, cost: 300, minutes: 1 },
+  { allowance: 6, cost: 2500, minutes: 5 },
+  { allowance: 8, cost: 15000, minutes: 15 },
+  { allowance: 10, cost: 60000, minutes: 30 },
+  { allowance: 12, cost: 150000, minutes: 60 },
+  { allowance: 14, cost: 350000, minutes: 120 },
+  // Act 2.
+  { allowance: 16, cost: 800000, minutes: 180, needs: ['warp-drive'] },
+  { allowance: 18, cost: 1500000, minutes: 240 },
+  // Act 3.
+  { allowance: 20, cost: 2500000, minutes: 360, shields: 1 },
+  { allowance: 24, cost: 4000000, minutes: 480 },
+];
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+
+export const LICENCE_LINE = LICENCES.map(({ needs, ...licence }, i) => ({
+  id: `licence-${i + 1}`,
+  name: `Fleet licence ${ROMAN[i]}`,
+  line: 'licence',
+  level: i + 1,
+  ...licence,
+  // A level that waits for more than the one before it lists both.
+  ...(needs ? { needs: [`licence-${i}`, ...needs] } : {}),
+}));
 
 export const RESEARCH = [
   { id: 'hold-1', name: 'Cargo racks I', line: 'hold', level: 1, cost: 100, minutes: 1 },
+  ...LICENCE_LINE,
   { id: 'brokerage', name: 'Brokerage', cost: 50, minutes: 1, effect: 'Stations offer contracts: a fixed price for a set amount of one good.' },
   { id: 'queue-1', name: 'Order queue I', line: 'queue', level: 1, cost: 300, minutes: 3 },
   { id: 'laser-1', name: 'Mining laser I', line: 'laser', level: 1, cost: 500, minutes: 4 },
-  { id: 'kite-licence', name: 'Hauler licence', cost: 700, minutes: 5, effect: 'Halcyon Shipyard sells Kite-class haulers.' },
   { id: 'hold-2', name: 'Cargo racks II', line: 'hold', level: 2, cost: 1500, minutes: 8 },
   { id: 'engine-1', name: 'Engines I', line: 'engine', level: 1, cost: 2500, minutes: 12 },
   { id: 'queue-2', name: 'Order queue II', line: 'queue', level: 2, cost: 4000, minutes: 20 },

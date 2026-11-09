@@ -102,6 +102,13 @@ function describe(option) {
         note: joinNote(option.now ? 'Right now' : timing(option), progressText(option.contract)),
         good: option.good,
       };
+    case 'store':
+      return {
+        label: `Deliver for ${buildNames(option.builds)}`,
+        value: blocked ?? storeValue(option),
+        note: joinNote(goodsText(option.goods), option.now ? 'Right now' : timing(option)),
+        good: Object.keys(option.goods)[0],
+      };
     case 'buy':
       return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: joinNote(buyUse(option), timing(option)), good: option.good };
     case 'refit':
@@ -130,9 +137,28 @@ function contractValue(option) {
   return option.completes ? plusCredits(option.reward) : `toward ${formatCredits(option.reward)}`;
 }
 
-/** Where a buy is headed: a contract, the best buyer known, or nowhere better yet. */
+/** "Mule-3", "Mule-3 and Kite-2": the planned builds goods go to. */
+function buildNames(builds) {
+  const names = (builds ?? []).map((build) => build.name);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : (names[0] ?? 'a build');
+}
+
+/** "12 t iron, 6 t graphite". */
+function goodsText(goods) {
+  return Object.entries(goods ?? {})
+    .map(([good, qty]) => `${tonnes(qty)} ${goodName(good).toLowerCase()}`)
+    .join(', ');
+}
+
+/** A delivery to a yard's builds: whether it completes the recipe. */
+function storeValue(option) {
+  return option.completes ? 'completes the recipe' : 'part of the recipe';
+}
+
+/** Where a buy is headed: a contract, a planned build, the best buyer known, or nowhere better yet. */
 function buyUse(option) {
   if (option.contract) return `For the contract at ${placeName(option.destId, option.stationId)}${option.completes ? `, which pays ${formatCredits(option.reward)}` : ''}`;
+  if (option.build) return `For ${option.build.name} at ${placeName(option.destId, option.stationId)}`;
   if (option.destId) return `Sells for about ${signedCredits(option.profit)} at ${placeName(option.destId, option.stationId)}`;
   return 'No known buyer pays more';
 }
@@ -352,6 +378,8 @@ function describeGroup(option) {
       };
     case 'deliver':
       return { label: `Deliver ${tonnes(option.qty, option.good)}`, value: blocked ?? contractValue(option), note: progressText(option.contract), good: option.good };
+    case 'store':
+      return { label: `Deliver for ${buildNames(option.builds)}`, value: blocked ?? storeValue(option), note: option.disabled ? null : goodsText(option.goods), good: Object.keys(option.goods ?? {})[0] };
     case 'buy':
       return { label: `Buy ${tonnes(option.qty, option.good)}`, value: blocked ?? minusCredits(option.cost), note: option.disabled ? null : lowerFirst(buyUse(option)), good: option.good };
     case 'refit':
