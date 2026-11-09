@@ -30,6 +30,12 @@ export function fleetPanel(ctx) {
   const idle = ships.filter((s) => !s.order && !s.mission).length;
   const rows = ships.map((ship) => shipRow(ctx, ship));
   const builds = (state.builds ?? []).map((build) => buildRow(ctx, build));
+  // Orders for every ship here at once, as for a box selection.
+  const action = groupAction(ctx);
+  const actions = [
+    action('Run again', ships.filter((ship) => canRunAgain(state, ship)), 'fleet-run-again', runAgain, (n) => `${plural(n, 'ship')} running their last orders again`, 'primary'),
+    action('Repeat to fill', ships.filter((ship) => canRepeat(state, ship)), 'fleet-repeat-fill', repeatToFill, (n) => `${plural(n, 'ship')} repeating their orders`),
+  ].filter(Boolean);
   return [
     panelHead({ title: 'Fleet', subtitle: `${plural(state.ships.length, 'ship')} · ${idle} waiting for orders`, onClose: ctx.close }),
     h(
@@ -38,6 +44,7 @@ export function fleetPanel(ctx) {
       line('Fleet allowance', `${pointsUsed(state)} / ${allowance(state)} points`),
       h('p', { class: 'dw-note' }, `Points per ship: ${Object.values(HULLS).map((hull) => `${hull.namePrefix} ${hull.points}`).join(', ')}.`),
     ),
+    actions.length ? h('div', { class: 'dw-row-actions' }, actions) : null,
     h('ul', { class: 'dw-list' }, rows, builds),
     button('Build ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
   ];
@@ -75,16 +82,9 @@ function forShips(ctx, ships, fn) {
   });
 }
 
-/** Ships picked together (a box selection): what each does, and orders for all of them. */
-export function groupPanel(ctx, ids) {
-  const { state } = ctx;
-  const ships = ids.map((id) => findShip(state, id)).filter(Boolean);
-  const busy = ships.filter((ship) => ship.order).length;
-  const again = ships.filter((ship) => canRunAgain(state, ship));
-  const repeat = ships.filter((ship) => canRepeat(state, ship));
-  const waiting = ships.filter((ship) => ship.queue.length);
-  const cancellable = ships.filter((ship) => ship.order && ship.order.type !== 'standby' && !(ship.order.type === 'fly' && orderPhase(ship.order, ctx.now).flying));
-  const action = (text, list, key, fn, done, variant) =>
+/** A button that runs one order function for a list of ships, or null for an empty list. */
+function groupAction(ctx) {
+  return (text, list, key, fn, done, variant) =>
     list.length
       ? button(text, {
           small: true,
@@ -97,6 +97,18 @@ export function groupPanel(ctx, ids) {
           },
         })
       : null;
+}
+
+/** Ships picked together (a box selection): what each does, and orders for all of them. */
+export function groupPanel(ctx, ids) {
+  const { state } = ctx;
+  const ships = ids.map((id) => findShip(state, id)).filter(Boolean);
+  const busy = ships.filter((ship) => ship.order).length;
+  const again = ships.filter((ship) => canRunAgain(state, ship));
+  const repeat = ships.filter((ship) => canRepeat(state, ship));
+  const waiting = ships.filter((ship) => ship.queue.length);
+  const cancellable = ships.filter((ship) => ship.order && ship.order.type !== 'standby' && !(ship.order.type === 'fly' && orderPhase(ship.order, ctx.now).flying));
+  const action = groupAction(ctx);
   const actions = [
     action('Run again', again, 'group-run-again', runAgain, (n) => `${plural(n, 'ship')} running their last orders again`, 'primary'),
     action('Repeat to fill', repeat, 'group-repeat-fill', repeatToFill, (n) => `${plural(n, 'ship')} repeating their orders`),

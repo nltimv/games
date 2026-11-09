@@ -26,6 +26,7 @@ import { findStation } from '../content/galaxy.js';
 import { formatCredits } from '../../../shared/js/format.js';
 import { MINUTE } from '../core/time.js';
 import { addLog } from './log.js';
+import { removeCargo } from './cargo.js';
 import { createShip, hullLock, hullsForSale } from './fleet.js';
 import { researchLevel } from './research.js';
 
@@ -278,12 +279,11 @@ export function storeCargo(state, ship, good, qty = null, at = state.now) {
   if (amount < 1) return fail(`No build planned at ${findStation(stationId).name} needs ${goodName(good).toLowerCase()}.`);
   // Names the builds it goes to before they take it.
   const forBuilds = plansNeeding(state, good, stationId).map((row) => row.build.name);
-  ship.cargo[good] -= amount;
-  if (ship.cargo[good] <= 0) delete ship.cargo[good];
+  const basis = removeCargo(ship, good, amount);
   state.stats.stored = (state.stats.stored ?? 0) + amount;
   addLog(state, at, `${ship.name} delivered ${amount} t ${goodName(good).toLowerCase()} to ${findStation(stationId).name}${forBuilds.length ? ` for ${listNames(forBuilds)}` : ''}`, 'arrival');
   addToStore(state, stationId, good, amount, at);
-  return { ok: true, qty: amount };
+  return { ok: true, qty: amount, basis };
 }
 
 const listNames = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]);

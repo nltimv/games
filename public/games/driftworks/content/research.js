@@ -82,9 +82,9 @@ export const RESEARCH = [
   { id: 'shield-ion', name: 'Ion shielding', hazard: 'ion storms', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
   { id: 'shield-radiation', name: 'Radiation shielding', hazard: 'radiation', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
   // Act 3: Pathfinder.
-  { id: 'fleet-1', name: 'Fleet command I', shields: 1, cost: 1000000, minutes: 480, effect: 'Shipyards offer commanders, who lead wings of 4 ships on missions within 1 jump, for up to 4 hours.' },
-  { id: 'fleet-2', name: 'Fleet command II', needs: ['fleet-1'], cost: 1500000, minutes: 600, effect: 'Wings of 6, areas of 2 jumps and missions of up to 8 hours.' },
-  { id: 'fleet-3', name: 'Fleet command III', needs: ['fleet-2'], shields: 2, cost: 2500000, minutes: 840, effect: 'Wings of 8, areas of 3 jumps and missions of up to 12 hours.' },
+  { id: 'fleet-1', name: 'Fleet command I', shields: 1, cost: 1000000, minutes: 480, effect: 'Shipyards offer commanders, who lead wings of 4 ships on missions within 1 jump, for up to 16 hours.' },
+  { id: 'fleet-2', name: 'Fleet command II', needs: ['fleet-1'], cost: 1500000, minutes: 600, effect: 'Wings of 6, areas of 2 jumps and missions of up to 24 hours.' },
+  { id: 'fleet-3', name: 'Fleet command III', needs: ['fleet-2'], shields: 2, cost: 2500000, minutes: 840, effect: 'Wings of 8, areas of 3 jumps and missions of up to 48 hours.' },
   { id: 'trade-network', name: 'Trade network', needs: ['trade-desk'], shields: 1, cost: 1200000, minutes: 360, effect: 'The trade card and Buy notes look at every surveyed system.' },
   { id: 'deep-shielding', name: 'Deep shielding', shields: 3, cost: 4000000, minutes: 720, effect: 'Every ship can enter the systems past 8 lanes from home, whatever their hazard.' },
   {

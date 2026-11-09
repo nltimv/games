@@ -32,6 +32,13 @@ export function trip(ms) {
   return formatDuration(ms);
 }
 
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+
+/** "Cargo racks V": the research that brings a Cargo racks level. */
+export function rackName(level) {
+  return `Cargo racks ${ROMAN[level] ?? level}`;
+}
+
 /** "back 14:32" style clock times. */
 export function at(timestamp) {
   return formatClock(timestamp);

@@ -2,6 +2,7 @@
 // systems/shipyard.js for building them).
 
 import { HULLS } from '../content/ships.js';
+import { fittable } from './modules.js';
 import { findResearch } from '../content/research.js';
 import { STATION_TYPES } from '../content/stations.js';
 import { findFaction, findStation } from '../content/galaxy.js';
@@ -21,8 +22,8 @@ export function createShip(state, hullId, stationId, name = null) {
     at: stationId,
     cargo: {},
     costBasis: {},
-    // Fitted module levels; new ships get the newest researched.
-    modules: bestModules(state),
+    // Fitted module levels; new ships get the newest researched that fit the hull.
+    modules: fittable(hullId, bestModules(state)),
     order: null,
     // Orders waiting to start after the current one.
     queue: [],

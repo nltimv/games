@@ -42,6 +42,8 @@
 //
 // The bot counts one click per thing it does: a menu pick, a button.
 // Re-running several ships' routes is two clicks: select them, then Run again.
+// Repeat to fill for every ship that has room is two clicks too: the Fleet
+// panel, then its Repeat to fill.
 //
 // Starting from a save: act 3 takes weeks of game time, so a run can save
 // the game when it reaches a goal and later runs can start from there:
@@ -49,6 +51,11 @@
 //   npm run balance -- worker 8 --from=/tmp/act3.json
 // A run from a save starts the next morning, with no first session.
 // --save-at=day5:/tmp/day5.json saves at the end of a day instead.
+//
+// Comparing hulls: --haulers=heron (or kite) turns every hauler in the save
+// into Herons (or Kites) for the same points, and the bot then builds and
+// salvages nothing. Two runs from one save give profit per point for each:
+//   npm run balance -- worker 3 --from=/tmp/act3.json --haulers=heron
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createGame } from '../../public/games/driftworks/core/state.js';
@@ -62,7 +69,7 @@ import { GOODS } from '../../public/games/driftworks/content/goods.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
 import { allSystems, lanesFrom, systemOf, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
 import { checkGoals } from '../../public/games/driftworks/systems/goals.js';
-import { hullLock, missingLicence } from '../../public/games/driftworks/systems/fleet.js';
+import { createShip, hullLock, missingLicence } from '../../public/games/driftworks/systems/fleet.js';
 import {
   allowance,
   buildNowCost,
@@ -128,21 +135,46 @@ const BUILD_NOW_SHARE = 0.05;
 const TUTORIAL_RESEARCH = ['hold-1', 'brokerage', 'licence-1'];
 const YARD = 'halcyon-shipyard';
 
-function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {}) {
+/**
+ * For comparing hulls: every hauler in a save becomes Herons or Kites
+ * (`hull`) for the same points, with the same modules, at the first one's dock.
+ */
+function swapHaulers(state, hull) {
+  const haulers = state.ships.filter((ship) => HULLS[ship.hull].role === 'hauler' && !ship.fleet);
+  if (!haulers.length) throw new Error('No haulers in this save.');
+  const points = Math.floor(haulers.reduce((sum, ship) => sum + HULLS[ship.hull].points, 0) / 2) * 2;
+  const { modules } = haulers[0];
+  const dock = haulers.find((ship) => ship.at)?.at ?? YARD;
+  state.ships = state.ships.filter((ship) => !haulers.includes(ship));
+  for (let i = 0; i < points / HULLS[hull].points; i += 1) createShip(state, hull, dock).modules = { ...modules };
+}
+
+function play(profileName, days, { from = null, saveAt = {}, fleets = true, haulers = null } = {}) {
   const profile = PROFILES[profileName];
   const DAY = 24 * HOUR;
   const state = from ? deserialize(readFileSync(from, 'utf8')) : createGame({ now: Date.UTC(2026, 10, 2, 9, 0, 0), seed: 20261106 });
   if (!state) throw new Error(`Could not load ${from}`);
   useGalaxy(state.seed);
+  // --haulers=heron|kite: the fleet stays as it is, so the hulls compare like for like.
+  if (haulers) swapHaulers(state, haulers);
   // A run from a save starts at 9:00 on the morning after it.
   const T0 = from ? Math.floor(state.now / DAY) * DAY + DAY + 9 * HOUR : state.now;
   const report = { profileName, days, from, fleets, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [], contracts: [], missions: [], salvaged: [], actEnds: {}, pointHours: {} };
   for (const id of state.goals) report.goals[id] = -Infinity;
   report.startStats = structuredClone(state.stats);
   let clicks = 0;
+  // Clicks by what they were for, since the last look began.
+  let kinds = {};
 
-  const click = (n = 1) => {
+  const click = (n = 1, kind = 'other') => {
+    // Repeat to fill for any number of ships is one press in the Fleet panel
+    // (open it, press): two clicks a look, however many ships it fills.
+    if (kind === 'repeat to fill') {
+      n = kinds[kind] ? 0 : 2;
+      if (!n) return;
+    }
     clicks += n;
+    kinds[kind] = (kinds[kind] ?? 0) + n;
   };
   // What the bot can spend: its credits less the jump fees its ships still
   // pay at the gates, as a player watching the order menu would keep.
@@ -346,7 +378,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       // The first contract is the tutorial's: taken as soon as it shows.
       if (!tutorial && !(rate > (otherwise ?? 0))) continue;
       if (acceptContract(state, offer.id, now).ok) {
-        click(2);
+        click(2, 'contracts');
         report.contracts.push({ at: now, qty: offer.qty, reward: offer.reward, good: offer.good });
       }
     }
@@ -416,16 +448,16 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
   /** Hands cargo to a contract or a planned build that wants it, or sells it where it pays best. */
   function unload(ship, now) {
     const yard = plannedYard();
-    if (yard && Object.keys(storeGoods(state, yard, ship.cargo)).length && giveOrder(state, ship, { type: 'store', stationId: yard }).ok) click();
+    if (yard && Object.keys(storeGoods(state, yard, ship.cargo)).length && giveOrder(state, ship, { type: 'store', stationId: yard }).ok) click(1, 'unload');
     for (const good of Object.keys(ship.cargo)) {
       if (yard && stillNeededAt(state, yard, good) > 0) continue;
       const contract = running(now).find((c) => c.good === good && openNeed(c) >= 1);
       if (contract && giveOrder(state, ship, { type: 'deliver', stationId: contract.stationId, good }).ok) {
-        click();
+        click(1, 'unload');
         continue;
       }
       const buyer = bestBuyer(good, ship.cargo[good], now, ship.at ?? ship.order?.target);
-      if (buyer && giveOrder(state, ship, { type: 'sell', stationId: buyer.stationId, good }).ok) click();
+      if (buyer && giveOrder(state, ship, { type: 'sell', stationId: buyer.stationId, good }).ok) click(1, 'unload');
     }
   }
 
@@ -497,12 +529,12 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     for (const ship of state.ships) {
       if (!retiring.has(ship.id) || ship.order) continue;
       if (ship.at !== YARD) {
-        if (giveOrder(state, ship, { type: 'fly', stationId: YARD }).ok) click(2);
+        if (giveOrder(state, ship, { type: 'fly', stationId: YARD }).ok) click(2, 'salvage ships');
         continue;
       }
       if (cargoTotal(ship) > 0) continue;
       if (!salvageLock(state, ship) && salvageShip(state, ship.id, now).ok) {
-        click(3);
+        click(3, 'salvage ships');
         retiring.delete(ship.id);
         report.salvaged.push({ at: now, hull: ship.hull });
       }
@@ -523,7 +555,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     for (const build of (state.builds ?? []).filter((b) => b.status === 'planned')) {
       const cost = buildNowCost(state, build.hull, build.stationId, { feePaid: true }).total;
       if (cost <= cash() * BUILD_NOW_SHARE && buildPlannedNow(state, build.id, now).ok) {
-        click(opened ? 1 : 2);
+        click(opened ? 1 : 2, 'build');
         opened = true;
         // Bought outright only when the haulers had brought less than half of it.
         const row = report.buys.find((b) => b.id === build.id);
@@ -543,14 +575,14 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
         if (plannedYard() || cash() < cost.fee + reserve) break;
         const planned = planBuild(state, hull, YARD, now);
         if (!planned.ok) break;
-        click(opened ? 1 : 2);
+        click(opened ? 1 : 2, 'build');
         report.buys.push({ at: now, n: state.ships.length + state.builds.length, hull, cost: cost.total, own: true, id: planned.build.id });
         break;
       }
       if (cash() < cost.total + reserve) break;
       const built = buildShip(state, hull, YARD, now);
       if (!built.ok) break;
-      click(opened ? 1 : 2);
+      click(opened ? 1 : 2, 'build');
       opened = true;
       report.buys.push({ at: now, n: state.ships.length + state.builds.length, hull, cost: cost.total, own: false, id: built.build.id });
     }
@@ -581,10 +613,10 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     // A player looks into a signal that is not much further than the next survey.
     const signal = nearestSignal(scout, (s) => !isInvestigated(state, s) && !workerAt(state, s.id, 'investigate'));
     if (signal && (!best || signal.time <= best.time + HOUR)) {
-      if (giveOrder(state, scout, { type: 'investigate', signalId: signal.signal.id }).ok) click();
+      if (giveOrder(state, scout, { type: 'investigate', signalId: signal.signal.id }).ok) click(1, 'scouts');
       return;
     }
-    if (best && giveOrder(state, scout, { type: 'survey', systemId: best.id }).ok) click();
+    if (best && giveOrder(state, scout, { type: 'survey', systemId: best.id }).ok) click(1, 'scouts');
   }
 
   /** Sends a hauler with a sealed hold to the nearest derelict nobody is salvaging. Returns whether it went. */
@@ -593,7 +625,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     const wreck = nearestSignal(ship, (s) => s.kind === 'derelict' && derelictLeft(state, s) > 0 && canCarry(ship, s.good) && !workerAt(state, s.id, 'salvage'));
     if (!wreck || wreck.time > 3 * HOUR) return false;
     if (!giveOrder(state, ship, { type: 'salvage', signalId: wreck.signal.id }).ok) return false;
-    click();
+    click(1, 'derelicts');
     return true;
   }
 
@@ -642,8 +674,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
   }
   /** Sends a ship to join a commander, dropping the rest of its queue so it goes after its current order. */
   function enlist(ship, commander, now) {
-    if (ship.queue.length && clearQueue(state, ship).ok) click();
-    if (joinFleet(state, ship, commander, now).ok) click();
+    if (ship.queue.length && clearQueue(state, ship).ok) click(1, 'fleets');
+    if (joinFleet(state, ship, commander, now).ok) click(1, 'fleets');
   }
   /** Hires a commander for every two free ships of a kind, fills wings, and sends idle fleets out for as long as they may go. */
   function manageFleets(now) {
@@ -667,7 +699,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       const pick = [...candidates(state)].sort((a, b) => rank(a) - rank(b))[0];
       const hired = hireCommander(state, pick.id, YARD, now);
       if (!hired.ok) continue;
-      click(2);
+      click(2, 'fleets');
       report.missions.push({ hired: true, at: now, trait: pick.traits[0], role: r });
       // The wing joins once the Osprey is built.
       wanted.set(hired.build.name, r);
@@ -681,9 +713,31 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       // A fleet sets out once every ship on its way is aboard.
       if (c.mission || !wingOf(state, c).length || joiningOf(state, c).length || c.order) continue;
       const r = wingRole(c);
-      const started = startMission(state, c, { kind: MISSION_FOR[r], center: missionCenter(c, r), hours: command.hours.at(-1) }, now);
-      if (started.ok) click(3);
+      const started = startMission(state, c, { kind: MISSION_FOR[r], center: missionCenter(c, r), hours: missionHours(command, now) }, now);
+      if (started.ok) click(3, 'fleets');
     }
+  }
+  /** The bot's next look after `at`. */
+  function nextLook(at) {
+    const day = Math.floor((at - (T0 - 9 * HOUR)) / DAY);
+    for (const d of [day, day + 1, day + 2]) {
+      const next = profile.checks(T0 - 9 * HOUR + d * DAY).find((c) => c > at);
+      if (next != null) return next;
+    }
+    return at + DAY;
+  }
+  /**
+   * The mission length a player would pick: the one that keeps the wing at
+   * work for the largest share of the time until the look after it is back
+   * (an hour to come home), the longer one on a tie.
+   */
+  function missionHours(command, now) {
+    let best = null;
+    for (const hours of command.hours) {
+      const share = hours / ((nextLook(now + (hours + 1) * HOUR) - now) / HOUR);
+      if (!best || share >= best.share - 0.02) best = { hours, share };
+    }
+    return best.hours;
   }
   /** Mission reports that came in since the last look. */
   const seenReports = new Set();
@@ -756,7 +810,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     const atCap = freePoints(state) - commandReserve() < HULLS[nextHull()].points;
     // Market charts and the trade research only change what the menus show; only a profile that reads them wants them.
     const menusOnly = (r) => ['market-charts', 'trade-desk', 'trade-network'].includes(r.id) && !profile.local;
-    const next = actEnd() ?? (licence && atCap ? licence : null) ?? RESEARCH.find((r) => !menusOnly(r) && r.line !== 'licence' && researchStatus(state, r) === 'open');
+    // At the cap, the licence or the next other research, whichever costs less, the way a ship purchase used to wait its turn.
+    const other = RESEARCH.find((r) => !menusOnly(r) && r.line !== 'licence' && researchStatus(state, r) === 'open');
+    const next = actEnd() ?? (licence && atCap && (!other || costOf(licence) <= costOf(other)) ? licence : null) ?? other;
     return next?.hazard ? bestShielding() : next;
   }
 
@@ -767,6 +823,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
   function check(now, active) {
     step(now);
     const before = clicks;
+    kinds = {};
     const today = Math.floor(now / (24 * HOUR));
     freshDay = today !== lastDay;
     lastDay = today;
@@ -776,20 +833,22 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     while (freeLab(state)) {
       const next = nextResearch();
       if (!next || cash() < costOf(next) || !startResearch(state, next.id, now).ok) break;
-      click();
+      click(1, 'research');
       report.research.push({ id: next.id, at: now });
     }
 
     if (boardOpen(state)) takeContracts(now, active);
 
     // Ships: build while points fit, and make room for Herons.
-    retireKites(now);
-    buildShips(now);
+    if (!haulers) {
+      retireKites(now);
+      buildShips(now);
+    }
 
     // Refits: book them all once the money is there twice over.
     const behind = mapShips(state).filter((s) => refitOffer(state, s));
     const refitCost = behind.reduce((sum, s) => sum + refitOffer(state, s).cost, 0);
-    if (behind.length && cash() >= refitCost * 2 && refitAll(state).ok) click();
+    if (behind.length && cash() >= refitCost * 2 && refitAll(state).ok) click(1, 'refits');
 
     collectReports();
     manageFleets(now);
@@ -811,7 +870,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
       if (!ship.plan.length && !refitting && role(ship) === 'miner') {
         const source = state.ships.find((s) => canCopy(state, s, ship));
         if (source && copyOrders(state, ship, source).ok) {
-          click();
+          click(1, 'copy orders');
           continue;
         }
       }
@@ -823,12 +882,12 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     }
     if (rerun.length) {
       for (const ship of rerun) runAgain(state, ship);
-      click(2);
+      click(2, 'run again');
     }
     // Between work blocks, fill every queue that has room for more rounds.
     if (!active) {
       for (const ship of mapShips(state)) {
-        if (role(ship) !== 'scout' && role(ship) !== 'command' && !coming.has(ship) && ship.plan.length && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
+        if (role(ship) !== 'scout' && role(ship) !== 'command' && !coming.has(ship) && ship.plan.length && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click(1, 'repeat to fill');
       }
     }
 
@@ -836,6 +895,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     for (const id of state.goals) {
       if (report.goals[id] == null && ['warp-drive', 'first-shielding', 'station-blueprints'].includes(id)) {
         report.actEnds[id] = { at: now, credits: Math.round(state.credits), spend: { ...state.stats.shipSpend }, points: pointsUsed(state), allowance: allowance(state), ships: state.ships.length };
+        // Act 3 by itself, for profit per point with fleets against the same hulls by hand.
+        if (id === 'first-shielding') report.act3 = { pointHours: structuredClone(report.pointHours), shipCash: structuredClone(state.stats.shipCash ?? {}) };
       }
       report.goals[id] ??= now;
       if (saveAt[id]) {
@@ -890,14 +951,14 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
           { type: 'mine', fieldId: work.fieldId, amount: null },
           { type: 'deliver', stationId: work.contract.stationId, good: work.contract.good },
         ]);
-        click(given.given ?? 0);
+        click(given.given ?? 0, 'plan miners');
         if (active) return;
         // Between work blocks: as many rounds as the contract needs, then market rounds after them.
-        if (roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
+        if (roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click(1, 'repeat to fill');
         const after = bestMiningRound(ship, now);
         let more = 0;
         while (after && freeSlots(state, ship) >= 2 && giveOrders(state, ship, [{ type: 'mine', fieldId: after.fieldId, amount: null }, { type: 'sell', stationId: after.stationId }]).given === 2) more += 1;
-        if (more) click(more > 1 ? 3 : 2);
+        if (more) click(more > 1 ? 3 : 2, 'plan miners');
         return;
       } else {
         if (!round) return;
@@ -905,7 +966,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
           { type: 'mine', fieldId: round.fieldId, amount: null },
           { type: 'sell', stationId: round.stationId },
         ]);
-        click(given.given ?? 0);
+        click(given.given ?? 0, 'plan miners');
       }
     } else {
       if (retiring.has(ship.id)) return;
@@ -916,7 +977,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
           { type: 'buy', stationId: run.from, good: run.good, qty: run.qty },
           { type: 'store', stationId: run.yard },
         ]);
-        if (given.given) click(given.given);
+        if (given.given) click(given.given, 'plan haulers');
         return;
       }
       if (cargoTotal(ship) === 0 && salvage(ship)) return;
@@ -931,8 +992,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
           { type: 'deliver', stationId: supply.contract.stationId, good: supply.contract.good },
         ]);
         // Like a Bring, both orders come from one menu pick.
-        if (given.ok) click(supply.from === ship.at ? 1 : 2);
-        if (!active && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
+        if (given.ok) click(supply.from === ship.at ? 1 : 2, 'plan haulers');
+        if (!active && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click(1, 'repeat to fill');
         return;
       }
       if (!trade) return;
@@ -947,9 +1008,9 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
         { type: 'sell', stationId: trade.to, good: trade.good },
       ]);
       // The menu's "Bring" option gives both orders in one pick.
-      if (given.ok) click(trade.from === ship.at ? 1 : 2);
+      if (given.ok) click(trade.from === ship.at ? 1 : 2, 'plan haulers');
     }
-    if (!active && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click();
+    if (!active && roomForRounds(state, ship) > 0 && repeatToFill(state, ship).ok) click(1, 'repeat to fill');
   }
 
   // ---------- The schedule ----------
@@ -970,7 +1031,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true } = {
     for (const at of checks) {
       const act = state.goals.includes('first-shielding') ? 3 : state.goals.includes('warp-drive') ? 2 : 1;
       const n = check(at, false);
-      report.breaks.push({ day: day + 1, clicks: n, act });
+      report.breaks.push({ day: day + 1, clicks: n, act, kinds, ships: mapShips(state).length });
       for (const ship of state.ships) {
         if (role(ship) === 'miner' && ship.order) report.spans.push({ day: day + 1, minutes: (projectShip(state, ship).time - at) / MINUTE });
       }
@@ -1019,6 +1080,35 @@ function clock(report, at) {
   return `${d ? `day ${d + 1} ` : ''}${String(Math.floor(minutesOfDay / 60)).padStart(2, '0')}:${String(minutesOfDay % 60).padStart(2, '0')}`;
 }
 
+/**
+ * Credits each hull brought in per point it held, per hour, by hand and in
+ * fleets, and the fleets against hand play: the wings' earnings over their
+ * points, with and without the command ships' points (Fleet command adds
+ * allowance for those).
+ */
+function printPerPoint(label, pointHours, start, cash) {
+  const earned = (hull, mode) => (cash[hull]?.[mode] ?? 0) - (start[hull]?.[mode] ?? 0);
+  const rows = Object.entries(pointHours).map(([hull, hours]) => {
+    const rate = (mode) => (hours[mode] > 1 ? `${Math.round(earned(hull, mode) / hours[mode])}` : '-');
+    return `${hull} ${rate('hand')} by hand, ${rate('fleet')} in fleets (${Math.round(hours.hand + hours.fleet)} point-hours)`;
+  });
+  console.log(`  ${label}cr per point-hour: ${rows.join('; ')}`);
+  const sum = (mode, pick) =>
+    Object.entries(pointHours)
+      .filter(([hull]) => pick(hull))
+      .reduce((acc, [hull, hours]) => ({ cash: acc.cash + earned(hull, mode), hours: acc.hours + hours[mode] }), { cash: 0, hours: 0 });
+  const wings = sum('fleet', (hull) => HULLS[hull].role !== 'command');
+  if (wings.hours <= 1) return;
+  const command = sum('fleet', (hull) => HULLS[hull].role === 'command');
+  // By hand, the same hulls the wings fly, weighted by the wings' hours.
+  const same = Object.entries(pointHours).filter(([hull, h]) => HULLS[hull].role !== 'command' && h.fleet > 1 && h.hand > 1);
+  const handSame = same.reduce((sum2, [hull, h]) => sum2 + (earned(hull, 'hand') / h.hand) * h.fleet, 0) / Math.max(1, same.reduce((sum2, [, h]) => sum2 + h.fleet, 0));
+  const per = (x, hours) => Math.round(x / Math.max(1, hours));
+  console.log(
+    `  ${label}fleets: ${per(wings.cash + command.cash, wings.hours + command.hours)} cr per point-hour with the command ships' points, ${per(wings.cash, wings.hours)} without; the same hulls by hand ${Math.round(handSame)}`,
+  );
+}
+
 function print(report) {
   const { state } = report;
   const firstSession = report.from ? 0 : PROFILES[report.profileName].firstSession;
@@ -1063,21 +1153,24 @@ function print(report) {
     const sorted = [...looks].sort((a, b) => a - b);
     const pct = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
     console.log(`  act ${act} clicks a look: median ${median(looks)}, 10th to 90th percentile ${pct(0.1)} to ${pct(0.9)}, most ${sorted.at(-1)} (${looks.length} looks)`);
+    // Where the clicks go: the average per look, by what they were for.
+    const breaks = report.breaks.filter((b) => b.act === act);
+    const byKind = {};
+    for (const b of breaks) for (const [kind, n] of Object.entries(b.kinds)) byKind[kind] = (byKind[kind] ?? 0) + n;
+    const parts = Object.entries(byKind).sort((a, b) => b[1] - a[1]).map(([kind, n]) => `${kind} ${(n / breaks.length).toFixed(1)}`);
+    console.log(`    per look: ${parts.join(', ')}; ${median(breaks.map((b) => b.ships))} ships on the map (median)`);
   }
   for (const [id, end] of Object.entries(report.actEnds)) {
     console.log(`  at ${id} (${clock(report, end.at)}): ${end.credits} cr on hand, ${end.ships} ships, ${end.points}/${end.allowance} points, spent ${Math.round(end.spend.licences ?? 0)} licences, ${Math.round(end.spend.materials ?? 0)} materials, ${Math.round(end.spend.fees ?? 0)} fees`);
   }
   // Credits a hull brought in per point it held, per hour: by hand and in fleets.
-  const cash = state.stats.shipCash ?? {};
-  const start = report.startStats.shipCash ?? {};
-  const rows = Object.entries(report.pointHours).map(([hull, hours]) => {
-    const rate = (mode) => {
-      const earned = (cash[hull]?.[mode] ?? 0) - (start[hull]?.[mode] ?? 0);
-      return hours[mode] > 1 ? `${Math.round(earned / hours[mode])}` : '-';
-    };
-    return `${hull} ${rate('hand')} by hand, ${rate('fleet')} in fleets (${Math.round(hours.hand + hours.fleet)} point-hours)`;
-  });
-  console.log(`  cr per point-hour: ${rows.join('; ')}`);
+  printPerPoint('', report.pointHours, report.startStats.shipCash ?? {}, state.stats.shipCash ?? {});
+  if (report.act3) {
+    const hours = Object.fromEntries(
+      Object.entries(report.pointHours).map(([hull, h]) => [hull, { hand: h.hand - (report.act3.pointHours[hull]?.hand ?? 0), fleet: h.fleet - (report.act3.pointHours[hull]?.fleet ?? 0) }]),
+    );
+    printPerPoint('act 3 ', hours, report.act3.shipCash, state.stats.shipCash ?? {});
+  }
   const share = (report.contractPay / Math.max(1, state.stats.earned)) * 100;
   const first = report.contracts[0];
   console.log(
@@ -1137,5 +1230,5 @@ const from = flag('from')[0] ?? null;
 const saveAt = Object.fromEntries(flag('save-at').map((s) => [s.slice(0, s.indexOf(':')), s.slice(s.indexOf(':') + 1)]));
 for (const name of names) {
   if (!PROFILES[name]) throw new Error(`Unknown profile "${name}". Try: ${Object.keys(PROFILES).join(', ')}, all`);
-  print(play(name, days, { from, saveAt: { ...saveAt }, fleets: !args.includes('--no-fleets') }));
+  print(play(name, days, { from, saveAt: { ...saveAt }, fleets: !args.includes('--no-fleets'), haulers: flag('haulers')[0] ?? null }));
 }

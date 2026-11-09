@@ -11,6 +11,9 @@
 //   recipe        { good: tonnes } it is built from
 //   buildMinutes  how long the yard takes
 //   fee           what a faction's yard charges for the work
+// and may be held back from the top modules:
+//   maxRacks      (optional) the highest Cargo racks level it can be fitted with
+//   maxTier       (optional) the highest goods tier it carries, whatever its hold
 
 export const HULLS = {
   mule: {
@@ -37,6 +40,10 @@ export const HULLS = {
     holdClass: 1,
     namePrefix: 'Kite',
     blurb: 'Buys, carries and sells goods between stations.',
+    // It stops at Cargo racks V and tier 3 goods (steel, glass): circuits
+    // and hull plating need a Heron, which act 3 asks for.
+    maxRacks: 5,
+    maxTier: 3,
     points: 1,
     recipe: { iron: 20, silicon: 10 },
     buildMinutes: 8,
@@ -63,13 +70,14 @@ export const HULLS = {
     name: 'Heron-class freighter',
     role: 'hauler',
     size: 'medium',
-    // Two and a half Kite holds at a Kite's speed: it takes two points, so
+    // Two and a half Kite holds, Cargo racks VI, tier 4 goods, and a
+    // quarter faster than a Kite for long routes: it takes two points, so
     // it has to earn more than two Kites.
     holdScale: 10,
-    speedScale: 1.2,
+    speedScale: 1.5,
     holdClass: 1,
     namePrefix: 'Heron',
-    blurb: 'A big freighter for long trade routes.',
+    blurb: 'A big, fast freighter for long trade routes.',
     licence: 'warp-drive',
     // Built only at shipyards of factions that trust the company.
     standing: 'trusted',

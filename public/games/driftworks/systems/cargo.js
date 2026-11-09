@@ -23,8 +23,13 @@ export function canCarry(ship, good) {
   return GOODS[good].tier <= maxTierOf(ship);
 }
 
-/** "Steel needs a sealed hold.": why a ship cannot carry a good. */
-export function holdNote(good) {
+/**
+ * Why a ship cannot carry a good: "Kites carry goods up to tier 3." when its
+ * hull stops below the good's tier, else "Steel needs a sealed hold.".
+ */
+export function holdNote(good, ship = null) {
+  const hull = HULLS[ship?.hull];
+  if (hull?.maxTier != null && GOODS[good].tier > hull.maxTier) return `${hull.namePrefix}s carry goods up to tier ${hull.maxTier}.`;
   const holdClass = Object.keys(HOLD_CLASS_MAX_TIER).find((c) => HOLD_CLASS_MAX_TIER[c] >= GOODS[good].tier);
   return `${goodName(good)} needs a ${HOLD_CLASS_NAMES[holdClass].toLowerCase()}.`;
 }
@@ -103,7 +108,7 @@ export function buyCargo(state, ship, good, qty, at = state.now) {
   if (!entry || entry.side !== 'sells') {
     return { ok: false, error: `${findStation(stationId).name} does not sell ${goodName(good).toLowerCase()}.` };
   }
-  if (!canCarry(ship, good)) return { ok: false, error: holdNote(good) };
+  if (!canCarry(ship, good)) return { ok: false, error: holdNote(good, ship) };
 
   const limit = Math.min(qty, freeHold(ship));
   const amount = affordableQty(state, stationId, good, state.credits, limit, at);

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { advance, nextEventAt } from '../../public/games/driftworks/core/sim.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
+import { marketView } from '../../public/games/driftworks/systems/market.js';
 import { startResearch } from '../../public/games/driftworks/systems/research.js';
 import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
 
@@ -48,4 +49,45 @@ test('research finishes on the clock, and goals are checked as it runs', () => {
   advance(state, T0 + 10 * MINUTE);
   assert.deepEqual(state.research, { done: ['hold-1'], active: null, second: null });
   assert.deepEqual(state.goals, ['first-sale'], 'the next goal wants the Kite to sell');
+});
+
+test('a ship at a station with no room sells what fits, waits there for room, then sells the rest', () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  ship.modules.hold = 6;
+  ship.cargo = { 'ferrite-ore': 1800 };
+  ship.at = 'halcyon-shipyard';
+  // The refinery is full of ferrite ore.
+  const cap = marketView(state, 'halcyon-refinery', 'ferrite-ore').cap;
+  state.markets['halcyon-refinery'] = { 'ferrite-ore': { stock: cap, at: T0 } };
+  const given = giveOrder(state, ship, { type: 'sell', stationId: 'halcyon-refinery' });
+  assert.ok(given.ok, given.error);
+  const arrives = given.order.endsAt;
+  advance(state, arrives + MINUTE);
+  assert.ok(ship.order, 'still there, waiting');
+  assert.match(ship.order.label, /Waiting for room at Halcyon Refinery/);
+  assert.ok(ship.order.endsAt > arrives + MINUTE);
+  assert.ok(ship.cargo['ferrite-ore'] < 1800, 'it sold what fit');
+  assert.ok(state.log.some((entry) => /is waiting for room/.test(entry.text)));
+  advance(state, T0 + 24 * 60 * MINUTE);
+  assert.equal(ship.order, null);
+  assert.deepEqual(ship.cargo, {}, 'all of it sold in the end');
+  assert.equal(ship.at, 'halcyon-refinery');
+});
+
+test("a ship on a commander's orders does not wait at a full station: the commander sends it elsewhere", () => {
+  const state = newGame();
+  const ship = firstShip(state);
+  ship.modules.hold = 6;
+  ship.cargo = { 'ferrite-ore': 1800 };
+  ship.at = 'halcyon-shipyard';
+  const cap = marketView(state, 'halcyon-refinery', 'ferrite-ore').cap;
+  state.markets['halcyon-refinery'] = { 'ferrite-ore': { stock: cap, at: T0 } };
+  const given = giveOrder(state, ship, { type: 'sell', stationId: 'halcyon-refinery' });
+  // As if a commander gave it (there is no such commander, so nobody gives the next order).
+  given.order.missionBy = 'ship-commander';
+  const arrives = given.order.endsAt;
+  advance(state, arrives + MINUTE);
+  assert.equal(ship.order, null, 'done, not waiting');
+  assert.ok(ship.cargo['ferrite-ore'] > 0, 'with the rest still aboard');
 });

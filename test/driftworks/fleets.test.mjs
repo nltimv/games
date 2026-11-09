@@ -256,10 +256,10 @@ test('levels come from hours on missions, and a second trait shows at level 3', 
   const state = act3();
   const lead = hire(state);
   assert.equal(traitsOf(lead).length, 1);
-  lead.commander.missionTime = 12 * HOUR;
+  lead.commander.missionTime = 24 * HOUR;
   assert.equal(commanderLevel(lead), 3);
   assert.equal(traitsOf(lead).length, 2);
-  lead.commander.missionTime = 100 * HOUR;
+  lead.commander.missionTime = 120 * HOUR;
   assert.equal(commanderLevel(lead), 5);
 });
 

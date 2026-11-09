@@ -151,7 +151,7 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
   const station = findStation(stationId);
   if (!station) return fail('No such station.');
   if (findEntry(stationId, good)?.side !== 'sells') return fail(`${station.name} does not sell ${lower(good)}.`);
-  if (!canCarry(view, good)) return fail(holdNote(good));
+  if (!canCarry(view, good)) return fail(holdNote(good, view));
   const amount = Math.floor(Math.min(qty, freeIn(view)));
   if (amount < 1) return fail(`${view.name}'s hold is full.`);
   const course = stationLegs(state, view, stationId, start);
@@ -600,7 +600,8 @@ export function giveOrders(state, ship, specs) {
 
 /**
  * Called by the simulation when a ship's order ends: starts the next queued
- * order, skipping (and refunding) any that can no longer run.
+ * order, skipping (and refunding) any that can no longer run. A delivery
+ * that can no longer run becomes a sale at the same station.
  */
 export function startNextOrder(state, ship, at) {
   ship.order = null;
@@ -608,6 +609,11 @@ export function startNextOrder(state, ship, at) {
     const spec = ship.queue.shift();
     const result = startOrder(state, ship, spec);
     if (result.ok) return;
+    // A delivery whose contract is filled or gone sells there instead, if the station buys the good.
+    if (spec.type === 'deliver' && startOrder(state, ship, { type: 'sell', stationId: spec.stationId, good: spec.good }).ok) {
+      addLog(state, at, `${ship.name} sells its ${lower(spec.good)} at ${findStation(spec.stationId).name} instead: ${result.error}`, 'warning');
+      return;
+    }
     refund(state, spec);
     addLog(state, at, `${ship.name} skipped an order: ${result.error}`, 'warning');
   }

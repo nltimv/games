@@ -21,6 +21,8 @@ import { deserialize } from '../../public/games/driftworks/core/save.js';
 import { advance } from '../../public/games/driftworks/core/sim.js';
 import { HOUR } from '../../public/games/driftworks/core/time.js';
 import { candidates, fleetCommand, hireCommander } from '../../public/games/driftworks/systems/commanders.js';
+import { LICENCE_LINE } from '../../public/games/driftworks/content/research.js';
+import { finishBuild } from '../../public/games/driftworks/systems/shipyard.js';
 import { joinFleet, startMission } from '../../public/games/driftworks/systems/missions.js';
 
 const [savePath, kind = 'mine', hoursArg = '4'] = process.argv.slice(2);
@@ -44,7 +46,11 @@ function run(traits, level, hand = false) {
   advance(state, state.now + 3 * HOUR);
   const now = state.now;
   state.credits = Math.max(state.credits, 10_000_000);
-  const commander = hireCommander(state, candidates(state)[0].id, 'halcyon-shipyard', now).ship;
+  // Room in the allowance for the command ship, which is ready at once.
+  for (const licence of LICENCE_LINE) if (!state.research.done.includes(licence.id)) state.research.done.push(licence.id);
+  const hired = hireCommander(state, candidates(state)[0].id, 'halcyon-shipyard', now);
+  if (!hired.ok) throw new Error(hired.error);
+  const commander = finishBuild(state, hired.build, now);
   commander.commander.traits = traits;
   commander.commander.missionTime = LEVEL_HOURS[level - 1] * HOUR;
   const ships = state.ships.filter((ship) => HULLS[ship.hull].role === role && !ship.order && ship.at).slice(0, fleetCommand(state).wing);

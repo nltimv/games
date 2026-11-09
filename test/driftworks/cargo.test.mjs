@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buyCargo, canCarry, cargoTotal, freeHold, sellCargo } from '../../public/games/driftworks/systems/cargo.js';
+import { buyCargo, canCarry, cargoTotal, freeHold, holdNote, sellCargo } from '../../public/games/driftworks/systems/cargo.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { STARTING_CREDITS } from '../../public/games/driftworks/core/state.js';
-import { holdOf } from '../../public/games/driftworks/systems/modules.js';
+import { holdOf, maxTierOf, refitTarget, speedOf } from '../../public/games/driftworks/systems/modules.js';
 import { newGame, firstShip } from './helpers.mjs';
 
 test('selling ore pays credits and counts toward stats', () => {
@@ -70,4 +70,25 @@ test('miners cannot buy goods and holds have a tier limit', () => {
   assert.equal(canCarry(kite, 'iron'), true);
   assert.equal(canCarry(kite, 'steel'), false);
   assert.equal(buyCargo(state, kite, 'steel', 10).ok, false);
+});
+
+test('a Kite stops at tier 3 goods and Cargo racks V; a Heron goes further, and faster', () => {
+  const state = newGame({ credits: 1_000_000 });
+  state.research.done.push('hold-1', 'hold-2', 'hold-3', 'hold-4', 'hold-5', 'hold-6', 'sealed-holds');
+  const kite = createShip(state, 'kite', 'halcyon-foundry');
+  const heron = createShip(state, 'heron', 'halcyon-foundry');
+  assert.equal(kite.modules.hold, 5, 'a new Kite gets Cargo racks V, not VI');
+  assert.equal(heron.modules.hold, 6);
+  assert.equal(refitTarget(state, kite), null, 'nothing newer fits a Kite');
+  assert.equal(maxTierOf(kite), 3);
+  assert.equal(canCarry(kite, 'steel'), true);
+  assert.equal(canCarry(kite, 'circuits'), false);
+  assert.equal(holdNote('circuits', kite), 'Kites carry goods up to tier 3.');
+  assert.equal(maxTierOf(heron), 4);
+  assert.equal(canCarry(heron, 'circuits'), true);
+  assert.equal(speedOf(heron) / speedOf(kite), 1.25);
+  // A Kite refitted to Cargo racks VI before the cap keeps them.
+  kite.modules.hold = 6;
+  assert.equal(holdOf(kite), 4 * 1800);
+  assert.equal(refitTarget(state, kite), null);
 });

@@ -187,6 +187,24 @@ test('Deliver orders stop once the contract has all it needs, and refuse to arri
   assert.match(giveOrder(late.state, late.ship, { type: 'deliver', stationId: late.contract.stationId, good: late.contract.good }).error, /runs out/);
 });
 
+test('a delivery that comes after its contract is filled sells at the station instead', () => {
+  const { state, contract, ship } = running(0);
+  ship.at = 'halcyon-shipyard';
+  ship.cargo = { [contract.good]: 10 };
+  state.research.done.push('queue-1');
+  assert.ok(giveOrder(state, ship, { type: 'fly', stationId: 'aurel-post' }).ok);
+  assert.ok(giveOrder(state, ship, { type: 'deliver', stationId: contract.stationId, good: contract.good }).ok);
+  // Another ship fills the contract while this one is on its way.
+  contract.delivered = contract.qty - 1;
+  const other = createShip(state, 'mule', contract.stationId);
+  other.cargo = { [contract.good]: 1 };
+  assert.ok(deliverCargo(state, other, contract.good, T0).completed);
+  advance(state, T0 + 3 * HOUR);
+  assert.deepEqual(ship.cargo, {}, 'sold at the market');
+  assert.equal(ship.at, contract.stationId);
+  assert.ok(state.log.some((entry) => /sells its .* instead/.test(entry.text)));
+});
+
 test('the order menu offers Deliver apart from Sell, and ships share what is left', () => {
   const { state, contract, ship } = running(15);
   const options = orderOptions(state, ship, { kind: 'station', id: contract.stationId });

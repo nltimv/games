@@ -11,7 +11,7 @@ import { sellAllHere } from '../../systems/commands.js';
 import { findShip } from '../../systems/fleet.js';
 import { buildsFor, buildsWanting, completesPlans, isShipyard, plansNeeding, salvageLock, salvageReturn, salvageShip, storeAll, storeGoods } from '../../systems/shipyard.js';
 import { onMap } from '../../systems/commanders.js';
-import { holdClassOf, holdOf, laserOf, linesFor, speedOf } from '../../systems/modules.js';
+import { fittable, holdClassOf, holdOf, laserOf, linesFor, maxTierOf, speedOf } from '../../systems/modules.js';
 import {
   cancelOrder,
   canCopy,
@@ -43,7 +43,7 @@ import { plotCourse } from '../../systems/travel.js';
 import { bar, countdown, h } from '../dom.js';
 import { buildTag, button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { at, plusCredits, routeText, span, timing, tonnes } from '../format.js';
+import { at, plusCredits, rackName, routeText, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
 import { aboardSection, commanderSections, fleetSection } from './commander.js';
 
@@ -443,7 +443,7 @@ function newOrders(ctx, ship) {
 
 function modulesSection(ctx, ship) {
   const { state } = ctx;
-  const best = bestModules(state);
+  const best = fittable(ship.hull, bestModules(state));
   const hull = HULLS[ship.hull];
   const lines = linesFor(ship.hull);
   const rows = lines.map((line) => {
@@ -464,6 +464,8 @@ function modulesSection(ctx, ship) {
       rows,
       // Hulls without a seal line keep the hold they are built with.
       hull.holdScale > 0 && !lines.includes('seal') ? h('div', null, h('dt', null, 'Hold type:'), h('dd', null, HOLD_CLASS_NAMES[hull.holdClass])) : null,
+      hull.holdScale > 0 ? h('div', null, h('dt', null, 'Carries:'), h('dd', null, `up to tier ${maxTierOf(ship)}`)) : null,
+      hull.maxRacks != null ? h('div', null, h('dt', null, 'Top racks:'), h('dd', null, rackName(hull.maxRacks))) : null,
     ),
     offer
       ? button(short > 0 ? `Refit · need ${formatCredits(short)} more` : `Refit at the shipyard`, {

@@ -4,7 +4,7 @@
 import { stationTint } from '../../content/scenery.js';
 import { STATION_TYPES } from '../../content/stations.js';
 import { HOLD_CLASS_NAMES, HULLS, MODULES } from '../../content/ships.js';
-import { goodName } from '../../content/goods.js';
+import { GOODS, goodName } from '../../content/goods.js';
 import { findFaction, findPlace, findStation, systemOf } from '../../content/galaxy.js';
 import { formatCredits, formatDuration } from '../../../../shared/js/format.js';
 import { HOUR } from '../../core/time.js';
@@ -15,7 +15,7 @@ import { allowance, buildFee, buildLock, buildNowCost, buildPlannedNow, buildShi
 import { mapShips } from '../../systems/commanders.js';
 import { findEntry, marketEntries, marketView, quote } from '../../systems/market.js';
 import { knownAt, seenAt } from '../../systems/knowledge.js';
-import { holdClassOf, holdOf, maxTierOf } from '../../systems/modules.js';
+import { fittable, holdClassOf, holdOf, maxTierOf } from '../../systems/modules.js';
 import { giveOrder, orderRefit, refitAll, refitOffer } from '../../systems/orders.js';
 import { bestModules } from '../../systems/research.js';
 import { canJump, plotCourse } from '../../systems/travel.js';
@@ -24,7 +24,7 @@ import { bestTradeQty, maxPurchase, saleHere, stationsInRange, tradePlan } from 
 import { bar, countdown, h } from '../dom.js';
 import { buildTag, button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { ago, at, formatPrice, minusCredits, plural, plusCredits, routeText, signedCredits, tonnes, trip } from '../format.js';
+import { ago, at, formatPrice, minusCredits, plural, plusCredits, rackName, routeText, signedCredits, tonnes, trip } from '../format.js';
 import { hireSection } from './commander.js';
 
 const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
@@ -162,7 +162,9 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
       : null;
 
   if (!canCarry(hauler, good)) {
-    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note is-warn' }, `${holdNote(good)} ${hauler.name} has a ${HOLD_CLASS_NAMES[holdClassOf(hauler)].toLowerCase()}.`));
+    const capped = GOODS[good].tier > (HULLS[hauler.hull].maxTier ?? Infinity);
+    const note = capped ? holdNote(good, hauler) : `${holdNote(good)} ${hauler.name} has a ${HOLD_CLASS_NAMES[holdClassOf(hauler)].toLowerCase()}.`;
+    return h('div', { class: 'dw-card is-aqua' }, title, pickShip, h('p', { class: 'dw-note is-warn' }, note));
   }
 
   const maxQty = maxPurchase(state, hauler, good, now);
@@ -303,7 +305,7 @@ function recipeLines(lines) {
 function hullCard(ctx, station, hullId) {
   const { state } = ctx;
   const hull = HULLS[hullId];
-  const best = bestModules(state);
+  const best = fittable(hullId, bestModules(state));
   const probe = { hull: hullId, modules: best };
   const holds = hull.holdScale > 0;
   const lock = buildLock(state, hullId, station.id);
@@ -347,6 +349,7 @@ function hullCard(ctx, station, hullId) {
       spec('Speed', `${Math.round(MODULES.engine.levels[best.engine] * hull.speedScale)} u/min`),
       hull.role === 'miner' ? spec('Mining', `${MODULES.laser.levels[best.laser]} t/min`) : null,
       holds ? spec('Carries', `tiers 1–${maxTierOf(probe)}`) : null,
+      hull.maxRacks != null ? spec('Top racks', rackName(hull.maxRacks)) : null,
       spec('Build', formatDuration(hull.buildMinutes * 60_000)),
       fee ? spec('Fee', formatCredits(fee)) : null,
     ),
