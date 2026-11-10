@@ -13,6 +13,7 @@ import {
   copyOrders,
   freeSlots,
   giveOrder,
+  giveOrders,
   orderPhase,
   orderRefit,
   orderTimes,
@@ -185,6 +186,23 @@ test('repeat to fill adds whole rounds of the plan that would work', () => {
   assert.equal(ship.queue.length, 3);
   assert.equal(state.stats.repeats, 1);
   assert.equal(repeatToFill(state, ship).ok, false, 'no room left');
+});
+
+test('repeat to fill still works once a long plan has dropped its first orders', () => {
+  const state = newGame();
+  state.research.done.push('queue-1', 'queue-2', 'queue-3', 'queue-4', 'queue-5'); // 16 orders
+  const ship = firstShip(state);
+  const fly = { type: 'fly', stationId: 'aurel-post' };
+  giveOrders(state, ship, [mine(), sell(), fly]);
+  assert.ok(repeatToFill(state, ship).ok);
+  while (freeSlots(state, ship) < 3) advance(state, state.now + MINUTE);
+  assert.ok(repeatToFill(state, ship).ok);
+  // The plan keeps its last 16 orders, so it now starts with a fly.
+  assert.deepEqual(ship.plan[0], fly);
+  assert.deepEqual(planCycle(ship.plan), [mine(), sell(), fly]);
+  while (freeSlots(state, ship) < 6) advance(state, state.now + MINUTE);
+  assert.ok(canRepeat(state, ship));
+  assert.equal(roomForRounds(state, ship), 2);
 });
 
 test('run again repeats the last plan once the ship is idle', () => {

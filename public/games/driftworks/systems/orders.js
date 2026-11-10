@@ -837,11 +837,15 @@ export function refitAll(state, stationId) {
 
 const sameSpec = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-/** The shortest run of orders the plan repeats, e.g. [mine, sell]. */
+/**
+ * The shortest run of orders the plan repeats, e.g. [mine, sell], in the
+ * order that carries on from its last one. The plan only keeps its last
+ * MAX_PLAN orders, so it may start partway through a round:
+ * [fly, mine, sell, fly] repeats [mine, sell, fly].
+ */
 export function planCycle(plan) {
   for (let len = 1; len <= plan.length; len += 1) {
-    if (plan.length % len) continue;
-    if (plan.every((spec, i) => sameSpec(spec, plan[i % len]))) return plan.slice(0, len);
+    if (plan.every((spec, i) => i < len || sameSpec(spec, plan[i - len]))) return plan.slice(plan.length - len);
   }
   return plan.slice();
 }
