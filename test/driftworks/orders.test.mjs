@@ -20,6 +20,7 @@ import {
   planCycle,
   projectShip,
   refitAll,
+  removeQueued,
   repeatToFill,
   roomForRounds,
   runAgain,
@@ -171,6 +172,29 @@ test('clearing the queue keeps the current order and trims the plan', () => {
   assert.ok(ship.order);
   assert.equal(ship.plan.length, 1);
   assert.equal(clearQueue(state, ship).ok, false);
+});
+
+test('removing one waiting order keeps the rest and its step of the plan', () => {
+  const state = newGame();
+  state.research.done.push('queue-1'); // 4 orders
+  const ship = firstShip(state);
+  giveOrder(state, ship, mine());
+  giveOrder(state, ship, sell());
+  const there = { type: 'fly', stationId: 'aurel-post' };
+  const back = { type: 'fly', stationId: 'halcyon-refinery' };
+  assert.ok(giveOrder(state, ship, there).ok);
+  assert.ok(giveOrder(state, ship, back).ok);
+  assert.equal(ship.queue.length, 3);
+  assert.ok(removeQueued(state, ship, 1).ok);
+  assert.deepEqual(ship.queue, [sell(), back]);
+  assert.deepEqual(ship.plan, [mine(), sell(), back]);
+  assert.ok(ship.order, 'the current order runs on');
+  assert.equal(removeQueued(state, ship, 2).ok, false, 'no such order');
+  assert.equal(removeQueued(state, ship, -1).ok, false);
+  assert.ok(removeQueued(state, ship, 1).ok);
+  assert.ok(removeQueued(state, ship, 0).ok);
+  assert.equal(ship.queue.length, 0);
+  assert.deepEqual(ship.plan, [mine()]);
 });
 
 test('repeat to fill adds whole rounds of the plan that would work', () => {

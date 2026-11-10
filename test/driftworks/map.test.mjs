@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hitsAt, hitTest, pickNext, shipsInBox } from '../../public/games/driftworks/render/systemMap.js';
+import { hitsAt, hitTest, menuHit, pickNext, shipsInBox } from '../../public/games/driftworks/render/systemMap.js';
 import { flock, flockName } from '../../public/games/driftworks/render/flocks.js';
 
 const station = { kind: 'station', id: 'halcyon-refinery', x: 100, y: 100, r: 21 };
@@ -66,4 +66,20 @@ test('a flock of selected ships passing a system gives way to the system, and a 
   assert.deepEqual(hits.map((hit) => hit.kind), ['flock', 'system']);
   assert.deepEqual(pickNext(hits, { kind: 'ships', ids: ['b', 'a'] }), { kind: 'system', id: 'dace' });
   assert.deepEqual(pickNext(hits, { kind: 'system', id: 'dace' }), { kind: 'system', id: 'dace' });
+});
+
+test('a right-click with ships selected gives orders to the station under a docked ship', () => {
+  const targets = [station, docked];
+  assert.deepEqual(menuHit(targets, 117, 100, { kind: 'ship', id: 'ship-1' }), { kind: 'station', id: 'halcyon-refinery' });
+  assert.deepEqual(menuHit(targets, 117, 100, { kind: 'ships', ids: ['ship-1', 'ship-2'] }), { kind: 'station', id: 'halcyon-refinery' });
+  assert.deepEqual(menuHit(targets, 117, 100, null), { kind: 'ship', id: 'ship-1' }, 'nothing selected: the ship on top, to select it');
+  assert.deepEqual(menuHit(targets, 117, 100, { kind: 'station', id: 'halcyon-refinery' }), { kind: 'ship', id: 'ship-1' });
+  assert.deepEqual(menuHit([docked], 117, 100, { kind: 'ship', id: 'ship-2' }), { kind: 'ship', id: 'ship-1' }, 'only a ship there: that ship');
+  assert.equal(menuHit(targets, 400, 400, { kind: 'ship', id: 'ship-1' }), null);
+  // Off the station's edge, a ship parked there still stands for it.
+  const parked = { ...docked, place: 'halcyon-refinery' };
+  const far = { x: parked.x + parked.r - 1, y: parked.y };
+  assert.deepEqual(hitsAt([station, parked], far.x, far.y), [{ kind: 'ship', id: 'ship-1' }]);
+  assert.deepEqual(menuHit([station, parked], far.x, far.y, { kind: 'ship', id: 'ship-2' }), { kind: 'station', id: 'halcyon-refinery' });
+  assert.deepEqual(menuHit([station, parked], far.x, far.y, null), { kind: 'ship', id: 'ship-1' });
 });

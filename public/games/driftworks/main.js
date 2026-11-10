@@ -20,8 +20,10 @@ app.showAwayIfNeeded(awaySince, bootNow);
 session.markSeen(bootNow);
 session.save();
 
-// The player is "away" while the tab is hidden or the window is not
-// focused (say, back in their editor). Coming back shows what happened.
+// The player is "away" only while the tab is hidden (another tab, a
+// minimised window): then the game stops drawing and the browser slows its
+// clock. A window that just lost focus is still on screen (say, on a second
+// monitor), so the game keeps running there and nothing needs telling.
 let away = false;
 let lastPanelRefresh = Date.now();
 
@@ -62,11 +64,11 @@ document.addEventListener('visibilitychange', () => {
     app.map.stop();
   } else {
     app.map.start();
-    if (document.hasFocus()) comeBack();
+    comeBack();
   }
 });
-window.addEventListener('blur', leave);
-window.addEventListener('focus', comeBack);
+// Losing focus is not leaving, but save anyway in case the window closes next.
+window.addEventListener('blur', () => session.save());
 window.addEventListener('pagehide', () => session.save());
 
 app.map.start();

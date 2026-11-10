@@ -30,6 +30,7 @@ import {
   orderTimes,
   projectShip,
   refitOffer,
+  removeQueued,
   repeatToFill,
   roomForRounds,
   runAgain,
@@ -41,7 +42,7 @@ import { findEntry } from '../../systems/market.js';
 import { surveyable, surveyorOf } from '../../systems/explore.js';
 import { plotCourse } from '../../systems/travel.js';
 import { bar, countdown, h } from '../dom.js';
-import { buildTag, button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
+import { buildTag, button, chip, contractMark, panelHead, removeButton, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { at, plusCredits, rackName, routeText, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
@@ -96,6 +97,11 @@ function cancel(ctx, ship) {
   else ctx.toast(`${ship.name}'s order is cancelled`, 'order');
 }
 
+function removeFromQueue(ctx, ship, index) {
+  const result = ctx.act((s) => removeQueued(s, findShip(s, ship.id), index));
+  if (result?.ok) ctx.toast(`${ship.name}: ${lowerFirst(specLabel(result.spec))} removed`, 'order');
+}
+
 function placeName(id) {
   return findPlace(id)?.name ?? 'space';
 }
@@ -142,7 +148,17 @@ function ordersSection(ctx, ship) {
   const used = (ship.order ? 1 : 0) + ship.queue.length;
   const items = [];
   if (ship.order) items.push(h('li', { class: 'is-current' }, h('span', { class: 'dw-queue-mark', 'aria-hidden': 'true' }, '▶'), h('span', { class: 'dw-grow' }, specLabel(ship.order.spec))));
-  ship.queue.forEach((spec, i) => items.push(h('li', null, h('span', { class: 'dw-queue-mark', 'aria-hidden': 'true' }, String(i + 2)), h('span', { class: 'dw-grow' }, specLabel(spec)))));
+  ship.queue.forEach((spec, i) =>
+    items.push(
+      h(
+        'li',
+        null,
+        h('span', { class: 'dw-queue-mark', 'aria-hidden': 'true' }, String(i + 2)),
+        h('span', { class: 'dw-grow' }, specLabel(spec)),
+        removeButton({ label: `Remove order ${i + 2}: ${specLabel(spec)}`, key: `queue-remove-${i}`, onClick: () => removeFromQueue(ctx, ship, i) }),
+      ),
+    ),
+  );
 
   const actions = [];
   const rounds = roomForRounds(state, ship);

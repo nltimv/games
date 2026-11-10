@@ -67,6 +67,11 @@ export function panelHead({ icon, title, subtitle, onClose, onBack }) {
   );
 }
 
+/** A small round × button that removes one row from a list. */
+export function removeButton({ label, key, onClick }) {
+  return h('button', { type: 'button', class: 'dw-remove', onClick, 'aria-label': label, title: label, dataset: { key } }, svgIcon(CLOSE_ICON));
+}
+
 let iconId = 0;
 
 /** Map art as a small picture, so the panels match the map. */

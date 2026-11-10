@@ -19,7 +19,7 @@ import { onMap } from '../systems/commanders.js';
 import { createCamera, easePan, fitCamera, panBy, resetView, scaleOf, startView, toScreen, zoomAt } from './camera.js';
 import { loadAssets } from './assets.js';
 import { clearLabels } from './labels.js';
-import { drawSystem, hitsAt, hitTest, isPicked, pickNext, renderBackground, shipsInBox } from './systemMap.js';
+import { drawSystem, hitsAt, hitTest, isPicked, menuHit, pickNext, renderBackground, shipsInBox } from './systemMap.js';
 import { drawGalaxy, galaxyExtent, renderGalaxyBackground } from './galaxyMap.js';
 
 const DRAG_THRESHOLD = 6;
@@ -264,7 +264,7 @@ export function createMapView(canvas, options) {
         longPress = setTimeout(() => {
           longPress = 0;
           if (!drag || drag.moved || pointers.size !== 1) return;
-          const hit = hitTest(targets, drag.start.x, drag.start.y);
+          const hit = menuAt(drag.start.x, drag.start.y);
           if (!hit) return;
           drag.handled = true;
           options.onContextMenu?.(hit, client);
@@ -342,13 +342,14 @@ export function createMapView(canvas, options) {
     if (wasDrag.which === 'left' && wasDrag.moved && wasBox) {
       options.onBoxSelect?.(shipsInBox(targets, wasBox.a, p), mods);
     } else if (wasDrag.which === 'right' && !wasDrag.moved) {
-      options.onContextMenu?.(hitTest(targets, wasDrag.start.x, wasDrag.start.y), { x: e.clientX, y: e.clientY });
+      options.onContextMenu?.(menuAt(wasDrag.start.x, wasDrag.start.y), { x: e.clientX, y: e.clientY });
     } else if ((wasDrag.which === 'left' || wasDrag.which === 'touch') && !wasDrag.moved) {
       options.onSelect(mods.additive ? hitTest(targets, p.x, p.y) : pickAt(p.x, p.y), mods);
     }
   }
 
   const pickAt = (x, y) => pickNext(hitsAt(targets, x, y), options.getSelection());
+  const menuAt = (x, y) => menuHit(targets, x, y, options.getSelection());
 
   // A double click acts on what its second click picked (see pickAt).
   canvas.addEventListener('dblclick', (e) => {
@@ -377,7 +378,7 @@ export function createMapView(canvas, options) {
     e.preventDefault();
     if (lastPointerType !== 'mouse' || e.button === 2 || pointers.size) return;
     const p = localPoint(e);
-    options.onContextMenu?.(hitTest(targets, p.x, p.y), { x: e.clientX, y: e.clientY });
+    options.onContextMenu?.(menuAt(p.x, p.y), { x: e.clientX, y: e.clientY });
   });
 
   canvas.addEventListener(
