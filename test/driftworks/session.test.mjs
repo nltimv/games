@@ -6,6 +6,7 @@ import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
 import { sellCargo } from '../../public/games/driftworks/systems/cargo.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { MINUTE, T0 } from './helpers.mjs';
+import { STARTING_CREDITS } from '../../public/games/driftworks/core/state.js';
 
 function setup() {
   let now = T0;
@@ -71,7 +72,7 @@ test('import replaces the company, and reset starts over', () => {
   });
   const code = session.exportText();
   session.reset();
-  assert.equal(session.state.credits, 250);
+  assert.equal(session.state.credits, STARTING_CREDITS);
   assert.equal(session.importText('garbage'), false);
   assert.ok(session.importText(code));
   assert.equal(session.state.credits, 9999);
@@ -93,6 +94,6 @@ test('a save from before the rebuild starts a new company with a note', () => {
   const storage = createMemoryStorage();
   storage.setItem('driftworks-save', JSON.stringify({ version: 1, ships: [], credits: 5 }));
   const session = createSession({ storage, clock: () => T0 });
-  assert.equal(session.state.credits, 250);
+  assert.equal(session.state.credits, STARTING_CREDITS);
   assert.match(session.state.log.at(-1).text, /starts over/);
 });

@@ -7,15 +7,16 @@ import { HULLS } from '../../content/ships.js';
 import { allFactions, allSystems, findPlace, findSystem, systemOf } from '../../content/galaxy.js';
 import { goodName } from '../../content/goods.js';
 import { formatCredits, formatNumber } from '../../../../shared/js/format.js';
-import { candidates, commanderLevel, commanderPrice, commanders, fleetCommand, hireCommander, hireLock, joiningOf, leaderOf, levelProgress, onMap, traitText, wingOf } from '../../systems/commanders.js';
+import { candidates, commanderLevel, commanders, fleetCommand, hireCommander, hireCost, hireLock, hireShortfall, joiningOf, leaderOf, levelProgress, onMap, traitText, wingOf } from '../../systems/commanders.js';
 import { areaAround, canStartMission, doctrineOf, joinFleet, leaveFleet, missionArea, setDoctrine, startMission } from '../../systems/missions.js';
 import { findShip } from '../../systems/fleet.js';
+import { HOUR } from '../../core/time.js';
 import { isSurveyed } from '../../systems/explore.js';
 import { isShielded } from '../../systems/shielding.js';
 import { bar, countdown, h } from '../dom.js';
 import { button, chip, sectionTitle, shipGlyph } from '../components.js';
 import { portrait } from '../portrait.js';
-import { plural, signedCredits } from '../format.js';
+import { at, plural, signedCredits } from '../format.js';
 import { shipRow } from './lists.js';
 
 // The mission being planned for each commander: { kind, center, hours }.
@@ -36,7 +37,9 @@ function draftOf(state, commander) {
     const command = fleetCommand(state);
     const lead = wingOf(state, commander).map((ship) => HULLS[ship.hull].role);
     const kind = MISSION_IDS.find((id) => lead.includes(MISSIONS[id].lead)) ?? 'mine';
-    drafts.set(commander.id, { kind, center: startCenter(state, commander) ?? 'aurel', hours: command?.hours.at(-1) ?? 1 });
+    // A mission can't be called off, so the first pick is a break-sized one.
+    const hours = command?.hours.includes(4) ? 4 : (command?.hours[0] ?? 2);
+    drafts.set(commander.id, { kind, center: startCenter(state, commander) ?? 'aurel', hours });
   }
   return drafts.get(commander.id);
 }
@@ -173,6 +176,7 @@ function missionSection(ctx, commander) {
       { class: 'dw-chips', role: 'group', 'aria-label': 'Hours' },
       (command?.hours ?? []).map((hours) => chip(`${hours} h`, draft.hours === hours ? 'aqua' : null, { onClick: () => set({ hours }), 'aria-pressed': String(draft.hours === hours), dataset: { key: `mission-hours-${hours}` } })),
     ),
+    h('p', { class: 'dw-note', dataset: { key: 'mission-ends' } }, `Ends ${whenText(state.now, state.now + draft.hours * HOUR)}; the wing is back once its last orders are done. A mission can't be called off.`),
     check.ok ? null : h('p', { class: 'dw-note' }, check.error),
     button(`Start the ${MISSIONS[draft.kind].name.toLowerCase()} mission`, {
       variant: 'primary',
@@ -185,6 +189,17 @@ function missionSection(ctx, commander) {
       },
     }),
   );
+}
+
+/** "at 17:50", "tomorrow at 01:50" or "in 2 days at 09:50", by the player's calendar. */
+function whenText(now, time) {
+  const day = (t) => {
+    const d = new Date(t);
+    return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  };
+  const days = Math.round((day(time) - day(now)) / (24 * HOUR));
+  const clock = `at ${at(time)}`;
+  return days <= 0 ? clock : days === 1 ? `tomorrow ${clock}` : `in ${days} days ${clock}`;
 }
 
 function wingSection(ctx, commander) {
@@ -329,13 +344,15 @@ export function aboardSection(ctx, ship) {
 export function hireSection(ctx, station) {
   const { state } = ctx;
   if (hireLock(state, station.id)) return null;
-  const price = commanderPrice(state);
-  const short = price - state.credits;
+  const cost = hireCost(state, station.id);
+  const short = hireShortfall(state, station.id);
+  const hours = HULLS.osprey.buildMinutes / 60;
   return h(
     'div',
     { class: 'dw-section' },
-    sectionTitle('Commanders for hire', formatCredits(price)),
-    h('p', { class: 'dw-note' }, 'Each comes with an Osprey-class command ship.'),
+    sectionTitle('Commanders for hire', formatCredits(cost.total)),
+    h('p', { class: 'dw-note' }, `${formatCredits(cost.price)} for the commander and ${formatCredits(cost.ship)} for their Osprey-class command ship, built here in ${plural(hours, 'hour')}.`),
+    short ? h('p', { class: 'dw-note' }, short) : null,
     candidates(state).map((candidate) => {
       const trait = TRAITS[candidate.traits[0]];
       return h(
@@ -343,13 +360,13 @@ export function hireSection(ctx, station) {
         { class: 'dw-card dw-commander' },
         h('div', { class: 'dw-commander-head' }, portrait(candidate, 52), h('div', { class: 'dw-grow' }, h('strong', null, candidate.name), h('span', { class: 'dw-note' }, `Level 1 · ${trait.name}`))),
         h('p', { class: 'dw-note' }, trait.note),
-        button(short > 0 ? `Need ${formatCredits(short)} more` : `Hire for ${formatCredits(price)}`, {
+        button(`Hire for ${formatCredits(cost.total)}`, {
           variant: 'primary',
-          disabled: short > 0,
+          disabled: Boolean(short),
           key: `hire-${candidate.id}`,
           onClick: () => {
             const result = ctx.act((s) => hireCommander(s, candidate.id, station.id));
-            if (result?.ok) ctx.select('ship', result.ship.id);
+            if (result?.ok) ctx.toast(`${candidate.name} is hired. Their Osprey is ready in ${plural(hours, 'hour')}`, 'purchase');
           },
         }),
       );

@@ -10,11 +10,9 @@ import { findSystem } from './galaxy.js';
 import { LEVEL_HOURS } from './commanders.js';
 
 const HOUR = 3600 * 1000;
-const mules = (s) => s.ships.filter((ship) => ship.hull === 'mule');
 const researched = (s, id) => s.research.done.includes(id);
 const SHIELDINGS = ['shield-debris', 'shield-ion', 'shield-radiation'];
 const tonnesSold = (s, tier) => s.stats.tierTonnes?.[tier] ?? 0;
-const hasOrders = (ship) => Boolean(ship.order) || ship.plan.length > 0;
 // Points for Friendly standing (see systems/standing.js), and the best
 // standing with any faction but Halcyon.
 const FRIENDLY = 50;
@@ -29,6 +27,13 @@ export const GOALS = [
     done: (s) => s.stats.oreSold > 0,
   },
   {
+    id: 'carry-goods',
+    title: 'Carry goods with the Kite',
+    reward: 100,
+    tutorial: true,
+    done: (s) => (s.stats.haulerSales ?? 0) > 0,
+  },
+  {
     id: 'first-research',
     title: 'Research Cargo racks I',
     reward: 50,
@@ -36,18 +41,11 @@ export const GOALS = [
     done: (s) => researched(s, 'hold-1') || s.research.active?.id === 'hold-1',
   },
   {
-    id: 'first-refit',
-    title: 'Refit a ship with bigger cargo racks',
-    reward: 100,
+    id: 'first-build',
+    title: 'Build your first ship',
+    reward: 200,
     tutorial: true,
-    done: (s) => s.stats.refits > 0,
-  },
-  {
-    id: 'second-mule',
-    title: 'Buy a second Mule and give it orders',
-    reward: 100,
-    tutorial: true,
-    done: (s) => mules(s).length >= 2 && mules(s).every(hasOrders),
+    done: (s) => (s.stats.builds ?? 0) > 0,
   },
   {
     id: 'first-contract',
@@ -57,24 +55,24 @@ export const GOALS = [
     done: (s) => s.stats.contracts > 0,
   },
   {
-    id: 'third-mule',
-    title: 'Buy a third Mule',
+    id: 'first-licence',
+    title: 'Research Fleet licence I',
     reward: 200,
     tutorial: true,
-    done: (s) => mules(s).length >= 3,
+    done: (s) => researched(s, 'licence-1') || s.research.active?.id === 'licence-1',
+  },
+  {
+    id: 'first-refit',
+    title: 'Refit a ship with bigger cargo racks',
+    reward: 100,
+    tutorial: true,
+    done: (s) => s.stats.refits > 0,
   },
   {
     id: 'queue-research',
     title: 'Research Order queue I',
     reward: 200,
-    tutorial: true,
     done: (s) => researched(s, 'queue-1'),
-  },
-  {
-    id: 'first-hauler',
-    title: 'Buy a hauler',
-    reward: 300,
-    done: (s) => s.ships.some((ship) => ship.hull === 'kite'),
   },
   {
     id: 'fleet-6',
@@ -100,7 +98,7 @@ export const GOALS = [
   // Act 2: Trader.
   {
     id: 'first-scout',
-    title: 'Buy a scout',
+    title: 'Build a scout',
     reward: 5000,
     act: 2,
     tutorial: true,
@@ -185,7 +183,8 @@ export const GOALS = [
     reward: 150000,
     act: 3,
     tutorial: true,
-    done: (s) => s.ships.some((ship) => ship.commander),
+    // Hired counts: the commander takes command once their Osprey is built.
+    done: (s) => s.ships.some((ship) => ship.commander) || (s.builds ?? []).some((build) => build.commander),
   },
   {
     id: 'first-mission',

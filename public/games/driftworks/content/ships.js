@@ -1,8 +1,19 @@
-// Ship hulls, the modules research unlocks for them, and what ships cost.
+// Ship hulls, the modules research unlocks for them, and how ships are built.
 //
 // A ship's numbers come from its hull and the modules fitted to it (see
 // systems/modules.js). New ships leave the shipyard with the best modules
 // researched so far; older ships get them with a refit.
+//
+// Ships are built at a shipyard from a recipe of goods (see
+// systems/shipyard.js), and each hull takes points of the company's fleet
+// allowance:
+//   points        allowance points the hull takes
+//   recipe        { good: tonnes } it is built from
+//   buildMinutes  how long the yard takes
+//   fee           what a faction's yard charges for the work
+// and may be held back from the top modules:
+//   maxRacks      (optional) the highest Cargo racks level it can be fitted with
+//   maxTier       (optional) the highest goods tier it carries, whatever its hold
 
 export const HULLS = {
   mule: {
@@ -15,6 +26,10 @@ export const HULLS = {
     holdClass: 1,
     namePrefix: 'Mule',
     blurb: 'Mines raw ore at asteroid fields.',
+    points: 1,
+    recipe: { iron: 12, graphite: 6 },
+    buildMinutes: 5,
+    fee: 50,
   },
   kite: {
     name: 'Kite-class hauler',
@@ -25,8 +40,14 @@ export const HULLS = {
     holdClass: 1,
     namePrefix: 'Kite',
     blurb: 'Buys, carries and sells goods between stations.',
-    // The research the shipyard needs before it sells this hull.
-    licence: 'kite-licence',
+    // It stops at Cargo racks V and tier 3 goods (steel, glass): circuits
+    // and hull plating need a Heron, which act 3 asks for.
+    maxRacks: 5,
+    maxTier: 3,
+    points: 1,
+    recipe: { iron: 20, silicon: 10 },
+    buildMinutes: 8,
+    fee: 100,
   },
   lark: {
     name: 'Lark-class scout',
@@ -38,21 +59,32 @@ export const HULLS = {
     holdClass: 1,
     namePrefix: 'Lark',
     blurb: 'Surveys unknown systems, so other ships can go there.',
+    // The research the shipyard needs before it builds this hull.
     licence: 'scout-licence',
+    points: 1,
+    recipe: { silicon: 20, graphite: 10, water: 10 },
+    buildMinutes: 10,
+    fee: 300,
   },
   heron: {
     name: 'Heron-class freighter',
     role: 'hauler',
     size: 'medium',
-    // Twice a Kite's hold, a little slower.
-    holdScale: 8,
-    speedScale: 0.9,
+    // Two and a half Kite holds, Cargo racks VI, tier 4 goods, and a
+    // quarter faster than a Kite for long routes: it takes two points, so
+    // it has to earn more than two Kites.
+    holdScale: 10,
+    speedScale: 1.5,
     holdClass: 1,
     namePrefix: 'Heron',
-    blurb: 'A big freighter for long trade routes.',
+    blurb: 'A big, fast freighter for long trade routes.',
     licence: 'warp-drive',
-    // Sold only at shipyards of factions that trust the company.
+    // Built only at shipyards of factions that trust the company.
     standing: 'trusted',
+    points: 2,
+    recipe: { steel: 200, glass: 100, titanium: 100 },
+    buildMinutes: 60,
+    fee: 20000,
   },
   osprey: {
     name: 'Osprey-class command ship',
@@ -67,6 +99,10 @@ export const HULLS = {
     licence: 'fleet-1',
     // Comes with a commander, hired at a shipyard (see systems/commanders.js).
     hired: true,
+    points: 2,
+    recipe: { 'titanium-alloy': 150, optics: 60 },
+    buildMinutes: 120,
+    fee: 40000,
   },
 };
 
@@ -96,13 +132,18 @@ export const REFIT_MINUTES = 1;
 /** How many orders a ship holds (its current one included), per Order queue level. */
 export const ORDER_SLOTS = [2, 4, 6, 8, 12, 16];
 
+/** The fleet allowance a company has before any Fleet licence. */
+export const STARTING_ALLOWANCE = 3;
+
+/** Allowance points each Fleet command level adds, so a command ship never costs a ship. */
+export const COMMAND_POINTS = 2;
+
 /**
- * What the next ship costs, by how many ships the company has: the second
- * ship costs SHIP_PRICES[0], the third SHIP_PRICES[1], and so on. Every hull
- * costs the same. Past the end of the list each ship costs half as much again.
+ * A shipyard sells goods missing from a refit, or from a hired commander's
+ * ship, at this many times their value. Every other ship is built only from
+ * goods delivered to the yard.
  */
-export const SHIP_PRICES = [150, 300, 600, 1500, 3000, 6000, 12000, 22000, 40000, 65000, 100000, 150000, 225000, 340000, 500000];
-export const SHIP_PRICE_GROWTH = 1.5;
+export const BUILD_MARKUP = 1.75;
 
 /** The highest goods tier each hold class may carry. */
 export const HOLD_CLASS_MAX_TIER = {

@@ -64,7 +64,7 @@ export function signalPanel(ctx, signalId) {
             'div',
             { class: 'dw-section' },
             sectionTitle(`Salvage ${goodName(signal.good).toLowerCase()}`),
-            haulers.length && !able.length ? h('p', { class: 'dw-note' }, holdNote(signal.good)) : null,
+            haulers.length && !able.length ? h('p', { class: 'dw-note' }, holdNote(signal.good, haulers[0])) : null,
             sendButtons(ctx, able, 'salvage', signal, 'Salvage'),
           )
         : h('p', { class: 'dw-note' }, 'Your haulers took everything aboard.'),

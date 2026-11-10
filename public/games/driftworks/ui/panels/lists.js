@@ -4,7 +4,7 @@
 import { ENDING, GOALS } from '../../content/goals.js';
 import { HULLS } from '../../content/ships.js';
 import { HOME_SYSTEM } from '../../content/homeSystem.js';
-import { allFactions, allSystems, findSystem } from '../../content/galaxy.js';
+import { allFactions, allSystems, findStation, findSystem } from '../../content/galaxy.js';
 import { MISSIONS } from '../../content/commanders.js';
 import { formatClock, formatCredits, formatNumber } from '../../../../shared/js/format.js';
 import { CONTRACT_RULES, boardOpen, contractPlace } from '../../systems/contracts.js';
@@ -13,9 +13,10 @@ import { isSurveyed } from '../../systems/explore.js';
 import { canJump } from '../../systems/travel.js';
 import { findShip } from '../../systems/fleet.js';
 import { wingOf } from '../../systems/commanders.js';
+import { allowance, pointsUsed } from '../../systems/shipyard.js';
 import { cancelOrder, canRepeat, canRunAgain, clearQueue, orderPhase, repeatToFill, runAgain, shipStatus } from '../../systems/orders.js';
 import { bar, countdown, h } from '../dom.js';
-import { button, chip, contractMark, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
+import { button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { plural, tonnes } from '../format.js';
 import { factionRow } from './factions.js';
 
@@ -28,11 +29,41 @@ export function fleetPanel(ctx) {
   const ships = state.ships.filter((ship) => !ship.fleet).sort((a, b) => ends(a) - ends(b));
   const idle = ships.filter((s) => !s.order && !s.mission).length;
   const rows = ships.map((ship) => shipRow(ctx, ship));
+  const builds = (state.builds ?? []).map((build) => buildRow(ctx, build));
+  // Orders for every ship here at once, as for a box selection.
+  const action = groupAction(ctx);
+  const actions = [
+    action('Run again', ships.filter((ship) => canRunAgain(state, ship)), 'fleet-run-again', runAgain, (n) => `${plural(n, 'ship')} running their last orders again`, 'primary'),
+    action('Repeat to fill', ships.filter((ship) => canRepeat(state, ship)), 'fleet-repeat-fill', repeatToFill, (n) => `${plural(n, 'ship')} repeating their orders`),
+  ].filter(Boolean);
   return [
     panelHead({ title: 'Fleet', subtitle: `${plural(state.ships.length, 'ship')} · ${idle} waiting for orders`, onClose: ctx.close }),
-    h('ul', { class: 'dw-list' }, rows),
-    button('Buy ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
+    h(
+      'div',
+      { class: 'dw-section' },
+      line('Fleet allowance', `${pointsUsed(state)} / ${allowance(state)} points`),
+      h('p', { class: 'dw-note' }, `Points per ship: ${Object.values(HULLS).map((hull) => `${hull.namePrefix} ${hull.points}`).join(', ')}.`),
+    ),
+    actions.length ? h('div', { class: 'dw-row-actions' }, actions) : null,
+    h('ul', { class: 'dw-list' }, rows, builds),
+    button('Build ships at Halcyon Shipyard', { key: 'fleet-shipyard', block: true, onClick: () => ctx.select('station', 'halcyon-shipyard') }),
   ];
+}
+
+/** A ship being built or planned: where, and when it is ready or what it waits for. */
+function buildRow(ctx, build) {
+  const yard = findStation(build.stationId)?.name ?? 'the yard';
+  const status = build.status === 'queued' ? h('small', null, `Being built at ${yard} · ready `, countdown(build.endsAt, { className: '' })) : h('small', null, `Planned at ${yard} · waiting for its recipe`);
+  return h(
+    'li',
+    null,
+    h(
+      'button',
+      { type: 'button', class: 'dw-ship-row is-plain is-building', onClick: () => ctx.select('station', build.stationId), dataset: { key: `fleet-${build.id}` } },
+      shipGlyph(build.hull),
+      h('span', { class: 'dw-grow' }, h('strong', null, build.name), status),
+    ),
+  );
 }
 
 // ---------- Several ships ----------
@@ -51,16 +82,9 @@ function forShips(ctx, ships, fn) {
   });
 }
 
-/** Ships picked together (a box selection): what each does, and orders for all of them. */
-export function groupPanel(ctx, ids) {
-  const { state } = ctx;
-  const ships = ids.map((id) => findShip(state, id)).filter(Boolean);
-  const busy = ships.filter((ship) => ship.order).length;
-  const again = ships.filter((ship) => canRunAgain(state, ship));
-  const repeat = ships.filter((ship) => canRepeat(state, ship));
-  const waiting = ships.filter((ship) => ship.queue.length);
-  const cancellable = ships.filter((ship) => ship.order && ship.order.type !== 'standby' && !(ship.order.type === 'fly' && orderPhase(ship.order, ctx.now).flying));
-  const action = (text, list, key, fn, done, variant) =>
+/** A button that runs one order function for a list of ships, or null for an empty list. */
+function groupAction(ctx) {
+  return (text, list, key, fn, done, variant) =>
     list.length
       ? button(text, {
           small: true,
@@ -73,6 +97,18 @@ export function groupPanel(ctx, ids) {
           },
         })
       : null;
+}
+
+/** Ships picked together (a box selection): what each does, and orders for all of them. */
+export function groupPanel(ctx, ids) {
+  const { state } = ctx;
+  const ships = ids.map((id) => findShip(state, id)).filter(Boolean);
+  const busy = ships.filter((ship) => ship.order).length;
+  const again = ships.filter((ship) => canRunAgain(state, ship));
+  const repeat = ships.filter((ship) => canRepeat(state, ship));
+  const waiting = ships.filter((ship) => ship.queue.length);
+  const cancellable = ships.filter((ship) => ship.order && ship.order.type !== 'standby' && !(ship.order.type === 'fly' && orderPhase(ship.order, ctx.now).flying));
+  const action = groupAction(ctx);
   const actions = [
     action('Run again', again, 'group-run-again', runAgain, (n) => `${plural(n, 'ship')} running their last orders again`, 'primary'),
     action('Repeat to fill', repeat, 'group-repeat-fill', repeatToFill, (n) => `${plural(n, 'ship')} repeating their orders`),

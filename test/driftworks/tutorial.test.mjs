@@ -7,6 +7,7 @@ import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { guideSkipped, skipGuide } from '../../public/games/driftworks/systems/goals.js';
 import { giveOrder, orderRefit } from '../../public/games/driftworks/systems/orders.js';
 import { acceptContract } from '../../public/games/driftworks/systems/contracts.js';
+import { planBuild } from '../../public/games/driftworks/systems/shipyard.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
 import { currentGuide } from '../../public/games/driftworks/ui/tutorial.js';
 import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
@@ -32,8 +33,7 @@ test('the act 2 guide covers the scout, the survey and the first far sale, and c
   assert.deepEqual(guided.map((g) => g.id), ['first-scout', 'first-survey', 'far-sale']);
   const state = newGame({ credits: 1e6 });
   state.tutorial.skipped = true; // skipping act 1's tutorial leaves act 2's guide on
-  state.research.done.push('kite-licence', 'warp-drive');
-  createShip(state, 'kite', 'halcyon-refinery');
+  state.research.done.push('warp-drive');
   state.goals = [...act1];
   assert.match(currentGuide(state, onMap()).text, /Scout licence/);
   state.research.done.push('scout-licence');
@@ -78,7 +78,7 @@ test('the first sale can wait for the hold to fill; queuing it now is only a tip
 
 test('the refit guide waits for Cargo racks I, then sends the first Mule to the shipyard', () => {
   const state = newGame();
-  state.goals = ['first-sale', 'first-research'];
+  state.goals = ['first-sale', 'carry-goods', 'first-research', 'first-build', 'first-contract', 'first-licence'];
   state.research.active = { id: 'hold-1', endsAt: T0 + MINUTE };
   assert.match(currentGuide(state, onMap()).text, /Cargo racks I is done at/);
   state.research.active = null;
@@ -92,9 +92,13 @@ test('the refit guide waits for Cargo racks I, then sends the first Mule to the 
   assert.deepEqual(currentGuide(state, onMap()).map, { kind: 'ship', id: mule.id });
 });
 
-test('a second Mule can be given any orders; copying is a tip', () => {
+test('a new Mule can be given any orders; copying is a tip', () => {
   const state = newGame();
-  state.goals = ['first-sale', 'first-research', 'first-refit'];
+  state.goals = ['first-sale', 'carry-goods', 'first-research', 'first-build'];
+  state.research.done.push('brokerage');
+  advance(state, T0);
+  const offer = state.contracts.offers.find((o) => HOME_SYSTEM.fields.some((f) => f.good === o.good));
+  acceptContract(state, offer.id, T0);
   const a = firstShip(state);
   giveOrder(state, a, { type: 'mine', fieldId: 'carbon-drift', amount: null });
   giveOrder(state, a, { type: 'sell', stationId: 'halcyon-refinery' });
@@ -104,9 +108,54 @@ test('a second Mule can be given any orders; copying is a tip', () => {
   assert.match(guide.tip, new RegExp(`Copy orders from ${a.name}`));
 });
 
+test('the Kite step buys iron at the refinery and sells it at the foundry', () => {
+  const state = newGame();
+  state.goals = ['first-sale'];
+  const kite = state.ships.find((ship) => ship.hull === 'kite');
+  assert.deepEqual(currentGuide(state, onMap()).map, { kind: 'ship', id: kite.id });
+  const selected = onMap({ kind: 'ship', id: kite.id });
+  assert.deepEqual(currentGuide(state, selected).map, { kind: 'station', id: 'halcyon-refinery' });
+  const menu = { ...selected, menu: { target: { kind: 'station', id: 'halcyon-refinery' } } };
+  assert.equal(currentGuide(state, menu).selector, '[data-key="menu-buy-iron"]');
+  assert.ok(giveOrder(state, kite, { type: 'buy', stationId: 'halcyon-refinery', good: 'iron', qty: 20 }).ok);
+  const sell = currentGuide(state, selected);
+  assert.deepEqual(sell.map, { kind: 'station', id: 'halcyon-foundry' });
+  giveOrder(state, kite, { type: 'sell', stationId: 'halcyon-foundry' });
+  assert.match(currentGuide(state, onMap()).text, /sells the iron/);
+  advance(state, kite.order.endsAt + 1);
+  advance(state, kite.order?.endsAt ?? state.now);
+  assert.ok(state.goals.includes('carry-goods'));
+});
+
+test('the build step plans a Mule, has the Kite fetch its recipe and starts the build', () => {
+  const state = newGame({ credits: 5000 });
+  state.goals = ['first-sale', 'carry-goods', 'first-research'];
+  const yard = onMap({ kind: 'station', id: 'halcyon-shipyard' });
+  assert.match(currentGuide(state, onMap()).text, /allowance/);
+  const plan = currentGuide(state, yard);
+  assert.equal(plan.selector, '[data-key="plan-mule"]');
+  assert.equal(plan.tip, undefined, 'a ship is only built from delivered goods');
+  assert.ok(planBuild(state, 'mule', 'halcyon-shipyard').ok);
+  const kite = state.ships.find((ship) => ship.hull === 'kite');
+  const menu = { ...onMap({ kind: 'ship', id: kite.id }), menu: { target: { kind: 'station', id: 'halcyon-refinery' } } };
+  assert.equal(currentGuide(state, menu).selector, '[data-key="menu-buy-iron"]');
+  giveOrder(state, kite, { type: 'buy', stationId: 'halcyon-refinery', good: 'iron', qty: 12 });
+  assert.equal(currentGuide(state, menu).selector, '[data-key="menu-buy-graphite"]');
+  giveOrder(state, kite, { type: 'buy', stationId: 'halcyon-refinery', good: 'graphite', qty: 6 });
+  advance(state, kite.order.endsAt);
+  const deliver = currentGuide(state, { ...onMap({ kind: 'ship', id: kite.id }), menu: { target: { kind: 'station', id: 'halcyon-shipyard' } } });
+  assert.equal(deliver.selector, '[data-key="menu-store-"]');
+  assert.ok(giveOrder(state, kite, { type: 'store', stationId: 'halcyon-shipyard' }).ok);
+  assert.match(currentGuide(state, onMap()).text, /brings the goods/);
+  advance(state, kite.queue.length ? state.now : kite.order.endsAt);
+  advance(state, kite.order?.endsAt ?? state.now);
+  assert.equal(state.builds[0].status, 'queued');
+  assert.ok(state.goals.includes('first-build'));
+});
+
 test('the contract guide finds the offer, then has its ore mined and delivered', () => {
   const state = newGame();
-  state.goals = ['first-sale', 'first-research', 'first-refit', 'second-mule'];
+  state.goals = ['first-sale', 'carry-goods', 'first-research', 'first-build'];
   state.research.done.push('brokerage');
   advance(state, T0);
   const [offer] = state.contracts.offers;

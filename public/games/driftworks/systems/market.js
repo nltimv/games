@@ -129,6 +129,22 @@ export function quote(state, stationId, good, qty, at = state.now) {
   return { qty: amount, total: average * amount, average };
 }
 
+/**
+ * When a station that buys `good` has room for `qty` tonnes again, as its
+ * stock drifts back to target: `at` if it has room now, null if it does not
+ * buy the good. It never waits for more than half the room the station has
+ * at target, so a big hold sells in parts.
+ */
+export function roomAt(state, stationId, good, qty, at = state.now) {
+  const entry = findEntry(stationId, good);
+  if (!entry || entry.side !== 'buys') return null;
+  const target = targetStock(state, stationId, entry);
+  const need = Math.max(1, Math.min(qty, (entry.curve.cap - target) / 2));
+  const stock = stockAt(state, stationId, good, at);
+  if (entry.curve.cap - stock >= need) return at;
+  return at + Math.ceil(RECOVERY_TAU * Math.log((stock - target) / (entry.curve.cap - need - target)));
+}
+
 /** The player sells to a station that buys this good. Returns credits earned. */
 export function sellToStation(state, stationId, good, qty, at = state.now) {
   const entry = findEntry(stationId, good);

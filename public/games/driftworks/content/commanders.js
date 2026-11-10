@@ -15,7 +15,7 @@ export const TRAIT_IDS = Object.keys(TRAITS);
 export const COMMANDER_PRICES = [750000, 1500000, 3000000, 5000000, 8000000];
 
 /** Hours on missions to reach each level (1 to 5). */
-export const LEVEL_HOURS = [0, 4, 12, 30, 60];
+export const LEVEL_HOURS = [0, 8, 24, 60, 120];
 export const MAX_LEVEL = LEVEL_HOURS.length;
 /** The level at which a commander shows a second trait. */
 export const SECOND_TRAIT_LEVEL = 3;
@@ -23,15 +23,16 @@ export const SECOND_TRAIT_LEVEL = 3;
 /**
  * How much of a ship's time goes to work instead of waiting for the
  * commander's next order, per level: a fleet earns about this share of what
- * the same ships make under the player's own orders.
+ * the same ships make under the player's own orders. A new commander costs
+ * a little; from level 4 a wing matches hand play, point for point.
  */
-export const LEVEL_EFFICIENCY = [0.75, 0.79, 0.83, 0.87, 0.9];
+export const LEVEL_EFFICIENCY = [0.85, 0.9, 0.95, 1, 1];
 
 /** What each Fleet command research allows: wing size, area reach in jumps, mission lengths in hours. */
 export const FLEET_COMMAND = [
-  { research: 'fleet-1', wing: 4, reach: 1, hours: [1, 2, 4], doctrines: false },
-  { research: 'fleet-2', wing: 6, reach: 2, hours: [1, 2, 4, 8], doctrines: true },
-  { research: 'fleet-3', wing: 8, reach: 3, hours: [1, 2, 4, 8, 12], doctrines: true },
+  { research: 'fleet-1', wing: 4, reach: 1, hours: [2, 4, 8, 16], doctrines: false },
+  { research: 'fleet-2', wing: 6, reach: 2, hours: [2, 4, 8, 16, 24], doctrines: true },
+  { research: 'fleet-3', wing: 8, reach: 3, hours: [2, 4, 8, 16, 24, 48], doctrines: true },
 ];
 
 /**
@@ -75,5 +76,5 @@ export function nameGender(name) {
 
 export const LAST_NAMES = [
   'Vey', 'Calder', 'Morrow', 'Ashby', 'Quill', 'Strand', 'Okafor', 'Lindqvist', 'Harrow', 'Pell', 'Sorensen', 'Achebe',
-  'Rook', 'Varga', 'Ember', 'Tanaka', 'Wilde', 'Brask', 'Ivanova', 'Hollis', 'Marchetti', 'Dunmore', 'Keel', 'Sato',
+  'Rook', 'Ember', 'Tanaka', 'Wilde', 'Brask', 'Ivanova', 'Hollis', 'Marchetti', 'Dunmore', 'Keel', 'Sato',
 ];

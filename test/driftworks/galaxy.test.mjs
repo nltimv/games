@@ -265,7 +265,7 @@ test('an act 1 save upgrades with its company intact', () => {
   const loaded = deserialize(JSON.stringify(old));
   assert.equal(loaded.version, SAVE_VERSION);
   assert.equal(loaded.credits, 4321);
-  assert.equal(loaded.ships.length, 1);
+  assert.equal(loaded.ships.length, 2);
   assert.deepEqual(loaded.surveyed, []);
   assert.equal(loaded.stats.jumps, 0);
   assert.ok(findStation('halcyon-refinery'));

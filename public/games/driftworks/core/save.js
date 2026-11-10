@@ -7,6 +7,12 @@ import { createStore } from '../../../shared/js/storage.js';
 import { OLDEST_SAVE_VERSION, SAVE_VERSION } from './state.js';
 import { HOME_FACTION } from '../content/galaxy.js';
 import { CREDITS_PER_POINT } from '../systems/standing.js';
+import { COMMAND_POINTS, HULLS, STARTING_ALLOWANCE } from '../content/ships.js';
+import { LICENCE_LINE, SHIELDINGS, prerequisites } from '../content/research.js';
+import { GOALS } from '../content/goals.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { createShip } from '../systems/fleet.js';
+import { addLog } from '../systems/log.js';
 
 const SAVE_KEY = 'save';
 
@@ -46,7 +52,62 @@ export const MIGRATIONS = {
       ships: save.ships.map((ship) => ({ ...ship, modules: { seal: 0, ...ship.modules } })),
     };
   },
+  // The fleet allowance: ships are built, not bought. Every ship stays: the
+  // save gets each Fleet licence its fleet already fills, and a bonus for the
+  // rest, so it starts at its cap. Ships are built from goods a hauler
+  // brings, so a company without one gets a Kite, as a new one starts with.
+  // New act 1 goals it is past count as done.
+  5(old) {
+    const save = { ...old, ships: [...old.ships], log: [...(old.log ?? [])] };
+    if (!save.ships.some((ship) => HULLS[ship.hull]?.role === 'hauler')) {
+      const yard = HOME_SYSTEM.stations.find((station) => station.type === 'shipyard');
+      const kite = createShip(save, 'kite', yard.id);
+      addLog(save, save.now, `${kite.name} joined the fleet at ${yard.name}: ships are built from goods a hauler brings`, 'purchase');
+    }
+    const done = new Set(save.research?.done ?? []);
+    // A Hauler licence still in the lab is done: it no longer exists.
+    const lab = { ...save.research };
+    for (const slot of ['active', 'second']) {
+      if (lab[slot]?.id !== 'kite-licence') continue;
+      done.add('kite-licence');
+      lab[slot] = null;
+    }
+    const used = save.ships.reduce((sum, ship) => sum + (HULLS[ship.hull]?.points ?? 1), 0);
+    const command = COMMAND_POINTS * ['fleet-1', 'fleet-2', 'fleet-3'].filter((id) => done.has(id)).length;
+    const shields = SHIELDINGS.filter((r) => done.has(r.id)).length;
+    let base = STARTING_ALLOWANCE;
+    for (const licence of LICENCE_LINE) {
+      const ready = prerequisites(licence).every((id) => done.has(id)) && shields >= (licence.shields ?? 0);
+      if (!ready || licence.allowance > used - command) break;
+      done.add(licence.id);
+      base = licence.allowance;
+    }
+    return {
+      ...save,
+      research: { ...lab, done: [...done] },
+      stats: { builds: 0, shipSpend: { licences: 0, materials: 0, fees: 0 }, ...save.stats },
+      builds: [],
+      nextBuildId: 1,
+      stores: {},
+      allowanceBonus: Math.max(0, used - command - base),
+      goals: upgradeGoals(save),
+    };
+  },
 };
+
+// Goals new in version 6, and the goals that come after each.
+const NEW_GOALS = ['carry-goods', 'first-build', 'first-licence'];
+
+/** A save keeps the goals it has. A new act 1 goal counts as done when the save is already past it (a goal after it is done). */
+function upgradeGoals(save) {
+  const goals = new Set(save.goals ?? []);
+  const order = GOALS.map((goal) => goal.id);
+  for (const id of NEW_GOALS) {
+    const after = order.slice(order.indexOf(id) + 1);
+    if (after.some((later) => goals.has(later))) goals.add(id);
+  }
+  return [...goals];
+}
 
 export function migrate(data) {
   let save = data;

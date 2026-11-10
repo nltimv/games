@@ -5,6 +5,7 @@ import { findPlace, findSystem, systemOf } from '../content/galaxy.js';
 import { MISSIONS } from '../content/commanders.js';
 import { commanders, leaderOf, mapShips } from '../systems/commanders.js';
 import { currentGoal } from '../systems/goals.js';
+import { allowance, pointsUsed } from '../systems/shipyard.js';
 import { portrait } from './portrait.js';
 import { orderPhase, shipStatus } from '../systems/orders.js';
 import { shipGlyph } from './components.js';
@@ -24,6 +25,8 @@ const ACTIVITY_ICONS = {
   wait: '<path d="M6 4.5v7M10 4.5v7"/>',
   investigate: '<circle cx="6.8" cy="6.8" r="4"/><path d="M9.8 9.8l3.6 3.6"/>',
   salvage: '<path d="M8 2v6.5a2.6 2.6 0 1 1-2.6-2.6"/><path d="M5.5 2h5"/>',
+  store: '<path d="M2.5 5.4L8 2.7l5.5 2.7v5.4L8 13.5l-5.5-2.7z"/><path d="M2.5 5.4L8 8.1l5.5-2.7M8 8.1v5.4"/>',
+  build: '<path d="M4 14V3h8.5"/><path d="M4 6l3-3"/><path d="M11 3v3.5"/><path d="M9.6 6.5h2.8v2.4H9.6z"/><path d="M2.4 14h4"/>',
 };
 
 // Orders at a signal name its system, as the signal itself may still be unknown.
@@ -53,7 +56,7 @@ export function renderTopBar(els, state, previous) {
   const shown = mapShips(state);
   const busy = shown.filter((s) => s.order);
   const away = state.ships.filter((s) => s.mission || leaderOf(state, s)?.mission).length;
-  els.fleetSummary.textContent = `${plural(state.ships.length, 'ship')} · ${busy.length + away} busy`;
+  els.fleetSummary.textContent = `${plural(state.ships.length, 'ship')} · ${pointsUsed(state)} / ${allowance(state)} points`;
 
   const next = [...busy].sort((a, b) => a.order.endsAt - b.order.endsAt)[0];
   els.nextChip.classList.toggle('is-idle', !next);
@@ -68,7 +71,7 @@ export function renderTopBar(els, state, previous) {
 // One short row per ship: waiting ships first, then the ones that finish
 // soonest. The icon says what the job is, the place where it happens ("to …"
 // while the ship is still on its way), and the bar and time count down the
-// whole order.
+// whole order. Ships being built come last.
 export function underwayCard(ctx) {
   const { state, now } = ctx;
   // A fleet on a mission is one row; ships aboard a fleet have none.
@@ -77,7 +80,8 @@ export function underwayCard(ctx) {
   const busy = ships.filter((s) => s.order).sort((a, b) => a.order.endsAt - b.order.endsAt);
   const idle = ships.filter((s) => !s.order);
   const goal = currentGoal(state);
-  const rows = [...idle.map((ship) => runRow(ctx, ship, now)), ...fleets.map((c) => fleetRow(ctx, c)), ...busy.map((ship) => runRow(ctx, ship, now))];
+  const building = (state.builds ?? []).filter((b) => b.status === 'queued').sort((a, b) => a.endsAt - b.endsAt);
+  const rows = [...idle.map((ship) => runRow(ctx, ship, now)), ...fleets.map((c) => fleetRow(ctx, c)), ...busy.map((ship) => runRow(ctx, ship, now)), ...building.map((b) => buildRow(ctx, b))];
 
   return [
     h(
@@ -119,6 +123,21 @@ function fleetRow(ctx, commander) {
     h('span', { class: 'dw-run-where' }, where, h('span', { class: 'dw-run-more' }, ` +${mission.ships}`)),
     returning ? h('span', { class: 'dw-run-time' }, 'Heading back') : countdown(mission.endsAt, { className: 'dw-run-time' }),
     returning ? null : bar({ start: mission.startedAt, end: mission.endsAt }),
+  );
+}
+
+function buildRow(ctx, build) {
+  const yard = findPlace(build.stationId)?.name ?? '?';
+  const status = `${build.name}: being built at ${yard}`;
+  return h(
+    'button',
+    { type: 'button', class: 'dw-run is-building', onClick: () => ctx.select('station', build.stationId), dataset: { key: `run-${build.id}` }, title: status, 'aria-label': status },
+    shipGlyph(build.hull, { small: true }),
+    h('span', { class: 'dw-run-name' }, build.name),
+    activityIcon('build'),
+    h('span', { class: 'dw-run-where' }, 'building'),
+    countdown(build.endsAt, { className: 'dw-run-time' }),
+    bar({ start: build.startsAt, end: build.endsAt }),
   );
 }
 

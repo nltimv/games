@@ -1312,7 +1312,8 @@ button.dw-price-row[aria-pressed='true'] {
 }
 
 .dw-act.is-mine,
-.dw-act.is-deliver {
+.dw-act.is-deliver,
+.dw-act.is-store {
   color: var(--aqua);
 }
 
@@ -1329,7 +1330,8 @@ button.dw-price-row[aria-pressed='true'] {
   color: #d3b8ff;
 }
 
-.dw-act.is-refit {
+.dw-act.is-refit,
+.dw-act.is-build {
   color: #dfe7f2;
 }
 
@@ -1594,6 +1596,23 @@ button.dw-price-row[aria-pressed='true'] {
   color: var(--glass-faint);
 }
 
+.dw-range-wrap {
+  position: relative;
+}
+
+/* Where the chosen buyer's price stops paying. */
+.dw-range-mark {
+  position: absolute;
+  top: 4px;
+  width: 3px;
+  height: 20px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--gold);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
 .dw-amount-note {
   padding: 0 4px;
 }
@@ -1741,6 +1760,20 @@ button.dw-price-row[aria-pressed='true'] {
   gap: 3px;
 }
 
+.dw-build-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  color: #08364a;
+  background: linear-gradient(180deg, #e6fbff 0%, #9fe3f5 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 1px 3px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+
 .dw-marks .dw-contract-mark {
   margin-right: 0;
 }
@@ -1773,6 +1806,51 @@ button.dw-price-row[aria-pressed='true'] {
 
 .dw-hull.is-locked {
   opacity: 0.7;
+}
+
+/* A hull's recipe: what the yard's store holds of each good it needs. */
+.dw-recipe {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.dw-recipe li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dw-recipe-qty {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--glass-muted);
+}
+
+.dw-recipe li.is-full .dw-recipe-qty {
+  color: var(--aqua);
+}
+
+.dw-recipe .dw-grow small {
+  display: block;
+  font-size: 0.8em;
+  color: var(--glass-muted);
+}
+
+.dw-ship-row.is-planned {
+  flex-wrap: wrap;
+}
+
+.dw-ship-row.is-planned .dw-grow {
+  flex: 1 1 180px;
+}
+
+.dw-ship-row.is-planned .dw-btn {
+  flex: none;
 }
 
 .dw-research .dw-btn {

@@ -10,6 +10,9 @@
 //   { type: 'buy', stationId, good, qty }  haulers: fly there and buy
 //   { type: 'deliver', stationId, good }   fly to a station and hand `good`
 //                                       to the contract running there
+//   { type: 'store', stationId }        fly to a shipyard and put what the
+//                                       builds planned there need into its
+//                                       build store (systems/shipyard.js)
 //   { type: 'fly', stationId }
 //   { type: 'refit', modules, paid, stationId }  fly to a shipyard and fit
 //                                       modules (see orderRefit; paid up front)
@@ -45,7 +48,8 @@ import { MINUTE, SECOND } from '../core/time.js';
 import { findEntry } from './market.js';
 import { canCarry, cargoTotal, holdNote } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
-import { holdOf, laserOf, refitCost, refitTarget } from './modules.js';
+import { holdOf, laserOf, refitCost, refitGoods, refitTarget } from './modules.js';
+import { addToStore, buildsFor, markupPrice, storeAt, storeGoods, takeFromStore } from './shipyard.js';
 import { isResearched, orderSlots } from './research.js';
 import { flightTimeFrom, plotCourse, shipPosition, travelTime } from './travel.js';
 import { flight, route, stationLegs } from './courses.js';
@@ -147,7 +151,7 @@ function buildBuy(state, view, { stationId, good, qty }, start) {
   const station = findStation(stationId);
   if (!station) return fail('No such station.');
   if (findEntry(stationId, good)?.side !== 'sells') return fail(`${station.name} does not sell ${lower(good)}.`);
-  if (!canCarry(view, good)) return fail(holdNote(good));
+  if (!canCarry(view, good)) return fail(holdNote(good, view));
   const amount = Math.floor(Math.min(qty, freeIn(view)));
   if (amount < 1) return fail(`${view.name}'s hold is full.`);
   const course = stationLegs(state, view, stationId, start);
@@ -193,6 +197,32 @@ function buildDeliver(state, view, { stationId, good }, start) {
       startedAt: start,
       endsAt: end,
       steps: [{ at: end, kind: 'deliver', station: stationId, good, qty: Math.min(carried, needed), contract: contract.id }],
+      legs,
+      ...route(course),
+    },
+  };
+}
+
+function buildStore(state, view, { stationId }, start) {
+  const station = findStation(stationId);
+  if (station?.type !== 'shipyard') return fail('Only a shipyard keeps a build store.');
+  const goods = storeGoods(state, stationId, view.cargo, view.stored);
+  const names = buildsFor(state, stationId, goods).map((build) => build.name);
+  if (!names.length) return fail(`${view.name} carries nothing the builds planned at ${station.name} need.`);
+  const course = stationLegs(state, view, stationId, start);
+  if (!course.ok) return course;
+  const { end, legs } = course;
+  const what = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+  return {
+    ok: true,
+    order: {
+      type: 'store',
+      label: `Delivering goods for ${what} to ${station.name}`,
+      flightLabel: `Flying to ${station.name} with goods for ${what}`,
+      target: stationId,
+      startedAt: start,
+      endsAt: end,
+      steps: [{ at: end, kind: 'store', station: stationId, goods }],
       legs,
       ...route(course),
     },
@@ -300,6 +330,7 @@ const BUILDERS = {
   sell: buildSell,
   buy: buildBuy,
   deliver: buildDeliver,
+  store: buildStore,
   fly: buildFly,
   refit: buildRefit,
   survey: buildSurvey,
@@ -339,6 +370,15 @@ function applySteps(view, order, from = 0) {
       if (view.cargo[step.good] <= 0) delete view.cargo[step.good];
       view.delivered = { ...view.delivered, [step.contract]: (view.delivered?.[step.contract] ?? 0) + qty };
       view.at = step.station;
+    } else if (step.kind === 'store') {
+      for (const [good, wanted] of Object.entries(step.goods)) {
+        const qty = Math.min(wanted, view.cargo[good] ?? 0);
+        view.cargo[good] = (view.cargo[good] ?? 0) - qty;
+        if (view.cargo[good] <= 0) delete view.cargo[good];
+        const key = `${step.station}:${good}`;
+        view.stored = { ...view.stored, [key]: (view.stored?.[key] ?? 0) + qty };
+      }
+      view.at = step.station;
     } else if (step.kind === 'refit') {
       view.modules = { ...view.modules, ...step.modules };
       view.at = step.station;
@@ -366,6 +406,8 @@ export function projectShip(state, ship, built = null) {
     modules: { ...ship.modules },
     // Tonnes its orders will deliver to each contract: { [contractId]: t }.
     delivered: {},
+    // And to each yard's builds: { 'stationId:good': t }.
+    stored: {},
     time: state.now,
   };
   if (ship.order) {
@@ -558,7 +600,8 @@ export function giveOrders(state, ship, specs) {
 
 /**
  * Called by the simulation when a ship's order ends: starts the next queued
- * order, skipping (and refunding) any that can no longer run.
+ * order, skipping (and refunding) any that can no longer run. A delivery
+ * that can no longer run becomes a sale at the same station.
  */
 export function startNextOrder(state, ship, at) {
   ship.order = null;
@@ -566,13 +609,21 @@ export function startNextOrder(state, ship, at) {
     const spec = ship.queue.shift();
     const result = startOrder(state, ship, spec);
     if (result.ok) return;
+    // A delivery whose contract is filled or gone sells there instead, if the station buys the good.
+    if (spec.type === 'deliver' && startOrder(state, ship, { type: 'sell', stationId: spec.stationId, good: spec.good }).ok) {
+      addLog(state, at, `${ship.name} sells its ${lower(spec.good)} at ${findStation(spec.stationId).name} instead: ${result.error}`, 'warning');
+      return;
+    }
     refund(state, spec);
     addLog(state, at, `${ship.name} skipped an order: ${result.error}`, 'warning');
   }
 }
 
+/** A refit that will not happen gives back what it paid, and the goods it took from a build store. */
 function refund(state, spec) {
-  if (spec?.type === 'refit' && spec.paid) state.credits += spec.paid;
+  if (spec?.type !== 'refit') return;
+  if (spec.paid) state.credits += spec.paid;
+  for (const [good, qty] of Object.entries(spec.stored ?? {})) addToStore(state, spec.stationId ?? SHIPYARD_ID, good, qty);
 }
 
 const placeName = (id) => findPlace(id)?.name ?? 'its target';
@@ -717,9 +768,26 @@ export function clearQueue(state, ship) {
 // ---------- Refits ----------
 
 /** What a refit would fit and cost for this ship now, or null. */
-export function refitOffer(state, ship) {
+/**
+ * What a refit at a yard would fit and cost: { modules, cost, fitting,
+ * goods, stored, bought }. `cost` is the fitting plus the goods the yard's
+ * build store lacks (`bought`, at the build markup); `stored` comes out of
+ * the store.
+ */
+export function refitOffer(state, ship, stationId = SHIPYARD_ID) {
   const modules = refitTarget(state, ship);
-  return modules ? { modules, cost: refitCost(modules) } : null;
+  if (!modules) return null;
+  const fitting = refitCost(modules);
+  const goods = refitGoods(ship, modules);
+  const store = storeAt(state, stationId);
+  const stored = {};
+  let bought = 0;
+  for (const [good, qty] of Object.entries(goods)) {
+    const have = Math.min(qty, Math.floor(store[good] ?? 0));
+    if (have > 0) stored[good] = have;
+    bought += (qty - have) * markupPrice(good);
+  }
+  return { modules, cost: fitting + bought, fitting, goods, stored, bought };
 }
 
 /** The known shipyard a ship reaches first (the home one when none is nearer). */
@@ -737,12 +805,13 @@ export function nearestShipyard(state, ship) {
 /** Pays for a refit and gives the order to fly to a shipyard (the nearest, by default) for it. */
 export function orderRefit(state, ship, stationId = nearestShipyard(state, ship)) {
   if (!ship) return fail('No such ship.');
-  const offer = refitOffer(state, ship);
+  const offer = refitOffer(state, ship, stationId);
   if (!offer) return fail(`${ship.name} already has the newest modules.`);
   if (state.credits < offer.cost) return fail(`A refit costs ${formatCredits(offer.cost)}. You need ${formatCredits(offer.cost - state.credits)} more.`);
-  const result = giveOrder(state, ship, { type: 'refit', modules: offer.modules, paid: offer.cost, stationId });
+  const result = giveOrder(state, ship, { type: 'refit', modules: offer.modules, paid: offer.cost, stationId, ...(Object.keys(offer.stored).length ? { stored: offer.stored } : {}) });
   if (!result.ok) return result;
   state.credits -= offer.cost;
+  for (const [good, qty] of Object.entries(offer.stored)) takeFromStore(state, stationId, good, qty);
   addLog(state, state.now, `${ship.name} booked a refit for ${formatCredits(offer.cost)}`, 'purchase', -offer.cost);
   return { ...result, cost: offer.cost };
 }
@@ -768,11 +837,15 @@ export function refitAll(state, stationId) {
 
 const sameSpec = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-/** The shortest run of orders the plan repeats, e.g. [mine, sell]. */
+/**
+ * The shortest run of orders the plan repeats, e.g. [mine, sell], in the
+ * order that carries on from its last one. The plan only keeps its last
+ * MAX_PLAN orders, so it may start partway through a round:
+ * [fly, mine, sell, fly] repeats [mine, sell, fly].
+ */
 export function planCycle(plan) {
   for (let len = 1; len <= plan.length; len += 1) {
-    if (plan.length % len) continue;
-    if (plan.every((spec, i) => sameSpec(spec, plan[i % len]))) return plan.slice(0, len);
+    if (plan.every((spec, i) => i < len || sameSpec(spec, plan[i - len]))) return plan.slice(plan.length - len);
   }
   return plan.slice();
 }
@@ -917,6 +990,8 @@ export function specLabel(spec) {
       return `Buy ${formatNumber(spec.qty)} t ${lower(spec.good)} at ${findStation(spec.stationId)?.name ?? '?'}`;
     case 'deliver':
       return `Deliver ${lower(spec.good)} to ${findStation(spec.stationId)?.name ?? '?'}`;
+    case 'store':
+      return `Deliver for builds at ${findStation(spec.stationId)?.name ?? '?'}`;
     case 'fly':
       return `Fly to ${placeName(spec.stationId)}`;
     case 'refit':

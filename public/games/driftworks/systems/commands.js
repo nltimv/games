@@ -7,6 +7,7 @@ import { sellCargo } from './cargo.js';
 import { deliverCargo } from './contracts.js';
 import { findShip } from './fleet.js';
 import { giveOrder, orderRefit } from './orders.js';
+import { storeAll } from './shipyard.js';
 
 const fail = (error) => ({ ok: false, error });
 
@@ -35,6 +36,9 @@ export function carryOut(state, shipId, option) {
     case 'deliver':
       if (option.now) return deliverCargo(state, ship, option.good);
       return giveOrder(state, ship, { type: 'deliver', stationId: option.stationId, good: option.good });
+    case 'store':
+      if (option.now) return storeAll(state, ship);
+      return giveOrder(state, ship, { type: 'store', stationId: option.stationId });
     case 'buy':
       return giveOrder(state, ship, { type: 'buy', stationId: option.stationId, good: option.good, qty: option.qty });
     case 'refit':

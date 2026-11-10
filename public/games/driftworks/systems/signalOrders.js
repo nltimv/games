@@ -59,7 +59,7 @@ export function buildSalvage(state, view, { signalId }, start) {
   if (!signal || signal.kind !== 'derelict' || !isInvestigated(state, signal)) return fail('There is nothing to salvage there.');
   const left = derelictLeft(state, signal);
   if (left < 1) return fail(`The derelict in ${system.name} is empty.`);
-  if (!canCarry(view, signal.good)) return fail(holdNote(signal.good));
+  if (!canCarry(view, signal.good)) return fail(holdNote(signal.good, view));
   const room = Math.floor(holdOf(view) - cargoTotal(view));
   if (room < 1) return fail(`${view.name}'s hold is full.`);
   const course = signalLegs(state, view, signal, start);

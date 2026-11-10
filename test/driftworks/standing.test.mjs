@@ -6,7 +6,8 @@ import { deserialize, serialize } from '../../public/games/driftworks/core/save.
 import { saleValue } from '../../public/games/driftworks/systems/advisor.js';
 import { sellCargo } from '../../public/games/driftworks/systems/cargo.js';
 import { markSurveyed } from '../../public/games/driftworks/systems/explore.js';
-import { buyShip, hullLock } from '../../public/games/driftworks/systems/fleet.js';
+import { hullLock } from '../../public/games/driftworks/systems/fleet.js';
+import { planBuild } from '../../public/games/driftworks/systems/shipyard.js';
 import { isLive, knownAt, seenAt } from '../../public/games/driftworks/systems/knowledge.js';
 import { marketView, sellToStation } from '../../public/games/driftworks/systems/market.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
@@ -57,12 +58,13 @@ test('Heron freighters need Trusted standing with the shipyard faction', () => {
   assert.match(hullLock(state, 'heron', 'halcyon-shipyard'), /Warp drive/);
   state.research.done.push('warp-drive');
   assert.match(hullLock(state, 'heron', 'halcyon-shipyard'), /Trusted standing with the Halcyon Compact/);
-  assert.equal(buyShip(state, 'heron', 'halcyon-shipyard').ok, false);
+  assert.equal(planBuild(state, 'heron', 'halcyon-shipyard').ok, false);
   state.standing[HOME_FACTION] = 300;
+  state.research.done.push('licence-1');
   assert.equal(hullLock(state, 'heron', 'halcyon-shipyard'), null);
-  const result = buyShip(state, 'heron', 'halcyon-shipyard');
+  const result = planBuild(state, 'heron', 'halcyon-shipyard');
   assert.ok(result.ok, result.error);
-  assert.equal(result.ship.name, 'Heron-1');
+  assert.equal(result.build.name, 'Heron-1');
 });
 
 test('away from your ships, prices are the ones last seen', () => {

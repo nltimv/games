@@ -33,7 +33,7 @@ test('the open list starts with the cheap basics', () => {
   const state = newGame();
   assert.deepEqual(
     openResearch(state).map((r) => r.id),
-    ['brokerage', 'hold-1', 'queue-1', 'laser-1', 'kite-licence', 'engine-1'],
+    ['brokerage', 'hold-1', 'licence-1', 'queue-1', 'laser-1', 'engine-1'],
   );
 });
 
