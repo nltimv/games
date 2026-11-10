@@ -10,10 +10,10 @@ import { orderOptions } from '../../public/games/driftworks/systems/advisor.js';
 import {
   addToStore,
   allowance,
+  buildHiredShip,
   buildLock,
-  buildNowCost,
-  buildShip,
   cancelPlan,
+  hiredShipCost,
   planBuild,
   pointsUsed,
   salvageLock,
@@ -49,29 +49,36 @@ test('Fleet licences, Fleet command and an old save bonus raise the allowance', 
   assert.equal(allowance(state), 11);
 });
 
-test('Build now buys what the store lacks at the markup, plus the fee', () => {
-  const state = newGame({ credits: 10_000 });
-  const recipe = HULLS.mule.recipe;
-  const empty = buildNowCost(state, 'mule', YARD);
-  const markup = Object.entries(recipe).reduce((sum, [good, qty]) => sum + qty * Math.ceil(GOODS[good].value * BUILD_MARKUP), 0);
+/** Puts a hull's recipe in the yard's store and plans it, so the build starts at once. */
+function buildFromStore(state, hullId) {
+  for (const [good, qty] of Object.entries(HULLS[hullId].recipe)) addToStore(state, YARD, good, qty);
+  return planBuild(state, hullId, YARD, state.now);
+}
+
+test('a ship is only built from delivered goods; a hired commander’s ship is built at once', () => {
+  const state = newGame({ credits: 1e7 });
+  assert.equal(buildHiredShip(state, 'mule', YARD).ok, false, 'no buying a Mule outright');
+  state.research.done.push('fleet-1');
+  const empty = hiredShipCost(state, 'osprey', YARD);
+  const markup = Object.entries(HULLS.osprey.recipe).reduce((sum, [good, qty]) => sum + qty * Math.ceil(GOODS[good].value * BUILD_MARKUP), 0);
   assert.equal(empty.materials, markup);
-  assert.equal(empty.fee, HULLS.mule.fee);
-  addToStore(state, YARD, 'iron', 12);
-  assert.ok(buildNowCost(state, 'mule', YARD).materials < markup, 'goods in store are used first');
+  assert.equal(empty.fee, HULLS.osprey.fee);
+  addToStore(state, YARD, 'optics', 60);
+  assert.ok(hiredShipCost(state, 'osprey', YARD).materials < markup, 'goods in store are used first');
   const credits = state.credits;
-  const cost = buildNowCost(state, 'mule', YARD).total;
-  const result = buildShip(state, 'mule', YARD);
+  const cost = hiredShipCost(state, 'osprey', YARD).total;
+  const result = buildHiredShip(state, 'osprey', YARD);
   assert.ok(result.ok, result.error);
   assert.equal(state.credits, credits - cost);
-  assert.deepEqual(storeAt(state, YARD), {}, 'the store gave its iron');
+  assert.deepEqual(storeAt(state, YARD), {}, 'the store gave its optics');
   assert.equal(state.stats.builds, 1);
 });
 
 test('a yard builds one ship at a time, and a build names and points are taken at once', () => {
   const state = newGame({ credits: 10_000 });
   state.research.done.push('licence-1');
-  const first = buildShip(state, 'mule', YARD, state.now).build;
-  const second = buildShip(state, 'mule', YARD, state.now).build;
+  const first = buildFromStore(state, 'mule').build;
+  const second = buildFromStore(state, 'mule').build;
   assert.deepEqual([first.name, second.name], ['Mule-2', 'Mule-3']);
   assert.equal(second.startsAt, first.endsAt, 'the second waits for the first');
   assert.equal(first.endsAt - state.now, HULLS.mule.buildMinutes * MINUTE);
@@ -146,6 +153,10 @@ test('salvage frees the points, costs the fee and returns half the recipe to the
   kite.at = YARD;
   kite.cargo = { iron: 1 };
   assert.match(salvageLock(state, kite), /hold/);
+  kite.cargo = {};
+  assert.match(salvageLock(state, kite), /last hauler/, 'ships are built from what a hauler brings');
+  createShip(state, 'kite', YARD);
+  assert.equal(salvageLock(state, kite), null);
 });
 
 test('salvage can never pay for itself', () => {
@@ -176,15 +187,19 @@ test('an old save keeps a fleet over the cap, gets the licences it fills, and st
   assert.match(buildLock(loaded, 'mule', YARD), /allowance point/);
 });
 
-test('an old save in the tutorial picks up the new steps where it is', () => {
+test('an old save in the tutorial picks up the new steps where it is, with a Kite to carry goods', () => {
   const state = newGame();
   state.ships = state.ships.filter((ship) => ship.hull === 'mule');
   state.goals = ['first-sale', 'first-research'];
   const old = JSON.parse(serialize(state));
   old.version = 5;
   const loaded = deserialize(JSON.stringify(old));
-  assert.ok(loaded.goals.includes('carry-goods'), 'no Kite, and past it');
+  assert.ok(loaded.goals.includes('carry-goods'), 'past it');
   assert.ok(!loaded.goals.includes('first-build'));
+  const kite = loaded.ships.find((ship) => ship.hull === 'kite');
+  assert.equal(kite?.at, YARD, 'a company without a hauler gets a Kite');
+  assert.ok(pointsUsed(loaded) <= allowance(loaded), 'the Kite fits');
+  assert.match(loaded.log.at(-1).text, /Kite-1 joined the fleet/);
 });
 
 test('big refits take steel or titanium alloy, from the build store first, and give it back if dropped', () => {

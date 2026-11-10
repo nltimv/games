@@ -1835,6 +1835,12 @@ button.dw-price-row[aria-pressed='true'] {
   color: var(--aqua);
 }
 
+.dw-recipe .dw-grow small {
+  display: block;
+  font-size: 0.8em;
+  color: var(--glass-muted);
+}
+
 .dw-ship-row.is-planned {
   flex-wrap: wrap;
 }

@@ -11,7 +11,7 @@ import { HOUR } from '../../core/time.js';
 import { buyCargo, canCarry, cargoTotal, holdNote, sellCargo } from '../../systems/cargo.js';
 import { CONTRACT_RULES, acceptContract, activeAt, boardOpen, contractFor, deliverCargo, offersAt, stillNeeded } from '../../systems/contracts.js';
 import { findShip, hullsForSale } from '../../systems/fleet.js';
-import { allowance, buildFee, buildLock, buildNowCost, buildPlannedNow, buildShip, buildsAt, buildsFor, buildsWanting, cancelPlan, planBuild, pointsUsed, recipeAt, storeAll, storeAt, storeGoods } from '../../systems/shipyard.js';
+import { allowance, buildFee, buildLock, buildsAt, buildsFor, buildsWanting, cancelPlan, planBuild, pointsUsed, recipeAt, storeAll, storeAt, storeGoods } from '../../systems/shipyard.js';
 import { mapShips } from '../../systems/commanders.js';
 import { findEntry, marketEntries, marketView, quote } from '../../systems/market.js';
 import { knownAt, seenAt } from '../../systems/knowledge.js';
@@ -284,24 +284,28 @@ function tradeSlider(qty, max, stopsAt, onSet) {
 
 // ---------- Shipyard ----------
 
-/** "Iron 6 / 12 t": what the store holds of each good a recipe needs. */
-function recipeLines(lines) {
+/**
+ * "Iron 6 / 12 t": what the store holds of each good a recipe needs, and why
+ * a missing good can't come yet when none of the company's ships carries it.
+ */
+function recipeLines(state, lines) {
   return h(
     'ul',
     { class: 'dw-recipe' },
-    lines.map((row) =>
-      h(
+    lines.map((row) => {
+      const stuck = row.missing > 0 && !state.ships.some((ship) => canCarry(ship, row.good));
+      return h(
         'li',
         { class: row.missing ? null : 'is-full' },
         swatch(row.good),
-        h('span', { class: 'dw-grow' }, goodName(row.good)),
+        h('span', { class: 'dw-grow' }, goodName(row.good), stuck ? h('small', null, holdNote(row.good)) : null),
         h('span', { class: 'dw-recipe-qty' }, `${row.have} / ${tonnes(row.need)}`),
-      ),
-    ),
+      );
+    }),
   );
 }
 
-/** One card per hull the yard builds: its numbers, its recipe and the build buttons. */
+/** One card per hull the yard builds: its numbers, its recipe and the plan button. */
 function hullCard(ctx, station, hullId) {
   const { state } = ctx;
   const hull = HULLS[hullId];
@@ -309,30 +313,18 @@ function hullCard(ctx, station, hullId) {
   const probe = { hull: hullId, modules: best };
   const holds = hull.holdScale > 0;
   const lock = buildLock(state, hullId, station.id);
-  const cost = buildNowCost(state, hullId, station.id);
   const fee = buildFee(state, hullId, station.id);
-  const short = cost.total - state.credits;
-  const planShort = fee - state.credits;
+  const short = fee - state.credits;
   const actions = lock
     ? h('p', { class: 'dw-note' }, lock)
     : h(
         'div',
         { class: 'dw-row-actions' },
-        button(short > 0 ? `Need ${formatCredits(short)} more` : 'Build now', {
+        button(short > 0 ? `Need ${formatCredits(short)} more` : 'Plan the build', {
           variant: 'primary',
           disabled: short > 0,
-          key: `build-${hullId}`,
-          sub: short > 0 ? null : minusCredits(cost.total),
-          label: `Build a ${hull.name} now for ${formatCredits(cost.total)}`,
-          onClick: () => {
-            const result = ctx.act((s, now) => buildShip(s, hullId, station.id, now));
-            if (result?.ok) ctx.toast(`${result.build.name} is being built: −${formatCredits(result.cost)}`, 'purchase');
-          },
-        }),
-        button('Plan the build', {
-          disabled: planShort > 0,
           key: `plan-${hullId}`,
-          sub: fee ? minusCredits(fee) : null,
+          sub: fee && short <= 0 ? minusCredits(fee) : null,
           label: `Plan a ${hull.name}${fee ? ` for a ${formatCredits(fee)} fee` : ''}`,
           onClick: () => ctx.act((s, now) => planBuild(s, hullId, station.id, now)),
         }),
@@ -353,8 +345,7 @@ function hullCard(ctx, station, hullId) {
       spec('Build', formatDuration(hull.buildMinutes * 60_000)),
       fee ? spec('Fee', formatCredits(fee)) : null,
     ),
-    recipeLines(cost.lines),
-    cost.materials ? h('p', { class: 'dw-note' }, `The yard sells what is missing for ${formatCredits(cost.materials)}.`) : null,
+    recipeLines(state, recipeAt(state, hullId, station.id)),
     actions,
   );
 }
@@ -375,20 +366,11 @@ function buildRows(ctx, station) {
       );
     }
     const missing = recipeAt(state, build.hull, station.id).filter((row) => row.missing > 0);
-    const cost = buildNowCost(state, build.hull, station.id, { feePaid: true });
     return h(
       'li',
       { class: 'dw-ship-row is-planned' },
       shipGlyph(build.hull),
       h('span', { class: 'dw-grow' }, h('strong', null, build.name), h('small', null, `Waiting for ${missing.map((row) => tonnes(row.missing, row.good)).join(', ')}`)),
-      button('Build now', {
-        small: true,
-        key: `build-now-${build.id}`,
-        disabled: state.credits < cost.total,
-        sub: minusCredits(cost.total),
-        label: `Build ${build.name} now for ${formatCredits(cost.total)}`,
-        onClick: () => ctx.act((s, now) => buildPlannedNow(s, build.id, now)),
-      }),
       button('Drop', { small: true, key: `drop-${build.id}`, label: `Drop the plan for ${build.name}`, onClick: () => ctx.act((s, now) => cancelPlan(s, build.id, now)) }),
     );
   });

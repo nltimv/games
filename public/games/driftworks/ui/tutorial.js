@@ -157,15 +157,11 @@ const GUIDES = {
       return {
         text: 'Plan the build of a Mule. The yard starts on it once its recipe is in store, and your Kite can fetch it from the refinery.',
         selector: key('plan-mule'),
-        tip: 'Build now buys whatever the store is missing instead, at 1.75 times its value.',
       };
     }
-    const kite = state.ships.find((ship) => ship.hull === 'kite');
-    if (!kite) {
-      // Without a hauler, the yard sells the recipe.
-      if (!isSelected(ui, 'station', plan.stationId)) return { text: `${plan.name} waits for its recipe. Click Halcyon Shipyard.`, map: { kind: 'station', id: plan.stationId } };
-      return { text: `Build now buys what ${plan.name} still needs, at 1.75 times its value.`, selector: key(`build-now-${plan.id}`) };
-    }
+    // A company always keeps a hauler (salvage leaves the last one, and old saves were given a Kite).
+    const kite = state.ships.find((ship) => ship.hull === 'kite') ?? state.ships.find(isHauler);
+    if (!kite) return { text: `${plan.name} waits for its recipe at Halcyon Shipyard.`, map: { kind: 'station', id: plan.stationId } };
     const view = projectShip(state, kite);
     const missing = recipeAt(state, plan.hull, plan.stationId).filter((line) => line.missing > 0);
     const delivering = specsOf(kite).some((spec) => spec.type === 'store' && spec.stationId === plan.stationId);

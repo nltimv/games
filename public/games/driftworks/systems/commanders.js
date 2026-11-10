@@ -30,7 +30,7 @@ import { formatCredits } from '../../../shared/js/format.js';
 import { addLog } from './log.js';
 import { findShip } from './fleet.js';
 import { isResearched } from './research.js';
-import { buildLock, buildNowCost, buildShip } from './shipyard.js';
+import { buildHiredShip, buildLock, hiredShipCost } from './shipyard.js';
 
 const fail = (error) => ({ ok: false, error });
 
@@ -117,7 +117,7 @@ export function hireLock(state, stationId) {
 /** What hiring costs at a yard: the commander's price, and building their Osprey there. */
 export function hireCost(state, stationId) {
   const price = commanderPrice(state);
-  const ship = buildNowCost(state, 'osprey', stationId);
+  const ship = hiredShipCost(state, 'osprey', stationId);
   return { price, ship: ship.total, total: price + ship.total };
 }
 
@@ -146,7 +146,7 @@ export function hireCommander(state, candidateId, stationId, at = state.now) {
   state.hires = (state.hires ?? 0) + 1;
   addLog(state, at, `Hired ${candidate.name}, a ${TRAITS[candidate.traits[0]].name.toLowerCase()} commander, for ${formatCredits(price)}`, 'purchase', -price);
   const commander = { traits: candidate.traits, portrait: candidate.portrait, missionTime: 0, missions: 0, report: null };
-  const built = buildShip(state, 'osprey', stationId, at, { name: candidate.name, commander });
+  const built = buildHiredShip(state, 'osprey', stationId, at, { name: candidate.name, commander });
   return { ok: built.ok, build: built.build, error: built.error };
 }
 

@@ -134,7 +134,7 @@ test('the build step plans a Mule, has the Kite fetch its recipe and starts the 
   assert.match(currentGuide(state, onMap()).text, /allowance/);
   const plan = currentGuide(state, yard);
   assert.equal(plan.selector, '[data-key="plan-mule"]');
-  assert.match(plan.tip, /Build now/);
+  assert.equal(plan.tip, undefined, 'a ship is only built from delivered goods');
   assert.ok(planBuild(state, 'mule', 'halcyon-shipyard').ok);
   const kite = state.ships.find((ship) => ship.hull === 'kite');
   const menu = { ...onMap({ kind: 'ship', id: kite.id }), menu: { target: { kind: 'station', id: 'halcyon-refinery' } } };

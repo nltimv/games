@@ -7,11 +7,12 @@
 // A ship can only be built while its points fit.
 //
 // A shipyard builds a ship from its hull's recipe. Goods delivered there wait
-// in the company's build store at that yard (state.stores). "Build now"
-// takes what the store has and buys the rest at BUILD_MARKUP times the
-// goods' value; "Plan the build" reserves the points and starts the build
-// once deliveries complete the recipe. Each yard builds one ship at a time
-// and queues the rest. Builds live in state.builds:
+// in the company's build store at that yard (state.stores). "Plan the build"
+// reserves the points and starts the build once deliveries complete the
+// recipe: a ship can't be bought outright. Only a hired commander's ship is
+// built at once, from what the store has and the rest bought at BUILD_MARKUP
+// times the goods' value. Each yard builds one ship at a time and queues the
+// rest. Builds live in state.builds:
 //   { id, hull, name, stationId, status: 'planned' | 'queued', fee,
 //     startsAt, endsAt (queued only), commander (an Osprey's, hired) }
 //
@@ -98,16 +99,16 @@ export function recipeAt(state, hullId, stationId) {
   });
 }
 
-/** What a yard charges per tonne for a good missing from a recipe or a refit. */
+/** What a yard charges per tonne for a good missing from a refit or a hired commander's ship. */
 export function markupPrice(good) {
   return Math.ceil((GOODS[good]?.value ?? 0) * BUILD_MARKUP);
 }
 
-/** What Build now costs at a yard: the missing goods at the markup, and the fee. */
-export function buildNowCost(state, hullId, stationId, { feePaid = false } = {}) {
+/** What a hired commander's ship costs at a yard: the goods the store lacks at the markup, and the fee. */
+export function hiredShipCost(state, hullId, stationId) {
   const lines = recipeAt(state, hullId, stationId);
   const materials = lines.reduce((sum, line) => sum + line.missing * markupPrice(line.good), 0);
-  const fee = feePaid ? 0 : buildFee(state, hullId, stationId);
+  const fee = buildFee(state, hullId, stationId);
   return { lines, materials, fee, total: materials + fee };
 }
 
@@ -182,14 +183,15 @@ function startCompleted(state, stationId, at) {
 }
 
 /**
- * Build now: uses what the yard's store holds, buys the rest at the markup,
- * pays the fee and queues the build. `extra` goes onto the build (an
- * Osprey's commander).
+ * A hired commander's ship: uses what the yard's store holds, buys the rest
+ * at the markup, pays the fee and queues the build. `extra` goes onto the
+ * build (the commander). Other hulls are only built from delivered goods.
  */
-export function buildShip(state, hullId, stationId, at = state.now, extra = {}) {
+export function buildHiredShip(state, hullId, stationId, at = state.now, extra = {}) {
+  if (!ofHull(hullId)?.hired) return fail('Ships are built from goods delivered to the yard.');
   const lock = buildLock(state, hullId, stationId);
   if (lock) return fail(lock);
-  const cost = buildNowCost(state, hullId, stationId);
+  const cost = hiredShipCost(state, hullId, stationId);
   if (state.credits < cost.total) return fail(`You need ${formatCredits(cost.total - state.credits)} more.`);
   state.credits -= cost.total;
   spend(state, 'materials', cost.materials);
@@ -212,19 +214,6 @@ export function planBuild(state, hullId, stationId, at = state.now) {
   addLog(state, at, `Planned ${build.name} at ${findStation(stationId).name}`, 'purchase', fee ? -fee : undefined);
   startCompleted(state, stationId, at);
   return { ok: true, build };
-}
-
-/** A planned build switches to Build now: the missing goods at the markup. */
-export function buildPlannedNow(state, buildId, at = state.now) {
-  const build = (state.builds ?? []).find((b) => b.id === buildId);
-  if (!build || build.status !== 'planned') return fail('That build is already under way.');
-  const cost = buildNowCost(state, build.hull, build.stationId, { feePaid: true });
-  if (state.credits < cost.total) return fail(`You need ${formatCredits(cost.total - state.credits)} more.`);
-  state.credits -= cost.total;
-  spend(state, 'materials', cost.materials);
-  queueBuild(state, build, at);
-  addLog(state, at, `${build.name} is being built at ${findStation(build.stationId).name}${cost.total ? `, for ${formatCredits(cost.total)}` : ''}`, 'purchase', cost.total ? -cost.total : undefined);
-  return { ok: true, build, cost: cost.total };
 }
 
 /** Drops a planned build: its points are free again and its fee comes back. Delivered goods stay in store. */
@@ -354,6 +343,9 @@ export function salvageLock(state, ship) {
   if (ship.order || ship.queue.length) return 'It has orders to finish first.';
   if (Object.values(ship.cargo).some((qty) => qty > 0)) return 'Empty its hold first.';
   if (state.ships.length <= 1) return 'It is the company’s last ship.';
+  // Ships are built from goods a hauler brings, so the last one stays.
+  const hauler = (s) => ofHull(s.hull)?.role === 'hauler';
+  if (hauler(ship) && state.ships.filter(hauler).length <= 1) return 'It is the company’s last hauler.';
   const fee = ofHull(ship.hull).fee;
   if (state.credits < fee) return `You need ${formatCredits(fee - state.credits)} more.`;
   return null;

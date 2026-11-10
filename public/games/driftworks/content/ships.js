@@ -138,7 +138,11 @@ export const STARTING_ALLOWANCE = 3;
 /** Allowance points each Fleet command level adds, so a command ship never costs a ship. */
 export const COMMAND_POINTS = 2;
 
-/** A shipyard sells goods missing from a recipe at this many times their value. */
+/**
+ * A shipyard sells goods missing from a refit, or from a hired commander's
+ * ship, at this many times their value. Every other ship is built only from
+ * goods delivered to the yard.
+ */
 export const BUILD_MARKUP = 1.75;
 
 /** The highest goods tier each hold class may carry. */

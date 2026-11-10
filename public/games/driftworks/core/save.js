@@ -10,6 +10,9 @@ import { CREDITS_PER_POINT } from '../systems/standing.js';
 import { COMMAND_POINTS, HULLS, STARTING_ALLOWANCE } from '../content/ships.js';
 import { LICENCE_LINE, SHIELDINGS, prerequisites } from '../content/research.js';
 import { GOALS } from '../content/goals.js';
+import { HOME_SYSTEM } from '../content/homeSystem.js';
+import { createShip } from '../systems/fleet.js';
+import { addLog } from '../systems/log.js';
 
 const SAVE_KEY = 'save';
 
@@ -51,8 +54,16 @@ export const MIGRATIONS = {
   },
   // The fleet allowance: ships are built, not bought. Every ship stays: the
   // save gets each Fleet licence its fleet already fills, and a bonus for the
-  // rest, so it starts at its cap. New act 1 goals it is past count as done.
-  5(save) {
+  // rest, so it starts at its cap. Ships are built from goods a hauler
+  // brings, so a company without one gets a Kite, as a new one starts with.
+  // New act 1 goals it is past count as done.
+  5(old) {
+    const save = { ...old, ships: [...old.ships], log: [...(old.log ?? [])] };
+    if (!save.ships.some((ship) => HULLS[ship.hull]?.role === 'hauler')) {
+      const yard = HOME_SYSTEM.stations.find((station) => station.type === 'shipyard');
+      const kite = createShip(save, 'kite', yard.id);
+      addLog(save, save.now, `${kite.name} joined the fleet at ${yard.name}: ships are built from goods a hauler brings`, 'purchase');
+    }
     const done = new Set(save.research?.done ?? []);
     // A Hauler licence still in the lab is done: it no longer exists.
     const lab = { ...save.research };
@@ -87,19 +98,13 @@ export const MIGRATIONS = {
 // Goals new in version 6, and the goals that come after each.
 const NEW_GOALS = ['carry-goods', 'first-build', 'first-licence'];
 
-/**
- * A save keeps the goals it has. A new act 1 goal counts as done when the
- * save is already past it (a goal after it is done), and "Carry goods with
- * the Kite" does for a save that has no Kite.
- */
+/** A save keeps the goals it has. A new act 1 goal counts as done when the save is already past it (a goal after it is done). */
 function upgradeGoals(save) {
   const goals = new Set(save.goals ?? []);
   const order = GOALS.map((goal) => goal.id);
   for (const id of NEW_GOALS) {
     const after = order.slice(order.indexOf(id) + 1);
-    const past = after.some((later) => goals.has(later));
-    const noKite = id === 'carry-goods' && !save.ships.some((ship) => ship.hull === 'kite');
-    if (past || noKite) goals.add(id);
+    if (after.some((later) => goals.has(later))) goals.add(id);
   }
   return [...goals];
 }

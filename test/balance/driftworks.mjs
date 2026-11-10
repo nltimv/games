@@ -19,10 +19,10 @@
 // included), and builds Heron freighters once a shipyard's faction trusts it.
 //
 // Ships: the bot builds the next ship while its points fit the fleet
-// allowance, and researches the next Fleet licence once they don't. While
-// credits are short it plans the build and has a hauler fetch the recipe;
-// once a build costs little next to its credits it uses Build now. At the
-// cap it salvages Kites into Herons once Herons are open.
+// allowance, and researches the next Fleet licence once they don't. It plans
+// one build at a time and has a hauler fetch the recipe. At the cap it
+// salvages Kites into Herons once Herons are open and a sealed hold can
+// carry their steel and glass.
 // Run it for two weeks or so to see act 2: npm run balance -- worker 16
 //
 // In act 3 it investigates signals near its surveys, salvages derelicts,
@@ -72,9 +72,7 @@ import { checkGoals } from '../../public/games/driftworks/systems/goals.js';
 import { createShip, hullLock, missingLicence } from '../../public/games/driftworks/systems/fleet.js';
 import {
   allowance,
-  buildNowCost,
-  buildPlannedNow,
-  buildShip,
+  buildFee,
   freePoints,
   planBuild,
   pointsLock,
@@ -129,8 +127,6 @@ const PROFILES = {
 const RERUN_AT = 0.6;
 // A trade must make at least this much to be worth a hauler's trip.
 const MIN_TRADE = 20;
-// Build now once a build costs less than this share of the credits; else plan it and haul the recipe.
-const BUILD_NOW_SHARE = 0.05;
 // The researches the act 1 tutorial asks for, in its order.
 const TUTORIAL_RESEARCH = ['hold-1', 'brokerage', 'licence-1'];
 const YARD = 'halcyon-shipyard';
@@ -501,13 +497,16 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
     return null;
   }
 
+  /** Whether a hauler can carry a Heron's steel and glass. */
+  const sealedHauler = () => state.ships.some((s) => role(s) === 'hauler' && canCarry(s, 'steel'));
+
   /** Which hull to build next: a scout while short of them, a hauler while short of those, else a Mule. */
   function nextHull() {
     const mules = state.ships.filter((s) => s.hull === 'mule').length;
     const haulers = state.ships.filter((s) => role(s) === 'hauler').length;
     const wantHaulers = (mules >= 2 ? 1 : 0) + (mules >= 5 ? 1 : 0) + (mules >= 9 ? 1 : 0) + (canJump(state) ? Math.floor(mules / 2) : 0);
     const scouts = state.ships.filter((s) => role(s) === 'scout').length + (state.builds ?? []).filter((b) => b.hull === 'lark').length;
-    const hauler = !hullLock(state, 'heron', YARD) ? 'heron' : 'kite';
+    const hauler = !hullLock(state, 'heron', YARD) && sealedHauler() ? 'heron' : 'kite';
     // One scout in act 2; three once shielding opens the deep galaxy.
     const wantScouts = shieldingsDone(state) > 0 ? 3 : 1;
     if (!missingLicence(state, 'lark') && scouts < wantScouts) return 'lark';
@@ -540,7 +539,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
       }
     }
     // Two Kites make room for a Heron, once Herons are open and the licences are the limit.
-    if (retiring.size || hullLock(state, 'heron', YARD) || freePoints(state) - commandReserve() >= HULLS.heron.points) return;
+    if (retiring.size || hullLock(state, 'heron', YARD) || !sealedHauler() || freePoints(state) - commandReserve() >= HULLS.heron.points) return;
     if (!LICENCE_LINE.every((l) => state.research.done.includes(l.id)) && !canJump(state)) return;
     const kites = state.ships.filter((s) => s.hull === 'kite' && !s.fleet && !s.commander);
     const herons = state.ships.filter((s) => s.hull === 'heron').length;
@@ -548,44 +547,21 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
     for (const kite of kites.slice(0, 2)) retiring.add(kite.id);
   }
 
-  /** Builds while points fit: Build now when it costs little, else plans one build at a time and hauls its recipe. */
+  /** Plans one build at a time while points fit, for a hauler to fetch its recipe. */
   function buildShips(now) {
-    let opened = false;
-    // A plan waits for its recipe; once credits are plentiful, it is built now.
-    for (const build of (state.builds ?? []).filter((b) => b.status === 'planned')) {
-      const cost = buildNowCost(state, build.hull, build.stationId, { feePaid: true }).total;
-      if (cost <= cash() * BUILD_NOW_SHARE && buildPlannedNow(state, build.id, now).ok) {
-        click(opened ? 1 : 2, 'build');
-        opened = true;
-        // Bought outright only when the haulers had brought less than half of it.
-        const row = report.buys.find((b) => b.id === build.id);
-        if (row && cost > row.cost / 2) row.own = false;
-      }
-    }
-    for (let i = 0; i < 3; i += 1) {
-      const hull = nextHull();
-      if (freePoints(state) - commandReserve() < HULLS[hull].points || hullLock(state, hull, YARD)) break;
-      const next = nextResearch();
-      const cost = buildNowCost(state, hull, YARD);
-      const forResearch = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? costOf(next) : Math.min(costOf(next), cost.total);
-      // Saves up for the first commander once Fleet command I is in.
-      const reserve = forResearch + (commandReserve() ? hireCost(state, YARD).total : 0);
-      const own = cost.total > cash() * BUILD_NOW_SHARE && state.ships.some((s) => role(s) === 'hauler' && !retiring.has(s.id));
-      if (own) {
-        if (plannedYard() || cash() < cost.fee + reserve) break;
-        const planned = planBuild(state, hull, YARD, now);
-        if (!planned.ok) break;
-        click(opened ? 1 : 2, 'build');
-        report.buys.push({ at: now, n: state.ships.length + state.builds.length, hull, cost: cost.total, own: true, id: planned.build.id });
-        break;
-      }
-      if (cash() < cost.total + reserve) break;
-      const built = buildShip(state, hull, YARD, now);
-      if (!built.ok) break;
-      click(opened ? 1 : 2, 'build');
-      opened = true;
-      report.buys.push({ at: now, n: state.ships.length + state.builds.length, hull, cost: cost.total, own: false, id: built.build.id });
-    }
+    const hull = nextHull();
+    if (plannedYard() || freePoints(state) - commandReserve() < HULLS[hull].points || hullLock(state, hull, YARD)) return;
+    const next = nextResearch();
+    const fee = buildFee(state, hull, YARD);
+    const goods = Object.entries(HULLS[hull].recipe).reduce((sum, [good, qty]) => sum + qty * GOODS[good].value, 0);
+    const forResearch = !freeLab(state) || !next || state.ships.length < 3 ? 0 : goingForWarp() ? costOf(next) : Math.min(costOf(next), fee + goods);
+    // Saves up for the first commander once Fleet command I is in.
+    const reserve = forResearch + (commandReserve() ? hireCost(state, YARD).total : 0);
+    if (cash() < fee + reserve) return;
+    const planned = planBuild(state, hull, YARD, now);
+    if (!planned.ok) return;
+    click(2, 'build');
+    report.buys.push({ at: now, n: state.ships.length + state.builds.length, hull });
   }
 
   // ---------- Scouts ----------
@@ -1124,11 +1100,10 @@ function print(report) {
     );
   }
   const hullName = { mule: '', kite: ' Kite', lark: ' Lark', heron: ' Heron' };
-  console.log(`  builds: ${report.buys.map((b) => `#${b.n}${hullName[b.hull] ?? ''} ${clock(report, b.at)} (${b.own ? 'own' : 'now'} ${b.cost})`).join(', ')}`);
-  const own = report.buys.filter((b) => b.own).length;
+  console.log(`  builds planned: ${report.buys.map((b) => `#${b.n}${hullName[b.hull] ?? ''} ${clock(report, b.at)}`).join(', ')}`);
   const spend = state.stats.shipSpend ?? {};
   console.log(
-    `  ${report.buys.length} builds, ${own} from hauled goods and ${report.buys.length - own} with Build now; ${report.salvaged.length} salvaged; spent ${Math.round(spend.licences ?? 0)} cr on licences, ${Math.round(spend.materials ?? 0)} on materials, ${Math.round(spend.fees ?? 0)} on fees`,
+    `  ${report.buys.length} builds; ${report.salvaged.length} salvaged; spent ${Math.round(spend.licences ?? 0)} cr on licences, ${Math.round(spend.materials ?? 0)} on materials, ${Math.round(spend.fees ?? 0)} on fees`,
   );
   console.log(`  research: ${report.research.map((r) => `${r.id} ${clock(report, r.at)}`).join(', ')}`);
   for (const d of report.perDay) {
