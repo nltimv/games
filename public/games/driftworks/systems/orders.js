@@ -760,9 +760,30 @@ export function clearQueue(state, ship) {
   if (!ship.queue.length) return fail(`${ship.name} has no orders waiting.`);
   const dropped = ship.queue.splice(0);
   for (const spec of dropped) refund(state, spec);
-  const routeOrders = dropped.filter((spec) => spec.type !== 'refit').length;
+  const routeOrders = dropped.filter((spec) => spec.type !== 'refit' && spec.type !== 'join').length;
   if (routeOrders) ship.plan.splice(-routeOrders);
   return { ok: true, dropped: dropped.length };
+}
+
+/**
+ * Drops one waiting order (by its place in the queue) and the matching step
+ * of the plan. The orders after it move up and still run, or get skipped
+ * when their turn comes if they no longer can.
+ */
+export function removeQueued(state, ship, index) {
+  const away = awayNote(state, ship);
+  if (away) return fail(away);
+  if (!Number.isInteger(index) || index < 0 || index >= ship.queue.length) return fail(`${ship.name} has no such order waiting.`);
+  const spec = ship.queue[index];
+  if (spec.type !== 'refit' && spec.type !== 'join') {
+    // The plan ends with the queue's route orders, so count back from its end.
+    const after = ship.queue.slice(index + 1).filter((s) => s.type !== 'refit' && s.type !== 'join').length;
+    const at = ship.plan.length - 1 - after;
+    if (at >= 0) ship.plan.splice(at, 1);
+  }
+  ship.queue.splice(index, 1);
+  refund(state, spec);
+  return { ok: true, spec };
 }
 
 // ---------- Refits ----------

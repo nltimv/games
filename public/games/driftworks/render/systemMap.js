@@ -351,7 +351,8 @@ export function drawSystem(ctx, cam, state, now, view) {
     }
     const w = drawShip(entry, p, spot);
     if (ship.order) shipLabel(`${ship.name}${ship.order.type === 'mine' && !pos.moving ? ' mining' : ''} · ${timeLeft(leftOf(ship))}`, p);
-    targets.push({ kind: 'ship', id: ship.id, x: p.x, y: p.y, r: Math.max(12, w * 0.6) });
+    // A parked ship knows where it is parked, so a right-click on it can give orders there.
+    targets.push({ kind: 'ship', id: ship.id, x: p.x, y: p.y, r: Math.max(12, w * 0.6), place: pos.place });
   }
 
   for (const group of flock(flying, SIZE.ship * 0.8 * u)) {
@@ -491,6 +492,29 @@ export function pickNext(hits, selection) {
 /** The target under (x, y): the one on top (see hitsAt). */
 export function hitTest(targets, x, y) {
   return hitsAt(targets, x, y)[0] ?? null;
+}
+
+const SHIP_KINDS = new Set(['ship', 'flock']);
+
+/**
+ * What a right-click or long-press at (x, y) is for. With ships selected it
+ * gives orders, so a station, field or gate under a ship is the target, not
+ * the ship, and a ship parked at a place stands for that place. With no
+ * ships selected, or only a ship in flight under the pointer, it is the one
+ * on top, as for a click.
+ */
+export function menuHit(targets, x, y, selection) {
+  const hits = hitsAt(targets, x, y);
+  const ordering = selection?.kind === 'ship' || selection?.kind === 'ships';
+  if (!ordering) return hits[0] ?? null;
+  const place = hits.find((hit) => !SHIP_KINDS.has(hit.kind));
+  if (place) return place;
+  for (const hit of hits) {
+    const parkedAt = hit.kind === 'ship' && targets.find((t) => t.kind === 'ship' && t.id === hit.id && t.place)?.place;
+    const spot = parkedAt && targets.find((t) => t.id === parkedAt && !SHIP_KINDS.has(t.kind));
+    if (spot) return { kind: spot.kind, id: spot.id };
+  }
+  return hits[0] ?? null;
 }
 
 /** The ships whose middles lie inside the screen rectangle from a to b. */
