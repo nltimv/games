@@ -1724,6 +1724,11 @@ button.dw-price-row[aria-pressed='true'] {
   color: var(--glass-muted);
 }
 
+.dw-queue .dw-grow {
+  flex: 1;
+  min-width: 0;
+}
+
 .dw-queue .dw-time {
   font-size: 12px;
 }
@@ -2310,7 +2315,8 @@ button.dw-price-row[aria-pressed='true'] {
   flex: none;
   width: 26px;
   height: 26px;
-  margin: -4px -4px -4px 0;
+  /* Pushed to the row's right edge, so the ×s line up. */
+  margin: -4px -4px -4px auto;
   padding: 0;
   border: 0;
   border-radius: 50%;
