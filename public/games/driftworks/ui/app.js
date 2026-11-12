@@ -25,6 +25,7 @@ import { fieldPanel } from './panels/field.js';
 import { shipPanel } from './panels/ship.js';
 import { companyPanel, fleetPanel, groupPanel } from './panels/lists.js';
 import { researchPanel } from './panels/research.js';
+import { researchTreePanel } from './panels/researchTree.js';
 import { galaxyPanel, gatePanel, systemPanel } from './panels/system.js';
 import { signalPanel } from './panels/signal.js';
 import { plannedArea } from './panels/commander.js';
@@ -64,10 +65,12 @@ export function createApp(session, doc = document) {
   };
 
   const phoneQuery = matchMedia('(max-width: 760px)');
+  // Wide screens with a mouse show the research tree; others the list.
+  const treeQuery = matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)');
   // `map` is the map shown behind the panels ('system' or 'galaxy'),
   // `systemId` the system the System view shows and `marketGood` the good
   // whose prices the galaxy map shows (with Market charts).
-  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null, salvage: null };
+  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null, salvage: null, tree: null };
   let shownCredits = null;
   let panelKey = null;
   // On phones, the panel's sheet (created with the map, below).
@@ -80,6 +83,7 @@ export function createApp(session, doc = document) {
   let shownPhases = '';
 
   const isPhone = () => phoneQuery.matches;
+  const showsTree = () => ui.view === 'research' && treeQuery.matches;
 
   function panelVisible() {
     if (!isMapView(ui.view)) return true;
@@ -222,6 +226,8 @@ export function createApp(session, doc = document) {
       // Ships stay selected across the two maps; places belong to one.
       ui.selection = null;
     }
+    // The research tree opens on what is next, not where it was left.
+    if (view === 'research' && ui.view !== 'research') ui.tree = null;
     ui.view = view;
     if (isMapView(view)) ui.map = view;
     ui.trade = null;
@@ -325,7 +331,7 @@ export function createApp(session, doc = document) {
   function panelContent(ctx) {
     if (ui.view === 'fleet') return fleetPanel(ctx);
     if (ui.view === 'company') return companyPanel(ctx);
-    if (ui.view === 'research') return researchPanel(ctx);
+    if (ui.view === 'research') return showsTree() ? researchTreePanel(ctx) : researchPanel(ctx);
     const sel = ui.selection;
     const overviewPanel = () => (ui.map === 'galaxy' ? galaxyPanel(ctx) : systemPanel(ctx, ui.systemId, { overview: true }));
     if (!sel) return overviewPanel(ctx);
@@ -354,6 +360,7 @@ export function createApp(session, doc = document) {
     const visible = panelVisible();
     els.panel.hidden = !visible;
     els.app.classList.toggle('is-panel-closed', !visible);
+    els.app.classList.toggle('is-tree', visible && showsTree());
     if (visible) {
       renderInto(els.panelBody, panelContent(ctx));
       // A different thing in the panel starts at the top, and on phones
@@ -605,6 +612,7 @@ export function createApp(session, doc = document) {
     if (ui.selection || !isMapView(ui.view) || ui.overview) close();
   });
   phoneQuery.addEventListener('change', render);
+  treeQuery.addEventListener('change', render);
   doc.addEventListener('pointerdown', (e) => {
     if (e.target.matches?.('input[type="range"]')) dragging = true;
   });
