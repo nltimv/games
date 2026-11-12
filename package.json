@@ -15,7 +15,8 @@
     "test": "node --test \"test/**/*.test.mjs\"",
     "check": "npm run lint && npm test",
     "balance": "node test/balance/driftworks.mjs",
-    "balance:fleets": "node test/balance/fleets.mjs"
+    "balance:fleets": "node test/balance/fleets.mjs",
+    "balance:goals": "node test/balance/driftworks.mjs goals"
   },
   "dependencies": {
     "express": "^4.21.2"

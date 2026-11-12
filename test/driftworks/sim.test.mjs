@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { advance, nextEventAt } from '../../public/games/driftworks/core/sim.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
-import { marketView } from '../../public/games/driftworks/systems/market.js';
+import { findEntry, marketView } from '../../public/games/driftworks/systems/market.js';
+import { createShip } from '../../public/games/driftworks/systems/fleet.js';
+import { markSurveyed } from '../../public/games/driftworks/systems/explore.js';
+import { deserialize, serialize } from '../../public/games/driftworks/core/save.js';
 import { startResearch } from '../../public/games/driftworks/systems/research.js';
 import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
 
@@ -90,4 +93,31 @@ test("a ship on a commander's orders does not wait at a full station: the comman
   advance(state, arrives + MINUTE);
   assert.equal(ship.order, null, 'done, not waiting');
   assert.ok(ship.cargo['ferrite-ore'] > 0, 'with the rest still aboard');
+});
+
+test("an old save's buy at a station that is now short of the good is skipped, and the ship carries on", () => {
+  let state = newGame({ credits: 100_000 });
+  state.research.done.push('warp-drive');
+  markSurveyed(state, 'dace', state.now);
+  const kite = createShip(state, 'kite', 'halcyon-refinery');
+  // A save from before the shortages can hold buys at a station that is now
+  // short of the good: one on its way, one in the queue, then a flight home.
+  assert.equal(findEntry('dace-tradingpost', 'iron')?.side, 'buys');
+  assert.ok(giveOrder(state, kite, { type: 'buy', stationId: 'dace-refinery', good: 'iron', qty: 5 }).ok);
+  kite.order.spec.stationId = 'dace-tradingpost';
+  kite.order.steps.at(-1).station = 'dace-tradingpost';
+  kite.queue.push({ type: 'buy', stationId: 'dace-tradingpost', good: 'iron', qty: 5 }, { type: 'fly', stationId: 'halcyon-refinery' });
+  state = deserialize(serialize(state));
+  const ship = state.ships.find((s) => s.name === kite.name);
+  const credits = state.credits;
+  advance(state, T0 + 3 * 24 * 60 * MINUTE);
+  const lines = state.log.map((entry) => entry.text);
+  assert.ok(lines.some((text) => text === `${ship.name} could not buy: Dace Trading Post does not sell iron.`), lines.join('\n'));
+  assert.ok(lines.some((text) => text === `${ship.name} skipped an order: Dace Trading Post does not sell iron.`), lines.join('\n'));
+  // Nothing bought, and the rest of the queue ran: the ship is home and free.
+  assert.equal(ship.cargo.iron ?? 0, 0);
+  assert.equal(ship.order, null);
+  assert.deepEqual(ship.queue, []);
+  assert.equal(ship.at, 'halcyon-refinery');
+  assert.ok(state.credits < credits, 'only the jump fees were paid');
 });

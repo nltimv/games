@@ -1,7 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bestTradeQty, buyersOf, deliveryOptions, maxPurchase, minePreview, systemMarket, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
-import { marketView } from '../../public/games/driftworks/systems/market.js';
+import { bestTradeQty, buyersOf, deliveryOptions, farTrade, feesBack, maxPurchase, minePreview, orderOptions, systemMarket, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
+import { findEntry, marketView } from '../../public/games/driftworks/systems/market.js';
+import { HOME_IMPORTS, findSystem, systemOf } from '../../public/games/driftworks/content/galaxy.js';
+import { createGame } from '../../public/games/driftworks/core/state.js';
+import { advance } from '../../public/games/driftworks/core/sim.js';
+import { markSurveyed } from '../../public/games/driftworks/systems/explore.js';
+import { carryOut } from '../../public/games/driftworks/systems/commands.js';
 import { RESEARCH } from '../../public/games/driftworks/content/research.js';
 import { createShip } from '../../public/games/driftworks/systems/fleet.js';
 import { giveOrder } from '../../public/games/driftworks/systems/orders.js';
@@ -60,4 +65,53 @@ test('market charts: a system shows the cheapest price its stations ask for a go
   assert.deepEqual(systemMarket(state, 'aurel', 'iron'), { sells: price('halcyon-refinery', 'iron'), buys: Math.max(price('halcyon-foundry', 'iron'), price('aurel-post', 'iron')) });
   assert.deepEqual(systemMarket(state, 'aurel', 'ice'), { sells: price('aurel-post', 'ice'), buys: price('halcyon-refinery', 'ice') });
   assert.deepEqual(systemMarket(state, 'aurel', 'crystal'), { sells: null, buys: null });
+});
+
+// Early act 2: the warp drive, and a Kite with the cargo racks a player has by then.
+function act2(seed) {
+  const state = createGame({ now: T0, seed });
+  state.credits = 100_000;
+  state.research.done.push('warp-drive', 'hold-1', 'hold-2', 'hold-3', 'hold-4');
+  return { state, kite: createShip(state, 'kite', 'halcyon-refinery') };
+}
+
+test("the first trade into any of Aurel's neighbours pays after the jump fees there and back", () => {
+  for (const seed of [1234, 20261106, 7, 1, 2, 3, 42, 777]) {
+    for (const neighbour of Object.keys(HOME_IMPORTS)) {
+      const { state, kite } = act2(seed);
+      markSurveyed(state, neighbour, state.now);
+      const trade = farTrade(state, kite);
+      assert.equal(systemOf(trade?.destId), neighbour, `seed ${seed}: a trade into ${neighbour}`);
+      assert.ok(trade.profit > 1000, `seed ${seed}, ${neighbour}: ${Math.round(trade.profit)} cr after fees both ways`);
+      assert.ok(HOME_IMPORTS[neighbour].includes(trade.good));
+    }
+  }
+});
+
+test('order menus give what a trade into another system leaves after the jump fees there and back', () => {
+  const { state, kite } = act2(1234);
+  markSurveyed(state, 'dace', state.now);
+  const host = findSystem('dace').stations.find((s) => s.imports);
+  // The Buy order's note: the best sale in range, after the purchase and the fees both ways.
+  const buy = orderOptions(state, kite, { kind: 'station', id: 'halcyon-refinery' }).find((o) => o.kind === 'buy' && o.good === 'iron');
+  const net = (id) => tradePlan(state, kite, 'iron', buy.qty, id, state.now, 'halcyon-refinery').profit - feesBack(state, kite, id, 'halcyon-refinery');
+  assert.equal(Math.round(buy.resale.profit), Math.round(Math.max(net(host.id), net('halcyon-foundry'))));
+  assert.ok(feesBack(state, kite, host.id, 'halcyon-refinery') > 0);
+  assert.equal(feesBack(state, kite, 'halcyon-foundry', 'halcyon-refinery'), 0);
+  assert.ok(carryOut(state, kite.id, buy).ok);
+  advance(state, kite.order.endsAt);
+  // The Sell order there: the sale, less what the iron cost and the jumps both ways.
+  const sell = orderOptions(state, kite, { kind: 'station', id: host.id }).find((o) => o.kind === 'sell');
+  assert.ok(sell.fees > 0 && sell.back > 0);
+  assert.equal(Math.round(sell.profit), Math.round(sell.total - kite.costBasis.iron - sell.fees - sell.back));
+  assert.ok(sell.profit > 0);
+  // Ice from Aurel's trading post fetches no more next door than it costs: the menu shows the loss.
+  const ice = act2(1234);
+  markSurveyed(ice.state, 'dace', ice.state.now);
+  const refinery = findSystem('dace').stations.find((s) => findEntry(s.id, 'ice')?.side === 'buys');
+  ice.kite.at = 'aurel-post';
+  const iceBuy = orderOptions(ice.state, ice.kite, { kind: 'station', id: 'aurel-post' }).find((o) => o.kind === 'buy' && o.good === 'ice');
+  assert.ok(carryOut(ice.state, ice.kite.id, iceBuy).ok);
+  const iceSell = orderOptions(ice.state, ice.kite, { kind: 'station', id: refinery.id }).find((o) => o.kind === 'sell');
+  assert.ok(iceSell.profit < 0, `ice to ${refinery.name}: ${Math.round(iceSell.profit)} cr`);
 });

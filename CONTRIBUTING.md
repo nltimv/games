@@ -62,7 +62,8 @@ Run these before opening a pull request. CI runs the first two.
 ```bash
 npm run lint
 npm test
-npm run balance   # when changing Driftworks numbers
+npm run balance         # when changing Driftworks numbers
+npm run balance:goals   # fails when a goal's completing action loses money
 ```
 
 ## Releases

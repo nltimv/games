@@ -36,8 +36,12 @@ export function marketEntries(stationId) {
     const type = STATION_TYPES[station.type];
     const entries = [];
     // Generated stations list their own goods; Aurel's use their type's.
-    for (const good of station.buys ?? type.buys) entries.push({ good, side: 'buys', curve: curveFor(type.buyCurve, good) });
-    for (const good of station.sells ?? type.sells) entries.push({ good, side: 'sells', curve: curveFor(type.sellCurve, good) });
+    // Goods a station imports (see HOME_IMPORTS) it pays more for.
+    const imports = station.imports ?? [];
+    for (const good of station.buys ?? type.buys) if (!imports.includes(good)) entries.push({ good, side: 'buys', curve: curveFor(type.buyCurve, good) });
+    for (const good of imports) entries.push({ good, side: 'buys', curve: curveFor('imports', good) });
+    // A station never sells what it is short of.
+    for (const good of station.sells ?? type.sells) if (!imports.includes(good)) entries.push({ good, side: 'sells', curve: curveFor(type.sellCurve, good) });
     cached = { entries, byGood: new Map(entries.map((e) => [e.good, e])) };
     entriesOf.set(station, cached);
   }
