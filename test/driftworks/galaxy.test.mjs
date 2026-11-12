@@ -179,7 +179,7 @@ test('cancelling before a jump costs nothing, and the ship waits at the gate', (
 
 test('a scout surveys a system next to a surveyed one, opening it to other ships', () => {
   const state = newGame({ credits: 10_000 });
-  state.research.done.push('warp-drive', 'scout-licence');
+  state.research.done.push('warp-drive');
   const lark = createShip(state, 'lark', 'halcyon-shipyard');
   assert.ok(chartedSystems(state).has('brennan'));
   assert.ok(!isSurveyed(state, 'brennan'));
@@ -201,7 +201,7 @@ test('hazard systems cannot be entered or surveyed', () => {
   const state = newGame({ credits: 1e9 });
   const g = useGalaxy(state.seed);
   const deep = g.systems.find((s) => s.hazard);
-  state.research.done.push('warp-drive', 'scout-licence');
+  state.research.done.push('warp-drive');
   // Survey everything up to the hazard so the route is known.
   for (const s of g.systems) if (!s.hazard) markSurveyed(state, s.id, state.now);
   const lark = createShip(state, 'lark', 'halcyon-shipyard');
@@ -213,7 +213,7 @@ test('hazard systems cannot be entered or surveyed', () => {
 test('the order menu jumps, surveys, buys and sells across systems', () => {
   const state = newGame({ credits: 100_000 });
   // By act 2 the haulers carry hundreds of tonnes, which is what makes a jump fee pay.
-  state.research.done.push('warp-drive', 'scout-licence', 'kite-licence', 'hold-2', 'hold-3', 'hold-4');
+  state.research.done.push('warp-drive', 'kite-licence', 'hold-2', 'hold-3', 'hold-4');
   const lark = createShip(state, 'lark', 'halcyon-shipyard');
   const kite = createShip(state, 'kite', 'halcyon-refinery');
 

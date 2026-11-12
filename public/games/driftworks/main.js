@@ -16,7 +16,7 @@ const awaySince = session.state.lastSeenAt;
 session.tick(bootNow);
 
 const app = createApp(session);
-app.showAwayIfNeeded(awaySince, bootNow);
+app.showStartup(awaySince, bootNow);
 session.markSeen(bootNow);
 session.save();
 

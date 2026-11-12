@@ -59,8 +59,9 @@ export const HULLS = {
     holdClass: 1,
     namePrefix: 'Lark',
     blurb: 'Surveys unknown systems, so other ships can go there.',
-    // The research the shipyard needs before it builds this hull.
-    licence: 'scout-licence',
+    // The research the shipyard needs before it builds this hull: scouts
+    // come with the warp drive, since they are no use without it.
+    licence: 'warp-drive',
     points: 1,
     recipe: { silicon: 20, graphite: 10, water: 10 },
     buildMinutes: 10,

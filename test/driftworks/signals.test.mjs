@@ -10,7 +10,7 @@ import { derelictLeft, fieldsOf, investigateSignal, isGateOpen, isInvestigated, 
 import { plotCourse } from '../../public/games/driftworks/systems/travel.js';
 import { newGame } from './helpers.mjs';
 
-const OPEN_ALL = ['warp-drive', 'scout-licence', 'lane-charts', 'jump-1', 'kite-licence', 'sealed-holds', 'shield-debris', 'shield-ion', 'shield-radiation', 'deep-shielding'];
+const OPEN_ALL = ['warp-drive', 'lane-charts', 'jump-1', 'kite-licence', 'sealed-holds', 'shield-debris', 'shield-ion', 'shield-radiation', 'deep-shielding'];
 
 /** A company that can fly anywhere and has surveyed the whole galaxy. */
 function deepGame() {

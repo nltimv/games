@@ -33,7 +33,7 @@ test('a new company has a Mule, a Kite and room for one more ship', () => {
   assert.equal(allowance(state), STARTING_ALLOWANCE);
   assert.equal(pointsUsed(state), 2);
   assert.equal(buildLock(state, 'mule', YARD), null);
-  assert.match(buildLock(state, 'lark', YARD), /Scout licence/);
+  assert.match(buildLock(state, 'lark', YARD), /Warp drive/);
   assert.match(buildLock(state, 'mule', 'halcyon-refinery'), /not built here/);
 });
 

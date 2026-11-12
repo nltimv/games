@@ -16,7 +16,7 @@ import { buyersOf } from '../../public/games/driftworks/systems/advisor.js';
 import { sellToStation } from '../../public/games/driftworks/systems/market.js';
 import { newGame } from './helpers.mjs';
 
-const ACT_2 = ['warp-drive', 'scout-licence', 'lane-charts', 'jump-1', 'sealed-holds', 'hold-1', 'hold-2', 'hold-3', 'laser-1', 'laser-2'];
+const ACT_2 = ['warp-drive', 'lane-charts', 'jump-1', 'sealed-holds', 'hold-1', 'hold-2', 'hold-3', 'laser-1', 'laser-2'];
 
 /** A company early in act 3: one shielding, the near galaxy surveyed. */
 function act3({ fleet = true } = {}) {

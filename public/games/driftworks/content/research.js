@@ -9,6 +9,8 @@
 //
 // The Hauler licence ('kite-licence') is gone: a new company starts with a
 // Kite. Old saves keep it in their done list, where it does nothing.
+// The Scout licence is gone too: scouts come with the warp drive (save
+// version 7 drops it from old saves).
 
 /** The Fleet licence line: the allowance each level gives, its cost and time, and what it waits for. */
 const LICENCES = [
@@ -62,15 +64,14 @@ export const RESEARCH = [
     needs: ['engine-2'],
     cost: 250000,
     minutes: 480,
-    effect: 'Ships can jump through the gates. This ends act 1.',
+    effect: 'Ships can jump through the gates, and shipyards build Lark-class scouts, which survey unknown systems. This ends act 1.',
   },
   // Act 2: the galaxy.
-  { id: 'scout-licence', name: 'Scout licence', needs: ['warp-drive'], cost: 50000, minutes: 30, effect: 'Shipyards sell Lark-class scouts, which survey unknown systems.' },
   { id: 'market-charts', name: 'Market charts', needs: ['warp-drive'], cost: 80000, minutes: 45, effect: 'The galaxy map shows where each good sells cheapest and pays best.' },
   { id: 'trade-desk', name: 'Trade desk', needs: ['warp-drive'], cost: 150000, minutes: 90, effect: 'The trade card and Buy notes look at systems up to 2 jumps away.' },
   { id: 'lane-charts', name: 'Lane charts', needs: ['warp-drive'], cost: 300000, minutes: 120, effect: 'Jump fees are halved.' },
   { id: 'jump-1', name: 'Jump drive I', needs: ['warp-drive'], cost: 400000, minutes: 180, effect: 'Jumps take 25% less time.' },
-  { id: 'scanners', name: 'Long-range scanners', needs: ['scout-licence'], cost: 600000, minutes: 240, effect: 'Surveys take half as long, and systems next to your ships show live prices.' },
+  { id: 'scanners', name: 'Long-range scanners', needs: ['warp-drive'], cost: 600000, minutes: 240, effect: 'Surveys take half as long, and systems next to your ships show live prices.' },
   { id: 'hold-6', name: 'Cargo racks VI', line: 'hold', level: 6, needs: ['hold-5', 'warp-drive'], cost: 900000, minutes: 360 },
   { id: 'second-lab', name: 'Second lab', needs: ['warp-drive'], cost: 1000000, minutes: 360, effect: 'Two researches can run at once.' },
   { id: 'sealed-holds', name: 'Sealed holds', line: 'seal', level: 1, needs: ['warp-drive'], cost: 1200000, minutes: 360 },

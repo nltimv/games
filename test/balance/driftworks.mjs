@@ -767,7 +767,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
 
   /**
    * Research in the list's order, but the act's last one first once it is
-   * the goal, and scouts right after the warp drive. Market charts, Trade
+   * the goal. Market charts, Trade
    * desk and Trade network only change what the menus show: only a profile
    * that trades by the menus takes them.
    * Of the hazard shieldings it takes the one that opens the most systems.
@@ -776,8 +776,6 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
     // In the tutorial, the researches its guide asks for, in its order.
     const guided = TUTORIAL_RESEARCH.map((id) => RESEARCH.find((r) => r.id === id)).find((r) => researchStatus(state, r) === 'open');
     if (guided && GOALS.some((g) => g.tutorial && !g.act && !state.goals.includes(g.id))) return guided;
-    const scouts = RESEARCH.find((r) => r.id === 'scout-licence');
-    if (researchStatus(state, scouts) === 'open') return scouts;
     // With fleets: Fleet command I as soon as the first shielding opens it.
     const command = RESEARCH.find((r) => r.id === 'fleet-1');
     if (fleets && researchStatus(state, command) === 'open') return command;

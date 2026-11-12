@@ -35,8 +35,6 @@ test('the act 2 guide covers the scout, the survey and the first far sale, and c
   state.tutorial.skipped = true; // skipping act 1's tutorial leaves act 2's guide on
   state.research.done.push('warp-drive');
   state.goals = [...act1];
-  assert.match(currentGuide(state, onMap()).text, /Scout licence/);
-  state.research.done.push('scout-licence');
   assert.match(currentGuide(state, onMap()).text, /Halcyon Shipyard/);
   const lark = createShip(state, 'lark', 'halcyon-shipyard');
   state.goals.push('first-scout');
