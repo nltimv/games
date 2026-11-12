@@ -26,6 +26,7 @@ const TITLES = {
   email: 'Recovery email',
   recover: 'Lost your number',
   'recover-sent': 'Lost your number',
+  'skip-email': 'No recovery email?',
   conflict: 'Choose a save',
 };
 
@@ -199,7 +200,11 @@ function createCloudPages(cloud, nav) {
 
   function numberPage() {
     let wroteDown = false;
-    const next = button('Continue', { variant: 'primary', disabled: true, onClick: () => go(cloud.status().recovery ? 'email' : 'home') });
+    const next = button('Continue', { variant: 'primary', disabled: true, onClick: () => {
+        if (!cloud.status().recovery) number = null;
+        go(number ? 'email' : 'home');
+      },
+    });
     const copy = async () => {
       try {
         await navigator.clipboard.writeText(number.replace(/ /g, ''));
@@ -266,23 +271,36 @@ function createCloudPages(cloud, nav) {
     const submit = (e) => {
       e.preventDefault();
       run(async () => {
-        const result = await cloud.setEmail(input.querySelector('input').value);
+        const result = await cloud.setEmail(input.querySelector('input').value, number);
         if (!result.ok) {
           error = result.error;
           return;
         }
         account = { hasEmail: true };
-        nav.toast('Recovery email saved.');
+        nav.toast(number ? 'Recovery email saved. Your number is on its way there too.' : 'Recovery email saved. A confirmation is on its way.');
+        number = null;
         view = 'home';
       });
     };
     return [
-      h('p', { class: 'dw-note' }, 'Optional. Used only to send you a new number if you lose yours. It is stored scrambled, so it cannot be read back.'),
+      h(
+        'p',
+        { class: 'dw-note' },
+        number
+          ? 'Optional. We mail your account number there now, and a new one if you ever lose it. The address is stored scrambled, so it cannot be read back.'
+          : 'Optional. Used only to send you a new number if you lose yours. It is stored scrambled, so it cannot be read back.',
+      ),
       h(
         'form',
         { class: 'dw-cloud-form', onSubmit: submit },
         input,
-        h('div', { class: 'dw-row-actions' }, button('Save email', { variant: 'primary', disabled: pending, onClick: submit }), button('Skip', { onClick: () => go('home') })),
+        h(
+          'div',
+          { class: 'dw-row-actions' },
+          button('Save email', { variant: 'primary', disabled: pending, onClick: submit }),
+          // Right after sign up, skipping asks once more; from the menu it just goes back.
+          number ? button('Skip', { onClick: () => go('skip-email') }) : button('Cancel', { onClick: () => go('home') }),
+        ),
       ),
     ];
   }
@@ -321,6 +339,21 @@ function createCloudPages(cloud, nav) {
       body = [
         h('p', { class: 'dw-note' }, 'Check your inbox. If the address is linked to an account, a new number is on its way.'),
         h('div', { class: 'dw-row-actions' }, button('Log in', { variant: 'primary', onClick: () => go('login') })),
+      ];
+    else if (view === 'skip-email')
+      body = [
+        h('p', { class: 'dw-note is-warn' }, 'Without a recovery email, your account cannot be recovered if you lose your number. Nobody can look it up for you.'),
+        h(
+          'div',
+          { class: 'dw-row-actions' },
+          button('Add email', { variant: 'primary', onClick: () => go('email') }),
+          button('Continue without', {
+            onClick: () => {
+              number = null;
+              go('home');
+            },
+          }),
+        ),
       ];
     else if (view === 'conflict') body = conflictBody(cloud, { toast: nav.toast, onDone: () => go('home'), onLater: () => go('home') });
     else body = home();

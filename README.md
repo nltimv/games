@@ -153,7 +153,11 @@ without them the hub needs no database and games save in the browser only.
   hidden. When this device and the cloud both have progress the other
   lacks, the player picks which save to keep; the other is kept on the
   device and can be loaded later. Nothing is overwritten silently.
-- **Recovery.** With mail configured, a player can enter their email and
+- **Recovery.** Linking an email sends a confirmation there; right after
+  sign up it also contains the account number (the server checks the number
+  belongs to the account before mailing it). Skipping the email asks once
+  more, since a lost number cannot be recovered without one.
+  With mail configured, a player can enter their email and
   receive a new number; the old number stops working. Without mail the
   option is hidden.
 - **Server.** PostgreSQL, schema migrations applied on start

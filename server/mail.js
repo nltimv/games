@@ -16,6 +16,21 @@ function createMailer(env = process.env) {
   });
   const from = env.MAIL_FROM || 'Games Hub <noreply@localhost>';
   return {
+    /** Confirms a new recovery email; includes the number when the player just signed up. */
+    async sendEmailLinked(to, formattedNumber) {
+      await transport.sendMail({
+        from,
+        to,
+        subject: 'Your Games Hub recovery email',
+        text: [
+          'This address is now the recovery email for a Games Hub account.',
+          '',
+          ...(formattedNumber ? [`Your account number is: ${formattedNumber}`, 'Keep this mail: you need the number to log in on another device.', ''] : []),
+          'If you lose your number, choose "Lost your number?" when logging in and we send a new one here.',
+          'If you did not add this address, you can ignore this mail.',
+        ].join('\n'),
+      });
+    },
     async sendNewNumber(to, formattedNumber) {
       await transport.sendMail({
         from,

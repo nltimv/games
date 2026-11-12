@@ -183,20 +183,33 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
     }),
   );
 
+  // Link a recovery email and confirm it by mail. Right after sign up the
+  // client still has the account number and may send it along: when it
+  // matches this account, the mail includes it.
   router.put(
     '/account/email',
     requireAccount,
     wrap(async (req, res) => {
       const email = normalizeEmail(req.body?.email);
       if (!email) return res.status(400).json({ error: 'That is not an email address.' });
+      let linked = true;
       try {
         await pool.query('UPDATE accounts SET email_hash = $2 WHERE id = $1', [req.account.id, hash.email(email)]);
       } catch (err) {
         // The address is already linked to another account. Saying so would
         // tell anyone which addresses have accounts, so report success.
         if (err.code !== '23505') throw err;
+        linked = false;
       }
       res.status(204).end();
+      if (!linked || !mailer) return;
+      const number = normalizeNumber(req.body?.number);
+      let shown = null;
+      if (number) {
+        const { rows } = await pool.query('SELECT 1 FROM accounts WHERE id = $1 AND number_hash = $2', [req.account.id, hash.number(number)]);
+        if (rows.length) shown = formatNumber(number);
+      }
+      await mailer.sendEmailLinked(email, shown).catch((err) => console.error(`Confirmation mail failed: ${err.message}`));
     }),
   );
 

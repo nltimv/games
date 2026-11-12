@@ -22,7 +22,10 @@ let base;
 const sent = [];
 const mailer = {
   async sendNewNumber(to, number) {
-    sent.push({ to, number });
+    sent.push({ kind: 'recovery', to, number });
+  },
+  async sendEmailLinked(to, number) {
+    sent.push({ kind: 'linked', to, number });
   },
 };
 
@@ -74,6 +77,11 @@ function client() {
     const text = await res.text();
     return { status: res.status, body: text ? JSON.parse(text) : null, setCookie: set };
   };
+}
+
+async function waitForMail() {
+  for (let i = 0; i < 50 && !sent.length; i++) await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 30));
 }
 
 const save = (credits) => ({ version: 7, credits, ships: [] });
@@ -178,16 +186,38 @@ test('recovery mails a new number; the old number and old sessions stop working'
   assert.deepEqual(stored, createHasher(PEPPER).email('player@example.com'));
 
   // An unknown address gets the same answer and no mail.
+  sent.length = 0;
   assert.equal((await client()('POST', '/recovery', { email: 'nobody@example.com' })).status, 202);
   assert.equal((await client()('POST', '/recovery', { email: 'player@example.com' })).status, 202);
-  for (let i = 0; i < 50 && !sent.length; i++) await new Promise((r) => setTimeout(r, 20));
+  await waitForMail();
   assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, 'recovery');
   assert.equal(sent[0].to, 'player@example.com');
   assert.notEqual(sent[0].number, body.number);
 
   assert.equal((await phone('GET', '/account')).status, 401, 'old sessions are logged out');
   assert.equal((await client()('POST', '/session', { number: body.number })).status, 401, 'old number stops working');
   assert.equal((await client()('POST', '/session', { number: sent[0].number })).status, 204);
+});
+
+test('linking an email sends a confirmation, with the number only when it matches the account', { skip }, async () => {
+  const call = client();
+  const { body } = await call('POST', '/account', {});
+  await call('PUT', '/account/email', { email: 'new@example.com', number: body.number });
+  await waitForMail();
+  assert.deepEqual(sent, [{ kind: 'linked', to: 'new@example.com', number: body.number }]);
+
+  sent.length = 0;
+  await call('PUT', '/account/email', { email: 'later@example.com' });
+  await waitForMail();
+  assert.deepEqual(sent, [{ kind: 'linked', to: 'later@example.com', number: null }]);
+
+  // Someone else's number is never mailed out.
+  const other = await client()('POST', '/account', {});
+  sent.length = 0;
+  await call('PUT', '/account/email', { email: 'third@example.com', number: other.body.number });
+  await waitForMail();
+  assert.deepEqual(sent, [{ kind: 'linked', to: 'third@example.com', number: null }]);
 });
 
 test('recovery is rate limited per address', { skip }, async () => {

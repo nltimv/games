@@ -404,8 +404,9 @@ export function createCloudSync({ game, saveKey, summarize, canLoad = () => true
       return res.status === 200 ? res.body : null;
     },
 
-    async setEmail(email) {
-      const res = await request('PUT', '/account/email', { email });
+    /** Links a recovery email. Pass the number right after sign up to have it in the confirmation mail. */
+    async setEmail(email, number) {
+      const res = await request('PUT', '/account/email', number ? { email, number } : { email });
       return res.status === 204 ? { ok: true } : { ok: false, error: res.body?.error ?? 'Could not save the email.' };
     },
 
