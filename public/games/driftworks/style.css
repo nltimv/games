@@ -2053,19 +2053,6 @@ button.dw-price-row[aria-pressed='true'] {
   color: var(--aqua);
 }
 
-.dw-modal textarea {
-  width: 100%;
-  min-height: 84px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--glass-edge);
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--glass-ink);
-  font: 12px/1.4 ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  resize: vertical;
-  word-break: break-all;
-}
-
 .dw-away-list {
   list-style: none;
   margin: 0;
