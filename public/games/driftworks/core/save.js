@@ -93,7 +93,27 @@ export const MIGRATIONS = {
       goals: upgradeGoals(save),
     };
   },
+  // Scouts come with the warp drive: the Scout licence is gone. A company
+  // that had it already has the warp drive, so it keeps its scouts; one
+  // with the licence still in the lab gets its credits back. The save also
+  // starts remembering which game version the player last saw, so the
+  // What's new card shows once after an update.
+  6(old) {
+    const lab = { ...old.research, done: (old.research?.done ?? []).filter((id) => id !== SCOUT_LICENCE.id) };
+    let refund = 0;
+    for (const slot of ['active', 'second']) {
+      if (lab[slot]?.id !== SCOUT_LICENCE.id) continue;
+      lab[slot] = null;
+      refund += SCOUT_LICENCE.cost;
+    }
+    const save = { ...old, research: lab, credits: old.credits + refund, log: [...(old.log ?? [])], seenVersion: old.seenVersion ?? null };
+    if (refund) addLog(save, save.now, 'Scouts now come with the warp drive: the Scout licence research was refunded', 'info', refund);
+    return save;
+  },
 };
+
+// The research removed in version 7, and what it cost.
+const SCOUT_LICENCE = { id: 'scout-licence', cost: 50000 };
 
 // Goals new in version 6, and the goals that come after each.
 const NEW_GOALS = ['carry-goods', 'first-build', 'first-licence'];

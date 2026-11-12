@@ -1,4 +1,5 @@
-// The two dialogs: "while you were away" and settings (backups and reset).
+// The "while you were away" dialog, and the Settings page of the game
+// menu (backups and starting over; see menu.js).
 
 import { formatClock, formatDuration } from '../../../shared/js/format.js';
 import { logSince } from '../systems/log.js';
@@ -10,6 +11,7 @@ const AWAY_KINDS = new Set(['arrival', 'sale', 'goal', 'warning', 'purchase']);
 
 function openDialog(dialog, children) {
   dialog.replaceChildren(...children.flat(Infinity).filter(Boolean));
+  dialog.classList.remove('is-menu');
   if (!dialog.open) dialog.showModal();
 }
 
@@ -48,9 +50,14 @@ export function showAway(dialog, state, since, now) {
   return true;
 }
 
-/** Settings: copy a backup code, restore one, or start over. */
-export function showSettings(dialog, session, { onToast }) {
+/**
+ * The Settings page of the game menu: copy a backup code, restore one, or
+ * start over. `head` is the page heading (with its Back button); `onDone`
+ * closes the menu after a load or a reset.
+ */
+export function settingsPage({ session, onToast, onDone, head }) {
   let confirmReset = false;
+  const body = h('div', { class: 'dw-modal-body' });
 
   function render() {
     const code = session.exportText();
@@ -70,38 +77,35 @@ export function showSettings(dialog, session, { onToast }) {
       if (!importBox.value.trim()) return onToast('Paste a backup code first.', 'warning');
       if (session.importText(importBox.value)) {
         onToast('Backup loaded.');
-        dialog.close();
+        onDone();
       } else onToast('That code is not a Driftworks backup.', 'warning');
     };
     const reset = () => {
       if (!confirmReset) {
         confirmReset = true;
         render();
+        body.querySelector('[data-key="settings-reset"]')?.focus({ preventScroll: true });
         return;
       }
       session.reset();
       onToast('A new company starts in Aurel.');
-      dialog.close();
+      onDone();
     };
 
-    openDialog(dialog, [
-      h('span', { class: 'dw-eyebrow' }, 'Driftworks'),
-      h('h2', { id: 'modal-title' }, 'Settings'),
-      h('p', { class: 'dw-note' }, 'Your company is saved in this browser. Copy the backup code to move it to another device or keep it safe.'),
-      h('div', { class: 'dw-section' }, exportBox, h('div', { class: 'dw-row-actions' }, button('Copy backup code', { onClick: copy }))),
-      h('div', { class: 'dw-section' }, importBox, h('div', { class: 'dw-row-actions' }, button('Load backup', { onClick: load }))),
-      h(
-        'div',
-        { class: 'dw-section' },
-        confirmReset ? h('p', { class: 'dw-note is-warn' }, 'This deletes your company for good. Press again to start over.') : null,
+    body.replaceChildren(
+      ...[
+        h('p', { class: 'dw-note' }, 'Your company is saved in this browser. Copy the backup code to move it to another device or keep it safe.'),
+        h('div', { class: 'dw-section' }, exportBox, h('div', { class: 'dw-row-actions' }, button('Copy backup code', { onClick: copy, key: 'settings-copy' }))),
+        h('div', { class: 'dw-section' }, importBox, h('div', { class: 'dw-row-actions' }, button('Load backup', { onClick: load, key: 'settings-load' }))),
         h(
           'div',
-          { class: 'dw-row-actions' },
-          button(confirmReset ? 'Yes, delete and start over' : 'Start over', { variant: 'danger', onClick: reset }),
-          button('Close', { variant: 'primary', onClick: () => dialog.close() }),
+          { class: 'dw-section' },
+          confirmReset ? h('p', { class: 'dw-note is-warn' }, 'This deletes your company for good. Press again to start over.') : null,
+          h('div', { class: 'dw-row-actions' }, button(confirmReset ? 'Yes, delete and start over' : 'Start over', { variant: 'danger', onClick: reset, key: 'settings-reset' })),
         ),
-      ),
-    ]);
+      ].filter(Boolean),
+    );
   }
   render();
+  return [head, body];
 }

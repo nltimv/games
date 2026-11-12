@@ -5,13 +5,15 @@ import { useGalaxy } from '../content/galaxy.js';
 import { createShip } from '../systems/fleet.js';
 import { addLog } from '../systems/log.js';
 import { randomSeed } from './rng.js';
+import { GAME_VERSION } from '../content/changelog.js';
 
 // Version 2 rebuilt orders, research and contracts; older saves start over.
 // Version 3 added the galaxy (act 2); version 2 saves upgrade (see save.js).
 // Version 4 made contracts a fixed price for a set amount.
 // Version 5 added sealed holds, hazard shielding, signals and act 3.
 // Version 6 replaced ship prices with the fleet allowance and building.
-export const SAVE_VERSION = 6;
+// Version 7 folded the Scout licence into the warp drive and added seenVersion.
+export const SAVE_VERSION = 7;
 export const OLDEST_SAVE_VERSION = 2;
 export const STARTING_CREDITS = 600;
 
@@ -25,6 +27,9 @@ export function createGame({ now = Date.now(), seed = randomSeed() } = {}) {
     now,
     // The last time the game was on screen; the away summary starts here.
     lastSeenAt: now,
+    // The game version the player last saw; What's new shows once when it
+    // changes. A new company has nothing to catch up on.
+    seenVersion: GAME_VERSION,
     credits: STARTING_CREDITS,
     stats: {
       earned: 0,

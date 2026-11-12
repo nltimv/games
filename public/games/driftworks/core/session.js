@@ -89,6 +89,13 @@ export function createSession({ storage, clock = () => Date.now() } = {}) {
       state.lastSeenAt = Math.max(state.lastSeenAt ?? 0, now);
     },
 
+    /** Notes that the player has seen what changed up to game version `version`. */
+    markVersionSeen(version) {
+      if (state.seenVersion === version) return;
+      state.seenVersion = version;
+      saves.save(state);
+    },
+
     save() {
       return saves.save(state);
     },

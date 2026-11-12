@@ -19,7 +19,7 @@ import { newGame } from './helpers.mjs';
 function lateAct2() {
   const state = newGame({ credits: 1e9 });
   useGalaxy(state.seed);
-  state.research.done.push('warp-drive', 'scout-licence', 'lane-charts', 'jump-1', 'kite-licence');
+  state.research.done.push('warp-drive', 'lane-charts', 'jump-1', 'kite-licence');
   for (const system of allSystems()) if (!system.hazard) markSurveyed(state, system.id, state.now);
   return state;
 }

@@ -244,11 +244,10 @@ function farBuyer(state, ship) {
 
 Object.assign(GUIDES, {
   'first-scout'(state, ui) {
-    if (!isResearched(state, 'scout-licence')) return research(state, ui, 'scout-licence', 'Scout licence', 'The warp drive opens the gates, but only scouts can enter systems nobody has surveyed.');
     if ((state.builds ?? []).some((build) => build.hull === 'lark')) return { text: 'Halcyon Shipyard is building your Lark. Planned builds start once their recipe is in store.' };
     const lock = pointsLock(state, 'lark');
     if (lock) return { text: `Your fleet uses all ${allowance(state)} of its allowance points. The next Fleet licence raises it, and salvage at a shipyard frees a ship's points.` };
-    if (!isSelected(ui, 'station', SHIPYARD)) return { text: 'Shipyards build Lark-class scouts now. Click Halcyon Shipyard on the map.', map: { kind: 'station', id: SHIPYARD } };
+    if (!isSelected(ui, 'station', SHIPYARD)) return { text: 'The warp drive opens the gates, but only scouts can enter systems nobody has surveyed. Shipyards build Lark-class scouts now: click Halcyon Shipyard on the map.', map: { kind: 'station', id: SHIPYARD } };
     return { text: 'Build a Lark-class scout. It is fast and carries no cargo.', selector: key('build-lark'), tip: 'Plan the build instead, and your haulers can bring its recipe for less.' };
   },
   'first-survey'(state, ui) {

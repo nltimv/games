@@ -18,7 +18,9 @@ import { minedSoFar, orderPhase } from '../systems/orders.js';
 import { canJump, shipPosition, shipSystem } from '../systems/travel.js';
 import { renderInto, updateLive, h } from './dom.js';
 import { renderTopBar, underwayCard } from './hud.js';
-import { showAway, showSettings } from './modals.js';
+import { showAway } from './modals.js';
+import { createGameMenu } from './menu.js';
+import { unseenChanges } from '../content/changelog.js';
 import { menuKeydown, orderMenu, placeMenu } from './contextMenu.js';
 import { stationPanel } from './panels/station.js';
 import { fieldPanel } from './panels/field.js';
@@ -61,6 +63,9 @@ export function createApp(session, doc = document) {
     menu: $('menu'),
     systemName: $('system-name'),
     systemSub: $('system-sub'),
+    up: $('up-btn'),
+    menuBtn: $('menu-btn'),
+    menuDot: $('menu-dot'),
   };
 
   const phoneQuery = matchMedia('(max-width: 760px)');
@@ -395,8 +400,20 @@ export function createApp(session, doc = document) {
       const where = system.id === HOME_SYSTEM.id ? 'home' : `${system.depth} ${system.depth === 1 ? 'lane' : 'lanes'} from home`;
       els.systemSub.textContent = `${findFaction(system.faction)?.name ?? ''} · ${isSurveyed(state, system.id) ? where : 'unsurveyed'}`;
     }
-    const galaxyBtn = els.nav.querySelector('button[data-view="galaxy"]');
     const open = canJump(state);
+    // Up: from a system's map to the galaxy map, once the gates are open.
+    const system = ui.view === 'system' && ui.map === 'system' ? findSystem(ui.systemId) : null;
+    els.up.hidden = !(open && system);
+    if (system) {
+      const label = `Up to the galaxy map from ${system.name}`;
+      if (els.up.getAttribute('aria-label') !== label) {
+        els.up.setAttribute('aria-label', label);
+        els.up.title = 'Up to the galaxy map';
+      }
+    }
+    // The menu button shows a dot until the player has read What's new.
+    els.menuDot.hidden = !unseenChanges(state.seenVersion).length;
+    const galaxyBtn = els.nav.querySelector('button[data-view="galaxy"]');
     if (galaxyBtn && galaxyBtn.dataset.open !== String(open)) {
       galaxyBtn.dataset.open = String(open);
       galaxyBtn.toggleAttribute('aria-disabled', !open);
@@ -460,14 +477,39 @@ export function createApp(session, doc = document) {
 
   // ---------- Dialogs ----------
 
+  const gameMenu = createGameMenu({ dialog: els.modal, session, toast });
+  // Reading What's new clears the menu button's dot.
+  els.modal.addEventListener('close', () => renderPlace());
+
+  function openMenuDialog(page = 'menu') {
+    if (ui.menu) closeMenu({ refocus: false });
+    gameMenu.open(page);
+    renderPlace();
+  }
+
   function openSettings() {
-    showSettings(els.modal, session, { onToast: toast });
+    openMenuDialog('settings');
+  }
+
+  /** Up: a system's map to the galaxy map, which opens on that system (see startViewFor). */
+  function goUp() {
+    if (ui.view !== 'system' || !canJump(session.state)) return;
+    setView('galaxy');
   }
 
   function showAwayIfNeeded(since, now) {
     if (els.modal.open) return false;
     if (now - since < 3 * 60 * 1000) return false;
     return showAway(els.modal, session.state, since, now);
+  }
+
+  /** On opening the game: What's new after an update, then what happened while away. */
+  function showStartup(since, now) {
+    if (gameMenu.whatsNew({ then: () => showAwayIfNeeded(since, now) })) {
+      renderPlace();
+      return true;
+    }
+    return showAwayIfNeeded(since, now);
   }
 
   // ---------- Map ----------
@@ -560,7 +602,8 @@ export function createApp(session, doc = document) {
     const btn = e.target.closest('button[data-view]');
     if (btn) setView(btn.dataset.view);
   });
-  doc.getElementById('settings-btn').addEventListener('click', openSettings);
+  els.menuBtn.addEventListener('click', () => openMenuDialog());
+  els.up.addEventListener('click', goUp);
   doc.querySelector('.dw-zoom').addEventListener('click', (e) => {
     const action = e.target.closest('button')?.dataset.zoom;
     if (action) sheet.fold();
@@ -626,6 +669,8 @@ export function createApp(session, doc = document) {
     toast,
     map,
     showAwayIfNeeded,
+    showStartup,
+    openMenu: openMenuDialog,
     /** Called every second: refresh countdowns and timed bars. */
     updateLive(now) {
       // A ship that lands starts its job, with its own label and time.
