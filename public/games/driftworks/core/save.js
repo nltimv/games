@@ -1,7 +1,8 @@
-// Saving and loading. The whole state is plain JSON in localStorage under
-// `driftworks-save`. Each save carries a version; MIGRATIONS upgrade older
-// saves one version at a time. Saves older than OLDEST_SAVE_VERSION come
-// from before a rebuild and cannot be upgraded: the game starts over.
+// Saving and loading. The whole state is plain JSON in localStorage, one key
+// per named save (`driftworks-slot-<id>`; see core/saves.js). Each save
+// carries a version; MIGRATIONS upgrade older saves one version at a time.
+// Saves older than OLDEST_SAVE_VERSION come from before a rebuild and cannot
+// be upgraded: the game starts over.
 
 import { createStore } from '../../../shared/js/storage.js';
 import { OLDEST_SAVE_VERSION, SAVE_VERSION } from './state.js';
@@ -175,23 +176,24 @@ export function isOutdated(json) {
   }
 }
 
-export function createSaveStore(storage) {
+/** `name` is the save's key after `driftworks-`: each named save has its own (see core/saves.js). */
+export function createSaveStore(storage, name = SAVE_KEY) {
   const store = createStore('driftworks', storage);
   return {
     load() {
-      const raw = store.getRaw(SAVE_KEY);
+      const raw = store.getRaw(name);
       return raw == null ? null : deserialize(raw);
     },
     /** Whether the stored save is one this version can no longer load. */
     hasOutdated() {
-      const raw = store.getRaw(SAVE_KEY);
+      const raw = store.getRaw(name);
       return raw != null && isOutdated(raw);
     },
     save(state) {
-      return store.setRaw(SAVE_KEY, serialize(state));
+      return store.setRaw(name, serialize(state));
     },
     clear() {
-      return store.remove(SAVE_KEY);
+      return store.remove(name);
     },
   };
 }

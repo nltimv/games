@@ -97,3 +97,19 @@ test('a save from before the rebuild starts a new company with a note', () => {
   assert.equal(session.state.credits, STARTING_CREDITS);
   assert.match(session.state.log.at(-1).text, /starts over/);
 });
+
+test('each named save has its own storage key', () => {
+  const storage = createMemoryStorage();
+  const one = createSession({ storage, saveName: 'slot-one', clock: () => T0 });
+  one.act((state) => {
+    state.credits = 123;
+    return { ok: true };
+  });
+  const two = createSession({ storage, saveName: 'slot-two', clock: () => T0 });
+  assert.equal(two.state.credits, STARTING_CREDITS);
+  two.save();
+  assert.equal(JSON.parse(storage.getItem('driftworks-slot-one')).credits, 123);
+  assert.equal(JSON.parse(storage.getItem('driftworks-slot-two')).credits, STARTING_CREDITS);
+  assert.equal(storage.getItem('driftworks-save'), null);
+  assert.equal(createSession({ storage, saveName: 'slot-one', clock: () => T0 }).state.credits, 123);
+});

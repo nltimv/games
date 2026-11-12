@@ -1,3 +1,4 @@
+{{- include "games-hub.validateCloudSaves" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,9 +46,72 @@ spec:
             - name: http
               containerPort: {{ .Values.containerPort }}
               protocol: TCP
-          {{- with .Values.env }}
+          {{- if or .Values.env .Values.cloudSaves.enabled }}
           env:
+            {{- if .Values.cloudSaves.enabled }}
+            - name: CLOUD_SAVES
+              value: "true"
+            - name: CLOUD_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "games-hub.pepperSecretName" . }}
+                  key: {{ .Values.cloudSaves.pepper.key }}
+            - name: MAX_SAVE_BYTES
+              value: {{ .Values.cloudSaves.maxSaveBytes | int | quote }}
+            - name: TRUST_PROXY
+              value: {{ .Values.cloudSaves.trustProxy | quote }}
+            {{- if .Values.postgresql.enabled }}
+            - name: PGHOST
+              value: {{ include "games-hub.postgresqlName" . }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: {{ .Values.postgresql.auth.database | quote }}
+            - name: PGUSER
+              value: {{ .Values.postgresql.auth.username | quote }}
+            {{- else }}
+            - name: PGHOST
+              value: {{ .Values.externalDatabase.host | quote }}
+            - name: PGPORT
+              value: {{ .Values.externalDatabase.port | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.externalDatabase.database | quote }}
+            - name: PGUSER
+              value: {{ .Values.externalDatabase.username | quote }}
+            - name: DB_SSL
+              value: {{ .Values.externalDatabase.sslMode | quote }}
+            {{- end }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "games-hub.databaseSecretName" . }}
+                  key: {{ include "games-hub.databasePasswordKey" . }}
+            {{- if .Values.mail.enabled }}
+            - name: SMTP_HOST
+              value: {{ .Values.mail.host | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.mail.port | quote }}
+            - name: SMTP_SECURE
+              value: {{ .Values.mail.secure | quote }}
+            - name: MAIL_FROM
+              value: {{ .Values.mail.from | quote }}
+            {{- if .Values.mail.existingSecret }}
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mail.existingSecret }}
+                  key: {{ .Values.mail.usernameKey }}
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mail.existingSecret }}
+                  key: {{ .Values.mail.passwordKey }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
