@@ -93,7 +93,7 @@ exposes a `/healthz` endpoint used by the built-in `HEALTHCHECK`.
 ## Deploying with Helm
 
 A chart is provided at [`helm/games-hub`](helm/games-hub), and is also
-published as an OCI artifact to GHCR on every push to `main` (see
+published as an OCI artifact to GHCR on every release tag (see
 [CI/CD](#cicd) below).
 
 ```bash
@@ -123,11 +123,11 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 | `resources`           | `50m/64Mi` req, `250m/128Mi` limit | Pod resource requests/limits   |
 
 > **Versioned tags vs. mutable tags:** the image is published with
-> immutable version tags (`1.0.0`, `1.0`, `1`) derived from
-> [`package.json`](package.json)'s `version` field — set `image.tag` to one
+> immutable version tags (`1.0.0`, `1.0`, `1`) derived from the release's
+> `vX.Y.Z` git tag — set `image.tag` to one
 > of these for a reproducible deploy; no `image.digest` pin is needed since
 > the tag itself never changes content. `image.digest` is still useful if
-> you deploy with a mutable tag such as `latest` or `main`: with
+> you deploy with a mutable tag such as `latest`: with
 > `imagePullPolicy: IfNotPresent` (the chart default), Kubernetes only
 > checks whether an image already exists locally under that
 > `repository:tag` string — it does **not** compare against the registry —
@@ -139,23 +139,29 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 ## CI/CD
 
 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
-runs three jobs on every push to `main`, on pull requests (build/lint only,
-no push), and on manual dispatch:
+runs on every pull request, every push to `main`, every `v*` tag, and on
+manual dispatch. Only a `vX.Y.Z` tag on a commit that is on `main` publishes
+anything; every other run builds and checks without pushing.
 
 - **`check`** runs `npm run lint` and `npm test` on Node 22. The image
-  build waits for it.
+  build and chart packaging wait for it.
+- **`version`** runs [`scripts/release-version.sh`](scripts/release-version.sh),
+  which turns a `vX.Y.Z` tag into the version `X.Y.Z` after checking the
+  tagged commit is on `main`. Every other run gets `0.0.0-dev` and is not a
+  release.
 - **`build-and-push`** builds a multi-arch (`linux/amd64`, `linux/arm64`)
-  image and publishes it to the
-  [GitHub Container Registry](https://ghcr.io) at `ghcr.io/<owner>/<repo>`.
-  Images are tagged with the app version, major.minor, and major (all read
-  from [`package.json`](package.json)'s `version` field — bump it to
-  publish a new version), the branch name, the short git SHA, and `latest`
-  (on the default branch only).
-- **`package-and-push-chart`** lints the Helm chart, packages it (stamping
-  `appVersion` from `package.json`), and pushes it as an OCI artifact to
-  `ghcr.io/<owner>/helm/games-hub`, tagged with the chart's `version`
-  field in [`Chart.yaml`](helm/games-hub/Chart.yaml) — bump that whenever
-  the chart templates/values change.
+  image. On a release it pushes it to `ghcr.io/<owner>/<repo>`, tagged
+  `X.Y.Z`, and also `X.Y`, `X` and `latest` unless the version is a
+  prerelease (`X.Y.Z-rc.1`). The version is also set as `APP_VERSION` in
+  the container.
+- **`package-and-push-chart`** lints the Helm chart and packages it with
+  `version` and `appVersion` set to the release version. On a release it
+  pushes it as an OCI artifact to `ghcr.io/<owner>/helm/games-hub`.
+- **`release`** creates a GitHub release for the tag, with install
+  instructions, notes generated from the pull requests merged since the
+  previous tag, and the packaged chart attached.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#releases) for how to cut a release.
 
 No extra setup is required — the workflow authenticates using the
 automatically provisioned `GITHUB_TOKEN`. Make sure the repository's

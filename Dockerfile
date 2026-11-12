@@ -8,8 +8,11 @@ RUN npm ci --omit=dev --no-audit --no-fund
 
 # ---- Runtime stage ------------------------------------------------------
 FROM node:22-alpine AS runtime
+# Release version, set by CI from the git tag (vX.Y.Z -> X.Y.Z).
+ARG APP_VERSION=0.0.0-dev
 ENV NODE_ENV=production \
-    PORT=3000
+    PORT=3000 \
+    APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
 

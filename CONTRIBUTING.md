@@ -65,7 +65,26 @@ npm test
 npm run balance   # when changing Driftworks numbers
 ```
 
-## Versions
+## Releases
 
-Bump `version` in `package.json` to publish a new image, and bump
-`version` and `appVersion` in `helm/games-hub/Chart.yaml` together with it.
+Pull requests never bump a version. `package.json` and
+`helm/games-hub/Chart.yaml` keep the placeholder `0.0.0-dev`; CI takes the
+real version from the git tag.
+
+To release, tag a commit on `main` with `vX.Y.Z` and push the tag:
+
+```bash
+git checkout main && git pull
+git tag v1.7.0
+git push origin v1.7.0
+```
+
+CI then lints and tests, publishes the image (`X.Y.Z`, `X.Y`, `X`,
+`latest`) and the Helm chart (version and appVersion `X.Y.Z`) to GHCR, and
+creates a GitHub release with notes generated from the pull requests merged
+since the previous tag. A tag such as `v1.8.0-rc.1` makes a prerelease and
+leaves `X.Y`, `X` and `latest` alone. A tag that is not on `main`, or is not
+`vX.Y.Z`, fails the run and publishes nothing.
+
+The Driftworks game version shown to players is separate from this release
+version.

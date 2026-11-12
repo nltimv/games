@@ -1,8 +1,14 @@
 name: Build and Publish
 
+# Lint, test, and build on every pull request and push to main. Images and
+# the Helm chart are only published, and a GitHub release only created, when
+# a vX.Y.Z tag is pushed on a commit that is on main. The version comes from
+# the tag; package.json and Chart.yaml keep a 0.0.0-dev placeholder.
+
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch: {}
@@ -37,31 +43,48 @@ jobs:
       - name: Test
         run: npm test
 
+  version:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.ver.outputs.release }}
+      version: ${{ steps.ver.outputs.version }}
+      prerelease: ${{ steps.ver.outputs.prerelease }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          scripts/release-version.sh "$GITHUB_REF" "$GITHUB_SHA" origin/main | tee -a "$GITHUB_OUTPUT"
+
   build-and-push:
-    name: Build and push Docker image
-    needs: check
+    name: Build (and on release, push) Docker image
+    needs: [check, version]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    env:
+      RELEASE: ${{ needs.version.outputs.release }}
+      VERSION: ${{ needs.version.outputs.version }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Read app version
-        id: appver
-        run: |
-          version=$(jq -r .version package.json)
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "major=${version%%.*}" >> "$GITHUB_OUTPUT"
-          echo "minor=${version%.*}" >> "$GITHUB_OUTPUT"
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -73,24 +96,24 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # Version tags come from package.json's "version" field (see the
-          # "Read app version" step above), not from git tags - bump it there
-          # to publish a new immutable version. This replaces relying on
-          # mutable tags like `latest`/`main` + a digest pin for correctness.
+          # Release tags only: X.Y.Z, plus X.Y, X and latest for non-prerelease
+          # versions. Non-release runs build with the placeholder tag and
+          # never push.
+          flavor: |
+            latest=false
           tags: |
-            type=raw,value=${{ steps.appver.outputs.version }}
-            type=raw,value=${{ steps.appver.outputs.minor }}
-            type=raw,value=${{ steps.appver.outputs.major }}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ env.VERSION }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ env.VERSION }},enable=${{ env.RELEASE == 'true' }}
+            type=semver,pattern={{major}},value=v${{ env.VERSION }},enable=${{ env.RELEASE == 'true' }}
+            type=raw,value=latest,enable=${{ env.RELEASE == 'true' && needs.version.outputs.prerelease == 'false' }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ env.RELEASE == 'true' }}
+          build-args: |
+            APP_VERSION=${{ env.VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -98,11 +121,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
   package-and-push-chart:
-    name: Package and push Helm chart
+    name: Package (and on release, push) Helm chart
+    needs: [check, version]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    env:
+      RELEASE: ${{ needs.version.outputs.release }}
+      VERSION: ${{ needs.version.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -114,29 +141,68 @@ jobs:
       - name: Lint chart
         run: helm lint helm/games-hub
 
-      - name: Read app and chart version
-        id: chartver
-        run: |
-          app_version=$(jq -r .version package.json)
-          chart_version=$(awk -F': ' '/^version:/{print $2; exit}' helm/games-hub/Chart.yaml)
-          echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
-          echo "chart_version=${chart_version}" >> "$GITHUB_OUTPUT"
-
       - name: Package chart
         run: |
           mkdir -p dist
           helm package helm/games-hub \
-            --app-version "${{ steps.chartver.outputs.app_version }}" \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
             --destination dist
 
+      - name: Upload chart package
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: dist/games-hub-${{ env.VERSION }}.tgz
+          if-no-files-found: error
+
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} \
             --username ${{ github.actor }} --password-stdin
 
       - name: Push chart to GHCR
-        if: github.event_name != 'pull_request'
+        if: env.RELEASE == 'true'
         run: |
-          helm push "dist/games-hub-${{ steps.chartver.outputs.chart_version }}.tgz" \
+          helm push "dist/games-hub-${VERSION}.tgz" \
             "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/helm"
+
+  release:
+    name: Create GitHub release
+    needs: [version, build-and-push, package-and-push-chart]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Download chart package
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-chart
+          path: dist
+
+      - name: Create release
+        run: |
+          image="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+          chart="oci://${REGISTRY}/${{ github.repository_owner }}/helm/games-hub"
+          cat > notes.md <<EOF
+          ## Install
+
+          - Image: \`${image}\`
+          - Helm chart: \`helm upgrade --install games-hub ${chart} --version ${VERSION} --set image.repository=${REGISTRY}/${IMAGE_NAME}\`
+          EOF
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" "dist/games-hub-${VERSION}.tgz" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --generate-notes \
+            --verify-tag \
+            "${flags[@]}"
