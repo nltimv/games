@@ -131,3 +131,84 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# ---------------------------------------------------------------------------
+# Cloud saves (player accounts and saves in PostgreSQL). Off by default: the
+# hub then runs without a database and games save in the browser only.
+# Needs a database: either the bundled one (postgresql.enabled) or your own
+# server (externalDatabase). See the README section "Cloud saves".
+# ---------------------------------------------------------------------------
+cloudSaves:
+  enabled: false
+  # -- The pepper: the secret key that account numbers and recovery emails
+  # are hashed with. It never goes into the database, so a database leak
+  # alone exposes neither. LOSING IT LOCKS EVERY PLAYER OUT: back it up.
+  # Leave existingSecret empty to have the chart generate one on first
+  # install; it is kept on upgrades and on `helm uninstall`.
+  pepper:
+    existingSecret: ""
+    key: pepper
+  # -- Largest save accepted, in bytes.
+  maxSaveBytes: 1048576
+  # -- Proxy hops in front of the app (an ingress controller is one), so
+  # rate limits see the player's address. Set to "false" when nothing
+  # proxies the app.
+  trustProxy: "1"
+  # -- Sends the session cookie only over HTTPS. Set to false only for a
+  # plain-HTTP test install.
+  secureCookie: true
+
+# -- A single PostgreSQL instance deployed with the chart (a StatefulSet with
+# the official postgres image and a persistent volume).
+postgresql:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    database: games
+    username: games
+    # -- Secret with the password under passwordKey. Leave empty to have
+    # the chart generate one (kept on upgrades).
+    existingSecret: ""
+    passwordKey: password
+  persistence:
+    size: 1Gi
+    # -- "" uses the cluster's default storage class.
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# -- Your own PostgreSQL server, used when postgresql.enabled is false.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: games
+  username: games
+  # -- Secret holding the password (required for an external database).
+  existingSecret: ""
+  passwordKey: password
+  # -- disable, require (encrypted, certificate not checked) or verify-full.
+  sslMode: disable
+
+# -- Mail for account recovery. Without it, recovery is hidden from players.
+mail:
+  enabled: false
+  host: ""
+  port: 587
+  # -- true for implicit TLS (usually port 465); STARTTLS is used otherwise when offered.
+  secure: false
+  from: "Games Hub <noreply@example.com>"
+  # -- Secret with the SMTP login under usernameKey and passwordKey. Leave
+  # empty for a server that needs no login.
+  existingSecret: ""
+  usernameKey: username
+  passwordKey: password

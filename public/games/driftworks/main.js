@@ -2,13 +2,21 @@
 // a one-second clock for the simulation. The map draws only when something
 // changes (see render/mapView.js).
 
+import { cloud } from './core/cloud.js';
 import { createSession } from './core/session.js';
 import { createApp } from './ui/app.js';
+import { showConflict, showMigrationOffer } from './ui/cloudSave.js';
 
 const AUTOSAVE_MS = 15_000;
 const REFRESH_PANELS_MS = 30_000;
+const CLOUD_SYNC_MS = 30_000;
 
-const session = createSession();
+// When logged in to a cloud save, bring the local save in step first (a
+// newer cloud save from another device is loaded instead). Offline or slow,
+// the game starts from the local save after a few seconds.
+await cloud.start();
+
+const session = createSession({ storage: cloud.storage });
 const bootNow = Date.now();
 const awaySince = session.state.lastSeenAt;
 
@@ -58,9 +66,39 @@ setInterval(() => {
 
 setInterval(() => session.save(), AUTOSAVE_MS);
 
+// ---------- Cloud save ----------
+
+const modal = document.getElementById('modal');
+const cloudPrompts = { toast: app.toast };
+
+/** Opens a prompt now, or once the dialog that is open closes. */
+function whenModalFree(open) {
+  if (!modal.open) return open();
+  modal.addEventListener('close', () => setTimeout(() => whenModalFree(open), 0), { once: true });
+}
+
+if (cloud.status().conflict) whenModalFree(() => showConflict(modal, cloudPrompts));
+else if (cloud.shouldOfferMigration()) whenModalFree(() => cloud.shouldOfferMigration() && showMigrationOffer(modal, cloudPrompts));
+
+let cloudState = cloud.status().state;
+cloud.subscribe((status) => {
+  // A newer cloud save was loaded into storage: restart on it.
+  if (status.reloadNeeded) location.reload();
+  // Another device saved while this one played: ask, once.
+  if (status.state === 'conflict' && cloudState !== 'conflict') whenModalFree(() => cloud.status().conflict && showConflict(modal, cloudPrompts));
+  cloudState = status.state;
+  app.render();
+});
+
+setInterval(() => {
+  if (!document.hidden) cloud.sync();
+}, CLOUD_SYNC_MS);
+window.addEventListener('online', () => cloud.sync());
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     leave();
+    cloud.sync({ keepalive: true });
     app.map.stop();
   } else {
     app.map.start();
@@ -69,6 +107,9 @@ document.addEventListener('visibilitychange', () => {
 });
 // Losing focus is not leaving, but save anyway in case the window closes next.
 window.addEventListener('blur', () => session.save());
-window.addEventListener('pagehide', () => session.save());
+window.addEventListener('pagehide', () => {
+  session.save();
+  cloud.sync({ keepalive: true });
+});
 
 app.map.start();

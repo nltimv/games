@@ -23,6 +23,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --chown=1000:1000 package.json ./
 COPY --chown=1000:1000 server.js ./
+COPY --chown=1000:1000 server ./server
 COPY --chown=1000:1000 src ./src
 COPY --chown=1000:1000 public ./public
 

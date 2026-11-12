@@ -19,6 +19,7 @@ entry to [`src/games.json`](src/games.json).
 ```
 .
 ├── server.js                 # Express server: static hosting + /api/games + /healthz
+├── server/                   # Cloud saves: accounts, sessions, saves API, SQL migrations
 ├── src/games.json            # Game registry (id, title, description, path, thumbnail)
 ├── public/
 │   ├── index.html            # Lobby page
@@ -135,6 +136,119 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 > serving it forever, even after the tag is updated. Pinning `image.digest`
 > makes that case immutable and guarantees a fresh pull when the digest
 > changes.
+
+## Cloud saves
+
+Players can keep their saves on the server and continue on any device.
+Cloud saves are off unless the server is started with `CLOUD_SAVES=true`;
+without them the hub needs no database and games save in the browser only.
+
+- **Accounts without personal data.** Signing up gives the player a random
+  16-digit account number to log in with. An email for recovery is
+  optional. Both are stored only as keyed hashes (HMAC-SHA256 with a server
+  secret, the *pepper*), so the database alone reveals neither.
+- **Saves.** Driftworks keeps playing from the browser's save, works
+  offline, and pushes it to the cloud every 30 seconds and when the tab is
+  hidden. When this device and the cloud both have progress the other
+  lacks, the player picks which save to keep; the other is kept on the
+  device and can be loaded later. Nothing is overwritten silently.
+- **Recovery.** With mail configured, a player can enter their email and
+  receive a new number; the old number stops working. Without mail the
+  option is hidden.
+- **Server.** PostgreSQL, schema migrations applied on start
+  ([`server/migrations/`](server/migrations)), rate limits on sign up, log
+  in and recovery, and a save size limit. Logs never contain numbers,
+  emails, tokens or IP addresses.
+
+### The pepper: back it up
+
+Account numbers and emails can only be checked with the pepper. **If the
+pepper is lost or changed, every player is locked out** and every recovery
+email stops matching; there is no way to rotate it. The chart generates one
+on first install, keeps it on upgrades and does not delete it on
+`helm uninstall`. Back it up next to your database backups (the secret is named `<release fullname>-pepper`, `games-hub-pepper` for a release called `games-hub`):
+
+```bash
+kubectl get secret games-hub-pepper -o jsonpath='{.data.pepper}' > pepper.b64
+```
+
+If you render the chart without a cluster connection (`helm template`,
+Argo CD, Flux), Helm cannot see the existing secret and would make a new
+pepper on every render. Create the secret yourself and set
+`cloudSaves.pepper.existingSecret` instead:
+
+```bash
+kubectl create secret generic games-hub-pepper --from-literal=pepper="$(openssl rand -base64 48)"
+```
+
+### Database: bundled or your own
+
+**Bundled PostgreSQL** (a single-replica StatefulSet with the official
+`postgres` image and a persistent volume; the password is generated):
+
+```bash
+helm upgrade --install games-hub oci://ghcr.io/<owner>/helm/games-hub --version <version> \
+  --set cloudSaves.enabled=true \
+  --set postgresql.enabled=true
+```
+
+**Your own PostgreSQL server** (create the database and user first, and a
+Secret with the password):
+
+```bash
+kubectl create secret generic games-hub-db --from-literal=password='<password>'
+helm upgrade --install games-hub oci://ghcr.io/<owner>/helm/games-hub --version <version> \
+  --set cloudSaves.enabled=true \
+  --set externalDatabase.host=postgres.example.internal \
+  --set externalDatabase.database=games \
+  --set externalDatabase.username=games \
+  --set externalDatabase.existingSecret=games-hub-db \
+  --set externalDatabase.sslMode=require
+```
+
+**Mail for recovery** (optional; a Secret with `username` and `password`
+for the SMTP login):
+
+```bash
+  --set mail.enabled=true \
+  --set mail.host=smtp.example.com \
+  --set mail.port=587 \
+  --set mail.from='Games Hub <noreply@example.com>' \
+  --set mail.existingSecret=games-hub-smtp
+```
+
+Cloud saves need **one replica**: rate limits are kept in memory, so the
+chart refuses to render with `replicaCount` above 1 or autoscaling on.
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `cloudSaves.enabled` | `false` | Turn on accounts and cloud saves |
+| `cloudSaves.pepper.existingSecret` | `""` | Secret with the pepper (generated when empty) |
+| `cloudSaves.maxSaveBytes` | `1048576` | Largest save accepted |
+| `cloudSaves.trustProxy` | `"1"` | Proxy hops in front of the app (`"false"` for none) |
+| `postgresql.enabled` | `false` | Deploy the bundled PostgreSQL |
+| `postgresql.persistence.size` | `1Gi` | Its volume size |
+| `externalDatabase.host` | `""` | Your PostgreSQL server, when not bundled |
+| `externalDatabase.existingSecret` | `""` | Secret with its password (required) |
+| `externalDatabase.sslMode` | `disable` | `disable`, `require` or `verify-full` |
+| `mail.enabled` | `false` | Send recovery mail (recovery is hidden otherwise) |
+
+### Running it locally
+
+```bash
+docker run -d --name games-db -e POSTGRES_USER=games -e POSTGRES_PASSWORD=games -p 5432:5432 postgres:17-alpine
+CLOUD_SAVES=true DATABASE_URL=postgres://games:games@localhost:5432/games \
+  CLOUD_PEPPER=local-dev-pepper-at-least-32-characters COOKIE_SECURE=false npm start
+
+# The API tests run against a database when TEST_DATABASE_URL is set (CI does):
+TEST_DATABASE_URL=postgres://games:games@localhost:5432/games npm test
+```
+
+Server settings: `CLOUD_SAVES`, `CLOUD_PEPPER` (32+ characters),
+`DATABASE_URL` or the usual `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`,
+`DB_SSL`, `MAX_SAVE_BYTES`, `TRUST_PROXY`, `COOKIE_SECURE`, and for mail
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`,
+`MAIL_FROM`.
 
 ## CI/CD
 

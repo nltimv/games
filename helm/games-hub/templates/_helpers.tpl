@@ -60,3 +60,46 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Cloud saves: names of the generated secrets and the database host.
+*/}}
+{{- define "games-hub.pepperSecretName" -}}
+{{- .Values.cloudSaves.pepper.existingSecret | default (printf "%s-pepper" (include "games-hub.fullname" .)) }}
+{{- end }}
+
+{{- define "games-hub.postgresqlName" -}}
+{{- printf "%s-postgresql" (include "games-hub.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "games-hub.databaseSecretName" -}}
+{{- if .Values.postgresql.enabled }}
+{{- .Values.postgresql.auth.existingSecret | default (include "games-hub.postgresqlName" .) }}
+{{- else }}
+{{- .Values.externalDatabase.existingSecret }}
+{{- end }}
+{{- end }}
+
+{{- define "games-hub.databasePasswordKey" -}}
+{{- if .Values.postgresql.enabled }}{{ .Values.postgresql.auth.passwordKey }}{{ else }}{{ .Values.externalDatabase.passwordKey }}{{ end }}
+{{- end }}
+
+{{/*
+Fails the render on settings that cannot work with cloud saves.
+*/}}
+{{- define "games-hub.validateCloudSaves" -}}
+{{- if .Values.cloudSaves.enabled }}
+{{- if or (gt (int .Values.replicaCount) 1) .Values.autoscaling.enabled }}
+{{- fail "cloudSaves.enabled needs a single replica: rate limits for log in and recovery are kept in memory. Set replicaCount: 1 and autoscaling.enabled: false." }}
+{{- end }}
+{{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.host) }}
+{{- fail "cloudSaves.enabled needs a database: set postgresql.enabled: true, or externalDatabase.host and externalDatabase.existingSecret." }}
+{{- end }}
+{{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.existingSecret) }}
+{{- fail "externalDatabase.existingSecret is required: a Secret holding the database password." }}
+{{- end }}
+{{- if and .Values.mail.enabled (not .Values.mail.host) }}
+{{- fail "mail.enabled needs mail.host." }}
+{{- end }}
+{{- end }}
+{{- end }}
