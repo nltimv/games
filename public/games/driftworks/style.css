@@ -2128,14 +2128,23 @@ button.dw-price-row[aria-pressed='true'] {
   gap: 16px;
 }
 
+/* The head's title, labs and close button share one row, close last. */
 .dw-tree-head .dw-panel-head {
+  display: contents;
+}
+
+.dw-tree-head .dw-panel-title {
   flex: 1 1 auto;
-  min-width: 0;
 }
 
 .dw-tree-labs {
+  order: 1;
   display: flex;
   gap: 10px;
+}
+
+.dw-tree-head .dw-panel-head > button {
+  order: 2;
 }
 
 .dw-tree-lab {
