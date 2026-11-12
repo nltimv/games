@@ -407,7 +407,7 @@ function buildSystem(seed, point, depthOf, faction, neighbours, hazard) {
 
   const factory = factoryFor(seed, point, depthOf, faction, stations);
   if (factory) stations.push(factory);
-  addImports(seed, point, faction, stations);
+  addImports(point, stations);
 
   return {
     id,
@@ -484,28 +484,15 @@ export const HOME_IMPORTS = {
 
 /**
  * Gives a home neighbour its imports: its foundry or trading post buys them,
- * and a system with neither gets a trading post. The new post rolls on its
- * own seed, so the rest of the system is the same as before imports existed.
+ * else its refinery, which then makes none of them itself (see
+ * marketEntries), else its shipyard. No station is added, so saves keep
+ * the systems they know.
  */
-function addImports(seed, point, faction, stations) {
+function addImports(point, stations) {
   const imports = HOME_IMPORTS[point.id];
   if (!imports) return;
-  const host = stations.find((s) => s.type === 'foundry') ?? stations.find((s) => s.type === 'tradingPost');
-  if (host) {
-    host.imports = imports;
-    return;
-  }
-  const rng = createRng(hashString(`${seed}:imports:${point.id}`));
-  stations.push({
-    id: `${point.id}-${slug('tradingPost')}`,
-    name: `${point.name} ${STATION_LABELS.tradingPost}`,
-    short: STATION_LABELS.tradingPost,
-    type: 'tradingPost',
-    faction,
-    ...stationTrade('tradingPost', 1),
-    imports,
-    ...polar(between(rng, 150, 220), widestGap(rng, stations)),
-  });
+  const host = ['foundry', 'tradingPost', 'refinery', 'shipyard'].map((type) => stations.find((s) => s.type === type)).find(Boolean);
+  if (host) host.imports = imports;
 }
 
 // ---------- Signals ----------

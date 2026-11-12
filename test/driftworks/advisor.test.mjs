@@ -76,7 +76,7 @@ function act2(seed) {
 }
 
 test("the first trade into any of Aurel's neighbours pays after the jump fees there and back", () => {
-  for (const seed of [1234, 20261106, 7]) {
+  for (const seed of [1234, 20261106, 7, 1, 2, 3, 42, 777]) {
     for (const neighbour of Object.keys(HOME_IMPORTS)) {
       const { state, kite } = act2(seed);
       markSurveyed(state, neighbour, state.now);

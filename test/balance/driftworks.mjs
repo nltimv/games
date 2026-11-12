@@ -5,6 +5,8 @@
 //   npm run balance                     the worker profile, 6 days
 //   npm run balance -- casual 4         a profile and a number of days
 //   npm run balance -- all              every profile, side by side
+//   npm run balance -- goals            worker and casual for 30 days: fails when
+//                                       the action that completed a goal lost money
 //
 // Profiles:
 //   newcomer  one long first session (60 min), watching closely
@@ -289,11 +291,18 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
     const room = holdOf(ship) - cargoTotal(ship);
     // A player reading the menus starts from stations in range of the ship.
     const starts = profile.local && !homeOnly ? stationsInRange(state, ship.at) : stations;
+    // Goods other haulers already go to buy somewhere: a player spreads them out
+    // rather than sending two after the same stock.
+    const taken = new Set(
+      state.ships
+        .filter((s) => s !== ship && role(s) === 'hauler')
+        .flatMap((s) => [s.order?.spec, ...s.queue].filter((spec) => spec?.type === 'buy').map((spec) => `${spec.stationId}|${spec.good}`)),
+    );
     for (const from of starts) {
       const start = ship.at === from.id ? { ok: true, time: 0, fees: 0 } : plotCourse(state, ship, ship.at, from.id);
       if (!start.ok) continue;
       for (const entry of marketEntries(from.id)) {
-        if (entry.side !== 'sells' || !canCarry(ship, entry.good) || GOODS[entry.good].tier < minTier) continue;
+        if (entry.side !== 'sells' || !canCarry(ship, entry.good) || GOODS[entry.good].tier < minTier || taken.has(`${from.id}|${entry.good}`)) continue;
         const max = affordableQty(state, from.id, entry.good, cash() * 0.8, room, now);
         if (max <= 0) continue;
         const cost = marketView(state, from.id, entry.good, now).price;

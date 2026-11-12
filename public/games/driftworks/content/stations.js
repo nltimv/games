@@ -17,9 +17,10 @@ export const CURVES = {
   postSells: { high: 1.45, low: 1.05, cap: 1500, target: 0.55 },
   // Shipyards pay well for the materials their hulls are built from.
   materials: { high: 1.6, low: 0.8, cap: 4000, target: 0.25 },
-  // Aurel's neighbours pay as well for the goods they are short of (see
-  // HOME_IMPORTS in galaxy.js).
-  imports: { high: 1.6, low: 0.8, cap: 4000, target: 0.25 },
+  // Aurel's neighbours pay well for the goods they are short of (see
+  // HOME_IMPORTS in galaxy.js): enough over Aurel's price that a hold of
+  // them pays for the jumps there and back.
+  imports: { high: 1.8, low: 1.0, cap: 4000, target: 0.25 },
 };
 
 /**
