@@ -1,7 +1,7 @@
 'use strict';
 
-// Sends the recovery mail. Without SMTP_HOST there is no mailer and the
-// recovery option is hidden from players.
+// Sends the mails about save codes. Without SMTP_HOST there is no mailer
+// and the recovery option is hidden from players.
 
 const nodemailer = require('nodemailer');
 
@@ -15,34 +15,38 @@ function createMailer(env = process.env) {
     auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } : undefined,
   });
   const from = env.MAIL_FROM || 'Games Hub <noreply@localhost>';
+  const line = (save) => `${save.name || 'Save'}: ${save.code}`;
   return {
-    /** Confirms a new recovery email; includes the number when the player just signed up. */
-    async sendEmailLinked(to, formattedNumber) {
+    /** Confirms a recovery email for a save, with its code. */
+    async sendEmailLinked(to, save) {
       await transport.sendMail({
         from,
         to,
-        subject: 'Your Games Hub recovery email',
+        subject: 'Your Games Hub save code',
         text: [
-          'This address is now the recovery email for a Games Hub account.',
+          'This address is now the recovery email for a Games Hub save.',
           '',
-          ...(formattedNumber ? [`Your account number is: ${formattedNumber}`, 'Keep this mail: you need the number to log in on another device.', ''] : []),
-          'If you lose your number, choose "Lost your number?" when logging in and we send a new one here.',
+          line(save),
+          '',
+          'Keep this mail: with the save code you can load the save on any device.',
+          'If you lose the code, choose "Lost a code?" in the game and we send a new one here.',
           'If you did not add this address, you can ignore this mail.',
         ].join('\n'),
       });
     },
-    async sendNewNumber(to, formattedNumber) {
+    /** Sends the new codes of every save linked to the address. */
+    async sendNewCodes(to, saves) {
       await transport.sendMail({
         from,
         to,
-        subject: 'Your new Games Hub account number',
+        subject: saves.length > 1 ? 'Your new Games Hub save codes' : 'Your new Games Hub save code',
         text: [
-          'Someone asked to recover the Games Hub account linked to this email address.',
+          'Someone asked to recover the Games Hub saves linked to this email address.',
           '',
-          `Your new account number is: ${formattedNumber}`,
+          ...saves.map(line),
           '',
-          'Your old number no longer works, and every device was logged out.',
-          'If you did not ask for this, log in with the new number; nothing else changed.',
+          'The old codes no longer work. Add a save to a device with its new code.',
+          'If you did not ask for this, use the new codes from now on; nothing else changed.',
         ].join('\n'),
       });
     },

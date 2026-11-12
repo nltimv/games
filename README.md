@@ -19,7 +19,7 @@ entry to [`src/games.json`](src/games.json).
 ```
 .
 ├── server.js                 # Express server: static hosting + /api/games + /healthz
-├── server/                   # Cloud saves: accounts, sessions, saves API, SQL migrations
+├── server/                   # Cloud saves: save codes, saves API, SQL migrations
 ├── src/games.json            # Game registry (id, title, description, path, thumbnail)
 ├── public/
 │   ├── index.html            # Lobby page
@@ -144,32 +144,36 @@ Players can keep their saves on the server and continue on any device.
 Cloud saves are off unless the server is started with `CLOUD_SAVES=true`;
 without them the hub needs no database and games save in the browser only.
 
-- **Accounts without personal data.** Signing up gives the player a random
-  16-digit account number to log in with. An email for recovery is
-  optional. Both are stored only as keyed hashes (HMAC-SHA256 with a server
-  secret, the *pepper*), so the database alone reveals neither.
-- **Saves.** Driftworks keeps playing from the browser's save, works
-  offline, and pushes it to the cloud every 30 seconds and when the tab is
-  hidden. When this device and the cloud both have progress the other
-  lacks, the player picks which save to keep; the other is kept on the
-  device and can be loaded later. Nothing is overwritten silently.
-- **Recovery.** Linking an email sends a confirmation there; right after
-  sign up it also contains the account number (the server checks the number
-  belongs to the account before mailing it). Skipping the email asks once
-  more, since a lost number cannot be recovered without one.
-  With mail configured, a player can enter their email and
-  receive a new number; the old number stops working. Without mail the
-  option is hidden.
+- **Save codes, no accounts.** Every save gets a random 16-digit save
+  code. Entering the code on another device loads the same save there:
+  whoever has the code can play the save. The code is shown in the game's
+  save list. On the server it is stored only as a keyed hash (HMAC-SHA256
+  with a server secret, the *pepper*), so the database alone does not
+  reveal it.
+- **Driftworks.** The game opens with a main menu: Continue, New game and
+  Load game. A device can hold several named saves; each plays from the
+  browser's storage, works offline, and is pushed to its cloud save every
+  30 seconds and when the tab is hidden. When this device and the cloud
+  both have progress the other lacks, the player picks which to keep; the
+  other is kept on the device and can be loaded later. Nothing is
+  overwritten silently. A save from before this version becomes a named
+  save and gets its code after a short explanation.
+- **Recovery.** A player can link an email to a save; a confirmation with
+  the code is mailed there. The address is stored as a keyed hash too. If
+  the code is lost, entering the email sends new codes for every save
+  linked to it, and the old codes stop working. Without mail configured
+  the option is hidden.
 - **Server.** PostgreSQL, schema migrations applied on start
-  ([`server/migrations/`](server/migrations)), rate limits on sign up, log
-  in and recovery, and a save size limit. Logs never contain numbers,
-  emails, tokens or IP addresses.
+  ([`server/migrations/`](server/migrations)), rate limits on new saves,
+  wrong codes and recovery, and a save size limit. The code travels in the
+  `Authorization` header, never in a URL or cookie. Logs never contain
+  codes, emails or IP addresses.
 
 ### The pepper: back it up
 
-Account numbers and emails can only be checked with the pepper. **If the
-pepper is lost or changed, every player is locked out** and every recovery
-email stops matching; there is no way to rotate it. The chart generates one
+Save codes and emails can only be checked with the pepper. **If the
+pepper is lost or changed, every save code stops working** and every
+recovery email stops matching; there is no way to rotate it. The chart generates one
 on first install, keeps it on upgrades and does not delete it on
 `helm uninstall`. Back it up next to your database backups (the secret is named `<release fullname>-pepper`, `games-hub-pepper` for a release called `games-hub`):
 
@@ -227,7 +231,7 @@ chart refuses to render with `replicaCount` above 1 or autoscaling on.
 
 | Value | Default | Description |
 | --- | --- | --- |
-| `cloudSaves.enabled` | `false` | Turn on accounts and cloud saves |
+| `cloudSaves.enabled` | `false` | Turn on cloud saves |
 | `cloudSaves.pepper.existingSecret` | `""` | Secret with the pepper (generated when empty) |
 | `cloudSaves.maxSaveBytes` | `1048576` | Largest save accepted |
 | `cloudSaves.trustProxy` | `"1"` | Proxy hops in front of the app (`"false"` for none) |
@@ -257,7 +261,7 @@ mailbox and point the app at them:
 ```bash
 docker compose up -d db mail
 CLOUD_SAVES=true CLOUD_PEPPER=local-test-pepper-not-secret-0123456789 \
-  DATABASE_URL=postgres://games:games@localhost:5432/games COOKIE_SECURE=false \
+  DATABASE_URL=postgres://games:games@localhost:5432/games \
   SMTP_HOST=localhost SMTP_PORT=1025 npm run dev
 
 # The API tests run against a database when TEST_DATABASE_URL is set (CI does).
@@ -268,7 +272,7 @@ TEST_DATABASE_URL=postgres://games:games@localhost:5432/games_test npm test
 
 Server settings: `CLOUD_SAVES`, `CLOUD_PEPPER` (32+ characters),
 `DATABASE_URL` or the usual `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`,
-`DB_SSL`, `MAX_SAVE_BYTES`, `TRUST_PROXY`, `COOKIE_SECURE`, and for mail
+`DB_SSL`, `MAX_SAVE_BYTES`, `TRUST_PROXY`, and for mail
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`,
 `MAIL_FROM`.
 

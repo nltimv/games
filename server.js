@@ -49,7 +49,7 @@ if (process.env.CLOUD_SAVES === 'true') {
 
 function startCloudSaves() {
   const { createPool, migrate } = require('./server/db');
-  const { createCloudRouter, sweepSessions } = require('./server/cloud');
+  const { createCloudRouter } = require('./server/cloud');
   const { createMailer } = require('./server/mail');
 
   const pool = createPool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DB_SSL });
@@ -61,7 +61,6 @@ function startCloudSaves() {
       pepper: process.env.CLOUD_PEPPER,
       mailer: createMailer(),
       maxSaveBytes: Number(process.env.MAX_SAVE_BYTES) || 1024 * 1024,
-      secureCookie: process.env.COOKIE_SECURE !== 'false',
       isReady: () => ready,
     }),
   );
@@ -74,9 +73,6 @@ function startCloudSaves() {
       .then((applied) => {
         ready = true;
         console.log(applied.length ? `Cloud saves ready (applied ${applied.join(', ')})` : 'Cloud saves ready');
-        const sweep = () => sweepSessions(pool).catch((err) => console.error(`Session sweep failed: ${err.message}`));
-        sweep();
-        setInterval(sweep, 60 * 60 * 1000).unref();
       })
       .catch((err) => {
         console.error(`Cloud saves waiting for the database: ${err.message}`);

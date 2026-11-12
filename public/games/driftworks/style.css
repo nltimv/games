@@ -2929,18 +2929,56 @@ button.dw-price-row[aria-pressed='true'] {
   font-variant-numeric: tabular-nums;
 }
 
-.dw-cloud-check {
+.dw-save-list {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
-  font-size: 14px;
-  font-weight: 700;
 }
 
-.dw-cloud-check input {
-  width: 20px;
-  height: 20px;
-  accent-color: var(--aqua);
+.dw-save-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--dw-row);
+  border: 1px solid var(--dw-line);
+}
+
+.dw-save-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dw-save-info strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.dw-save-info span {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.dw-save-info .dw-save-code {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  user-select: all;
+}
+
+.dw-save-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The main menu covers the game, which has not started yet. */
+.dw-modal.is-main-menu::backdrop {
+  background: rgba(2, 6, 20, 0.82);
 }
 
 .dw-cloud-cards {

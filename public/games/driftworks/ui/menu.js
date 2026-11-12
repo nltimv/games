@@ -1,7 +1,7 @@
-// The game menu: Continue, What's new, Settings, Cloud save and the way back
-// to the Games Hub, with the game version at the bottom. It opens in the
-// shared modal dialog; What's new and Settings open as pages inside it, with
-// a Back button to the menu.
+// The game menu: Continue, What's new, Settings, the save being played, the
+// main menu and the way back to the Games Hub, with the game version at the
+// bottom. It opens in the shared modal dialog; What's new and Settings open
+// as pages inside it, with a Back button to the menu.
 
 import { CHANGELOG, GAME_VERSION, unseenChanges } from '../content/changelog.js';
 import { h, svgIcon } from './dom.js';
@@ -21,7 +21,7 @@ const ICONS = {
 };
 
 /** One row of the menu: an icon, a label, a line under it, and a chevron when it opens a page. */
-function menuItem({ icon, label, sub, onClick, href, key, chevron = false, badge }) {
+export function menuItem({ icon, label, sub, onClick, href, key, chevron = false, badge }) {
   const children = [
     h('span', { class: 'dw-gm-icon' }, svgIcon(ICONS[icon] ?? icon)),
     h('span', { class: 'dw-gm-text' }, h('strong', null, label, badge ? h('span', { class: 'dw-gm-badge' }, badge) : null), sub ? h('span', null, sub) : null),
@@ -95,6 +95,12 @@ export function createGameMenu({ dialog, session, toast }) {
     render();
   }
 
+  /** The main menu shows when the game opens: save, then open it again. */
+  function toMainMenu() {
+    session.save();
+    location.reload();
+  }
+
   function render() {
     if (page === 'whats-new') return show(whatsNewPage({ fromMenu: true }));
     if (page === 'settings') return show(settingsPage({ session, onToast: toast, onDone: close, head: pageHead('Settings', { onBack: () => goTo('menu') }) }));
@@ -108,6 +114,7 @@ export function createGameMenu({ dialog, session, toast }) {
         menuItem({ icon: 'news', label: "What's new", sub: `Changes in version ${GAME_VERSION}`, onClick: () => goTo('whats-new'), key: 'menu-whats-new', chevron: true, badge: fresh ? 'New' : null }),
         menuItem({ icon: 'settings', label: 'Settings', sub: 'Start over', onClick: () => goTo('settings'), key: 'menu-settings', chevron: true }),
         cloudSaveItem({ session, toast, menuItem, pageHead, show, close, back: () => goTo('menu') }),
+        menuItem({ icon: 'back', label: 'Main menu', sub: 'New game, load another save', onClick: toMainMenu, key: 'menu-main' }),
         menuItem({ icon: 'hub', label: 'Back to Games Hub', sub: 'Your company keeps working while you are away', href: HUB_URL, key: 'menu-hub' }),
       ),
       h('p', { class: 'dw-gm-version' }, `Driftworks ${GAME_VERSION}`),

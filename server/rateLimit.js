@@ -27,6 +27,13 @@ function createRateLimiter({ limit, windowMs, now = () => Date.now() }) {
       if (entry.count > limit) return { ok: false, retryAfter: Math.ceil((entry.resetAt - at) / 1000) };
       return { ok: true, retryAfter: 0 };
     },
+    /** Whether `key` is over the limit right now, without counting a hit. */
+    blocked(key) {
+      const entry = hits.get(key);
+      const at = now();
+      if (!entry || entry.resetAt <= at || entry.count < limit) return { ok: true, retryAfter: 0 };
+      return { ok: false, retryAfter: Math.ceil((entry.resetAt - at) / 1000) };
+    },
     reset() {
       hits.clear();
     },

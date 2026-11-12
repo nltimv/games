@@ -1,32 +1,33 @@
 'use strict';
 
-// Account numbers, keyed hashes and session tokens.
+// Save codes and keyed hashes.
 //
-// Account numbers and emails are looked up by value, so they cannot carry a
+// Save codes and emails are looked up by value, so they cannot carry a
 // per-row salt. Instead they are hashed with HMAC-SHA256 under a server-side
 // secret (the pepper) that never goes into the database: a database dump
-// alone reveals neither numbers nor emails.
+// alone reveals neither codes nor emails.
 
 const crypto = require('node:crypto');
 
-const NUMBER_DIGITS = 16;
+const CODE_DIGITS = 16;
+const CODE_PATTERN = new RegExp(`^\\d{${CODE_DIGITS}}$`);
 
-/** A new account number: 16 random digits as a string. */
-function newAccountNumber() {
+/** A new save code: 16 random digits as a string. */
+function newSaveCode() {
   let digits = '';
-  for (let i = 0; i < NUMBER_DIGITS; i++) digits += crypto.randomInt(10);
+  for (let i = 0; i < CODE_DIGITS; i++) digits += crypto.randomInt(10);
   return digits;
 }
 
-/** Strips spaces and dashes; returns the 16 digits, or null when it is not a number. */
-function normalizeNumber(input) {
+/** Strips spaces and dashes; returns the 16 digits, or null when it is not a code. */
+function normalizeCode(input) {
   if (typeof input !== 'string') return null;
   const digits = input.replace(/[\s-]/g, '');
-  return new RegExp(`^\\d{${NUMBER_DIGITS}}$`).test(digits) ? digits : null;
+  return CODE_PATTERN.test(digits) ? digits : null;
 }
 
 /** 1234 5678 9012 3456 */
-function formatNumber(digits) {
+function formatCode(digits) {
   return digits.replace(/(\d{4})(?=\d)/g, '$1 ');
 }
 
@@ -44,26 +45,9 @@ function createHasher(pepper) {
   }
   const hmac = (kind, value) => crypto.createHmac('sha256', pepper).update(`${kind}:${value}`).digest();
   return {
-    number: (digits) => hmac('number', digits),
+    code: (digits) => hmac('code', digits),
     email: (email) => hmac('email', email),
   };
 }
 
-function newSessionToken() {
-  return crypto.randomBytes(32).toString('base64url');
-}
-
-function hashToken(token) {
-  return crypto.createHash('sha256').update(token).digest();
-}
-
-module.exports = {
-  NUMBER_DIGITS,
-  newAccountNumber,
-  normalizeNumber,
-  formatNumber,
-  normalizeEmail,
-  createHasher,
-  newSessionToken,
-  hashToken,
-};
+module.exports = { CODE_DIGITS, newSaveCode, normalizeCode, formatCode, normalizeEmail, createHasher };

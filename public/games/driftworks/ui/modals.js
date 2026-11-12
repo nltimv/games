@@ -4,7 +4,6 @@
 import { formatClock, formatDuration } from '../../../shared/js/format.js';
 import { logSince } from '../systems/log.js';
 import { h } from './dom.js';
-import { cloud } from '../core/cloud.js';
 import { button } from './components.js';
 import { plusCredits } from './format.js';
 
@@ -52,8 +51,8 @@ export function showAway(dialog, state, since, now) {
 }
 
 /**
- * The Settings page of the game menu: start over. Moving a company between
- * devices is the Cloud save page's job. `head` is the page heading (with its
+ * The Settings page of the game menu: start over. Saves and their codes
+ * are the main menu's job. `head` is the page heading (with its
  * Back button); `onDone` closes the menu after a reset.
  */
 export function settingsPage({ session, onToast, onDone, head }) {
@@ -75,13 +74,7 @@ export function settingsPage({ session, onToast, onDone, head }) {
 
     body.replaceChildren(
       ...[
-        h(
-          'p',
-          { class: 'dw-note' },
-          cloud.status().enabled
-            ? 'Your company is saved in this browser. To keep it safe or play on another device, use Cloud save in the menu.'
-            : 'Your company is saved in this browser.',
-        ),
+        h('p', { class: 'dw-note' }, 'Starting over replaces this save with a new company. To keep it and start another, use New game in the main menu.'),
         h(
           'div',
           { class: 'dw-section' },

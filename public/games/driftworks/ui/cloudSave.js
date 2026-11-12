@@ -1,36 +1,19 @@
-// The Cloud save slot in the game menu, and the two prompts that open on
-// their own: "move your company to the cloud" (once) and "two saves differ".
+// The Save row of the in-game menu (the save being played: its name, save
+// code and cloud state), and the prompt that opens on its own when this
+// device and the cloud hold different saves.
 //
-// Text stays short and factual: what happens, and what the player must do.
+// Picking, naming and adding saves is the main menu's job (mainMenu.js).
 
 import { formatCredits, formatDuration } from '../../../shared/js/format.js';
+import { formatCode } from '../../../shared/js/cloudSync.js';
 import { h } from './dom.js';
 import { button } from './components.js';
-import { cloud } from '../core/cloud.js';
+import { currentSave, reloadIntoSave, slots } from '../core/saves.js';
 
 const CLOUD_ICON =
   '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.4 9.2 4.5 4.5 0 0 0 7 18z"/></svg>';
 
-const BADGES = {
-  'signed-out': null,
-  synced: { text: 'Saved', variant: 'ok' },
-  saving: { text: 'Saving', variant: 'ok' },
-  offline: { text: 'Offline', variant: 'warn' },
-  conflict: { text: 'Choose save', variant: 'warn' },
-  error: { text: 'Not saving', variant: 'warn' },
-};
-
-const SIGNED_UP = 'Account created. Your company now saves to the cloud.';
-
-const TITLES = {
-  number: 'Your account number',
-  login: 'Log in',
-  email: 'Recovery email',
-  recover: 'Lost your number',
-  'recover-sent': 'Lost your number',
-  'skip-email': 'No recovery email?',
-  conflict: 'Choose a save',
-};
+const BADGES = { synced: 'Saved', saving: 'Saving', offline: 'Offline', conflict: 'Choose save', error: 'Not saving' };
 
 function ago(at) {
   if (!at) return 'unknown';
@@ -38,353 +21,7 @@ function ago(at) {
   return ms < 60_000 ? 'just now' : `${formatDuration(ms)} ago`;
 }
 
-function field({ label, ...props }) {
-  return h('label', { class: 'dw-cloud-field' }, h('span', null, label), h('input', { class: 'dw-cloud-input', ...props }));
-}
-
-/**
- * The cloud save pages. `nav.show(nodes)` replaces the page body (the page
- * head is added by the caller), `nav.done()` closes, `nav.toast(text)`.
- */
-function createCloudPages(cloud, nav) {
-  let view = 'home';
-  let number = null; // shown once, right after sign up
-  let error = null;
-  let pending = false;
-  let confirmDelete = false;
-  let finished = false;
-
-  const go = (next) => {
-    view = next;
-    error = null;
-    confirmDelete = false;
-    render();
-  };
-
-  async function run(task) {
-    if (pending) return;
-    pending = true;
-    error = null;
-    render();
-    try {
-      await task();
-    } finally {
-      pending = false;
-      render();
-    }
-  }
-
-  const reload = () => setTimeout(() => location.reload(), 300);
-
-  function home() {
-    const s = cloud.status();
-    if (!s.signedIn) {
-      return [
-        h('p', { class: 'dw-note' }, 'Save your company online and continue on any device. No name or email needed: you get an account number to log in with.'),
-        h(
-          'div',
-          { class: 'dw-row-actions' },
-          button('Create account', { variant: 'primary', disabled: pending, onClick: () => run(signUp) }),
-          button('Log in', { onClick: () => go('login') }),
-        ),
-      ];
-    }
-    const state = {
-      synced: `Saved to the cloud ${ago(s.lastSyncedAt)}.`,
-      saving: 'Saving to the cloud…',
-      offline: 'Offline. Your company is saved on this device and goes to the cloud when you are back online.',
-      conflict: 'This device and the cloud have different saves. Choose one to continue saving.',
-      error: 'The cloud save is from a newer version of the game. Reload the page to update.',
-    }[s.state];
-    return [
-      h('p', { class: 'dw-note' }, state ?? 'Logged in.'),
-      s.state === 'conflict' ? h('div', { class: 'dw-row-actions' }, button('Choose save', { variant: 'primary', onClick: () => go('conflict') })) : null,
-      h('div', { class: 'dw-row-actions' }, button('Save now', { disabled: pending || s.state === 'conflict', onClick: () => run(() => cloud.sync()) })),
-      emailSection(),
-      s.backup ? backupSection(s.backup) : null,
-      h(
-        'div',
-        { class: 'dw-section' },
-        confirmDelete ? h('p', { class: 'dw-note is-warn' }, 'This deletes your account and its cloud save. Your company stays on this device.') : null,
-        h(
-          'div',
-          { class: 'dw-row-actions' },
-          button('Log out', { disabled: pending, onClick: () => run(logOut) }),
-          button(confirmDelete ? 'Yes, delete account' : 'Delete account', { variant: 'danger', disabled: pending, onClick: () => run(deleteAccount) }),
-        ),
-      ),
-    ];
-  }
-
-  let account = null;
-  function emailSection() {
-    const s = cloud.status();
-    if (!s.recovery) return null;
-    if (!account) {
-      cloud.account().then((a) => {
-        account = a ?? { hasEmail: false };
-        if (view === 'home') render();
-      });
-      return null;
-    }
-    return h(
-      'div',
-      { class: 'dw-section' },
-      h('h3', { class: 'dw-section-title' }, h('span', null, 'Recovery email')),
-      h(
-        'p',
-        { class: 'dw-note' },
-        account.hasEmail
-          ? 'An email is linked. If you lose your number, you can get a new one sent there.'
-          : 'Optional. If you lose your number, you can get a new one sent to this address.',
-      ),
-      h(
-        'div',
-        { class: 'dw-row-actions' },
-        button(account.hasEmail ? 'Change email' : 'Add email', { onClick: () => go('email') }),
-        account.hasEmail
-          ? button('Remove email', {
-              disabled: pending,
-              onClick: () =>
-                run(async () => {
-                  if ((await cloud.removeEmail()).ok) account = { hasEmail: false };
-                }),
-            })
-          : null,
-      ),
-    );
-  }
-
-  function backupSection(backup) {
-    return h(
-      'div',
-      { class: 'dw-section' },
-      h('h3', { class: 'dw-section-title' }, h('span', null, 'Replaced save')),
-      h('p', { class: 'dw-note' }, `The save you did not keep (${backup.from === 'cloud' ? 'from the cloud' : 'from this device'}, replaced ${ago(backup.at)}). Credits: ${formatCredits(backup.data?.credits ?? 0)}.`),
-      h(
-        'div',
-        { class: 'dw-row-actions' },
-        button('Load it instead', {
-          onClick: () => {
-            if (cloud.restoreBackup()) reload();
-          },
-        }),
-      ),
-    );
-  }
-
-  async function signUp() {
-    const result = await cloud.signUp();
-    if (!result.ok) {
-      error = result.error;
-      return;
-    }
-    number = result.number;
-    view = 'number';
-  }
-
-  async function logOut() {
-    await cloud.logOut();
-    account = null;
-    nav.toast('Logged out. Your company stays on this device.');
-  }
-
-  async function deleteAccount() {
-    if (!confirmDelete) {
-      confirmDelete = true;
-      return;
-    }
-    const result = await cloud.deleteAccount();
-    if (!result.ok) error = result.error;
-    else nav.toast('Account deleted.');
-    account = null;
-    confirmDelete = false;
-  }
-
-  function numberPage() {
-    let wroteDown = false;
-    const next = button('Continue', {
-      variant: 'primary',
-      disabled: true,
-      onClick: () => (cloud.status().recovery ? go('email') : finish(SIGNED_UP)),
-    });
-    const copy = async () => {
-      try {
-        await navigator.clipboard.writeText(number.replace(/ /g, ''));
-        nav.toast('Number copied.');
-      } catch {
-        nav.toast('Select the number and copy it.');
-      }
-    };
-    return [
-      h('output', { class: 'dw-cloud-number', 'aria-label': 'Account number' }, number),
-      h('div', { class: 'dw-row-actions' }, button('Copy number', { onClick: copy })),
-      h('p', { class: 'dw-note is-warn' }, 'Write it down now. You need it to log in on another device, and it is not shown again.'),
-      h(
-        'label',
-        { class: 'dw-cloud-check' },
-        h('input', {
-          type: 'checkbox',
-          onChange: (e) => {
-            wroteDown = e.target.checked;
-            next.disabled = !wroteDown;
-          },
-        }),
-        h('span', null, 'I wrote down my number'),
-      ),
-      h('div', { class: 'dw-row-actions' }, next),
-    ];
-  }
-
-  function loginPage() {
-    const input = field({ label: 'Account number', inputmode: 'numeric', autocomplete: 'username', placeholder: '0000 0000 0000 0000', maxlength: 24 });
-    const submit = (e) => {
-      e.preventDefault();
-      const value = input.querySelector('input').value;
-      run(async () => {
-        const result = await cloud.logIn(value);
-        if (!result.ok) {
-          error = result.error;
-          return;
-        }
-        if (result.reload) {
-          nav.toast('Loading your cloud save…');
-          reload();
-        } else if (result.conflict) {
-          view = 'conflict';
-        } else {
-          if (result.outdated) {
-            nav.toast('The cloud save needs a newer version. Reload the page.');
-            view = 'home';
-          } else finish('Logged in. Your company is saved to the cloud.');
-        }
-      });
-    };
-    return [
-      h(
-        'form',
-        { class: 'dw-cloud-form', onSubmit: submit },
-        input,
-        h('div', { class: 'dw-row-actions' }, button('Log in', { variant: 'primary', disabled: pending, onClick: submit }), button('Cancel', { onClick: () => go('home') })),
-      ),
-      cloud.status().recovery ? h('button', { type: 'button', class: 'dw-link', onClick: () => go('recover') }, 'Lost your number?') : null,
-    ];
-  }
-
-  function emailPage() {
-    const input = field({ label: 'Email', type: 'email', autocomplete: 'email', inputmode: 'email' });
-    const submit = (e) => {
-      e.preventDefault();
-      run(async () => {
-        const result = await cloud.setEmail(input.querySelector('input').value, number);
-        if (!result.ok) {
-          error = result.error;
-          return;
-        }
-        account = { hasEmail: true };
-        // Sign up ends here: back to the game.
-        if (number) finish('Recovery email saved. Your number is on its way there too.');
-        else {
-          nav.toast('Recovery email saved. A confirmation is on its way.');
-          view = 'home';
-        }
-      });
-    };
-    return [
-      h(
-        'p',
-        { class: 'dw-note' },
-        number
-          ? 'Optional. We mail your account number there now, and a new one if you ever lose it. The address is stored scrambled, so it cannot be read back.'
-          : 'Optional. Used only to send you a new number if you lose yours. It is stored scrambled, so it cannot be read back.',
-      ),
-      h(
-        'form',
-        { class: 'dw-cloud-form', onSubmit: submit },
-        input,
-        h(
-          'div',
-          { class: 'dw-row-actions' },
-          button('Save email', { variant: 'primary', disabled: pending, onClick: submit }),
-          // Right after sign up, skipping asks once more; from the menu it just goes back.
-          number ? button('Skip', { onClick: () => go('skip-email') }) : button('Cancel', { onClick: () => go('home') }),
-        ),
-      ),
-    ];
-  }
-
-  function recoverPage() {
-    const input = field({ label: 'Recovery email', type: 'email', autocomplete: 'email', inputmode: 'email' });
-    const submit = (e) => {
-      e.preventDefault();
-      run(async () => {
-        const result = await cloud.recover(input.querySelector('input').value);
-        if (!result.ok) {
-          error = result.error;
-          return;
-        }
-        view = 'recover-sent';
-      });
-    };
-    return [
-      h('p', { class: 'dw-note' }, 'If this email is linked to an account, we send it a new number. Your old number stops working.'),
-      h(
-        'form',
-        { class: 'dw-cloud-form', onSubmit: submit },
-        input,
-        h('div', { class: 'dw-row-actions' }, button('Send new number', { variant: 'primary', disabled: pending, onClick: submit }), button('Cancel', { onClick: () => go('login') })),
-      ),
-    ];
-  }
-
-  /** Done (signed up, logged in, conflict settled): close and back to the game. */
-  function finish(message) {
-    finished = true;
-    number = null;
-    if (message) nav.toast(message);
-    nav.done();
-  }
-
-  function render() {
-    if (finished) return;
-    let body;
-    if (view === 'number') body = numberPage();
-    else if (view === 'login') body = loginPage();
-    else if (view === 'email') body = emailPage();
-    else if (view === 'recover') body = recoverPage();
-    else if (view === 'recover-sent')
-      body = [
-        h('p', { class: 'dw-note' }, 'Check your inbox. If the address is linked to an account, a new number is on its way.'),
-        h('div', { class: 'dw-row-actions' }, button('Log in', { variant: 'primary', onClick: () => go('login') })),
-      ];
-    else if (view === 'skip-email')
-      body = [
-        h('p', { class: 'dw-note is-warn' }, 'Without a recovery email, your account cannot be recovered if you lose your number. Nobody can look it up for you.'),
-        h(
-          'div',
-          { class: 'dw-row-actions' },
-          button('Add email', { variant: 'primary', onClick: () => go('email') }),
-          button('Continue without', {
-            onClick: () => finish(SIGNED_UP),
-          }),
-        ),
-      ];
-    else if (view === 'conflict') body = conflictBody(cloud, { toast: nav.toast, onDone: () => finish(), onLater: () => go('home') });
-    else body = home();
-    nav.show([body, error ? h('p', { class: 'dw-note is-warn', role: 'alert' }, error) : null], TITLES[view] ?? 'Cloud save');
-  }
-
-  return {
-    render,
-    open(next = 'home') {
-      go(next);
-    },
-    signUp() {
-      view = 'home';
-      run(signUp);
-    },
-  };
-}
+const reload = () => setTimeout(reloadIntoSave, 300);
 
 function saveCard(title, summary, onPick) {
   return h(
@@ -416,14 +53,14 @@ function conflictBody(cloud, { toast, onDone, onLater }) {
     if (!result.ok) return toast(result.error ?? 'Could not reach the cloud. Try again.', 'warning');
     if (result.reload) {
       toast('Loading the cloud save…');
-      setTimeout(() => location.reload(), 300);
+      reload();
       return;
     }
-    toast('Saved this device’s company to the cloud.');
+    toast('Saved this device’s save to the cloud.');
     onDone();
   };
   return [
-    h('p', { class: 'dw-note' }, 'This device and the cloud have different saves. Keep one. The other stays available under Cloud save.'),
+    h('p', { class: 'dw-note' }, 'This save was played on another device, and both have progress the other lacks. Keep one. The other stays available under Save in the menu.'),
     h(
       'div',
       { class: 'dw-cloud-cards' },
@@ -435,77 +72,98 @@ function conflictBody(cloud, { toast, onDone, onLater }) {
   ];
 }
 
-function openDialog(dialog, children) {
-  dialog.replaceChildren(...[children].flat(Infinity).filter(Boolean));
+/** Opens the conflict prompt in the game's dialog. */
+export function showConflict(dialog, { toast }) {
+  const cloud = currentSave()?.cloud;
+  if (!cloud) return;
+  const close = () => dialog.close();
+  dialog.replaceChildren(
+    ...[h('span', { class: 'dw-eyebrow' }, 'Cloud save'), h('h2', { id: 'modal-title' }, 'Choose a save'), conflictBody(cloud, { toast, onDone: close, onLater: close })].flat(Infinity).filter(Boolean),
+  );
   if (!dialog.open) dialog.showModal();
 }
 
-function dialogNav(dialog, title, toast) {
-  return {
-    show: (nodes, pageTitle = title) => openDialog(dialog, [h('span', { class: 'dw-eyebrow' }, 'Cloud save'), h('h2', { id: 'modal-title' }, pageTitle), nodes]),
-    toast,
-    done: () => dialog.close(),
-  };
-}
-
-/** Opens the conflict prompt in the game's dialog. */
-export function showConflict(dialog, { toast }) {
-  const nav = dialogNav(dialog, 'Choose a save', toast);
-  nav.show(conflictBody(cloud, { toast, onDone: () => dialog.close(), onLater: () => dialog.close() }));
-}
-
-/** The one-time offer to move a local company to the cloud. */
-export function showMigrationOffer(dialog, { toast }) {
-  const nav = dialogNav(dialog, 'Keep your company safe', toast);
-  const pages = createCloudPages(cloud, nav);
-  const later = () => {
-    cloud.dismissMigration();
-    dialog.close();
-  };
-  dialog.addEventListener('close', () => cloud.dismissMigration(), { once: true });
-  nav.show([
-    h('p', { class: 'dw-note' }, 'Your company is saved only in this browser. Move it to a cloud save to keep it if browser data is cleared, and to play on other devices. No name or email needed.'),
-    h(
-      'div',
-      { class: 'dw-row-actions' },
-      button('Create account', {
-        variant: 'primary',
-        onClick: () => {
-          cloud.dismissMigration();
-          pages.signUp();
-        },
-      }),
-      button('I have a number', {
-        onClick: () => {
-          cloud.dismissMigration();
-          pages.open('login');
-        },
-      }),
-    ),
-    h('div', { class: 'dw-row-actions' }, button('Not now', { onClick: later })),
-    h('p', { class: 'dw-note' }, 'You can do this later from the menu: Cloud save.'),
-  ]);
-}
-
-/**
- * The menu row and page (see the game menu). Returns null when the server
- * has no cloud saves, which hides the row.
- */
-export function cloudSaveItem({ toast, menuItem, pageHead, show, close, back }) {
+/** The Save row of the in-game menu and its page. */
+export function cloudSaveItem({ toast, menuItem, pageHead, show, back }) {
+  const save = currentSave();
+  if (!save) return null;
+  const { cloud } = save;
+  const name = () => slots.get(save.id)?.name ?? 'Save';
   const s = cloud.status();
-  if (!s.enabled) return null;
-  const badge = s.signedIn ? BADGES[s.state] : null;
+
+  let view = s.state === 'conflict' ? 'conflict' : 'home';
+  function render() {
+    const status = cloud.status();
+    if (view === 'conflict' && status.conflict) {
+      return show([pageHead('Choose a save', { eyebrow: name(), onBack: back }), conflictBody(cloud, { toast, onDone: () => ((view = 'home'), render()), onLater: back })]);
+    }
+    const code = status.code ? formatCode(status.code) : null;
+    const state = !status.enabled
+      ? 'This save is kept in this browser.'
+      : {
+          synced: `Saved to the cloud ${ago(status.lastSyncedAt)}.`,
+          saving: 'Saving to the cloud…',
+          offline: 'Offline. The save is kept on this device and goes to the cloud when you are back online.',
+          conflict: 'This device and the cloud have different saves. Choose one to continue saving.',
+          error: 'The cloud save is from a newer version of the game. Reload the page to update.',
+          local: 'Not saved to the cloud yet.',
+        }[status.state];
+    const copy = async () => {
+      try {
+        await navigator.clipboard.writeText(status.code);
+        toast('Code copied.');
+      } catch {
+        toast('Select the code and copy it.');
+      }
+    };
+    show([
+      pageHead(name(), { eyebrow: 'Save', onBack: back }),
+      h('p', { class: 'dw-note' }, state),
+      status.state === 'conflict' ? h('div', { class: 'dw-row-actions' }, button('Choose save', { variant: 'primary', onClick: () => ((view = 'conflict'), render()) })) : null,
+      code
+        ? h(
+            'div',
+            { class: 'dw-section' },
+            h('h3', { class: 'dw-section-title' }, h('span', null, 'Save code')),
+            h('output', { class: 'dw-cloud-number', 'aria-label': 'Save code' }, code),
+            h('p', { class: 'dw-note' }, 'Enter this code on another device (Load game, Add a save with a code) to play this save there.'),
+            h(
+              'div',
+              { class: 'dw-row-actions' },
+              button('Copy code', { onClick: copy, key: 'save-copy' }),
+              button('Save now', { disabled: status.state === 'conflict' || status.state === 'saving', onClick: () => cloud.sync().then(render) }),
+            ),
+          )
+        : status.enabled
+          ? h('div', { class: 'dw-row-actions' }, button('Try again', { onClick: () => cloud.sync().then(render) }))
+          : null,
+      status.backup
+        ? h(
+            'div',
+            { class: 'dw-section' },
+            h('h3', { class: 'dw-section-title' }, h('span', null, 'Replaced save')),
+            h('p', { class: 'dw-note' }, `The save you did not keep (${status.backup.from === 'cloud' ? 'from the cloud' : 'from this device'}, replaced ${ago(status.backup.at)}). Credits: ${formatCredits(status.backup.data?.credits ?? 0)}.`),
+            h(
+              'div',
+              { class: 'dw-row-actions' },
+              button('Load it instead', {
+                onClick: () => {
+                  if (cloud.restoreBackup()) reload();
+                },
+              }),
+            ),
+          )
+        : null,
+    ]);
+  }
+
   return menuItem({
     icon: CLOUD_ICON,
-    label: 'Cloud save',
-    sub: s.signedIn ? 'Autosave on' : 'Play on any device',
-    badge: badge?.text,
-    badgeVariant: badge?.variant,
+    label: 'Save',
+    sub: s.code ? `${name()} · ${formatCode(s.code)}` : name(),
+    badge: s.enabled ? BADGES[s.state] : null,
     key: 'menu-cloud',
     chevron: true,
-    onClick: () => {
-      const pages = createCloudPages(cloud, { show: (nodes, title) => show([pageHead(title, { onBack: back }), nodes]), toast, done: close });
-      pages.open(s.state === 'conflict' ? 'conflict' : 'home');
-    },
+    onClick: render,
   });
 }

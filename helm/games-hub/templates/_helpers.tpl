@@ -90,7 +90,7 @@ Fails the render on settings that cannot work with cloud saves.
 {{- define "games-hub.validateCloudSaves" -}}
 {{- if .Values.cloudSaves.enabled }}
 {{- if or (gt (int .Values.replicaCount) 1) .Values.autoscaling.enabled }}
-{{- fail "cloudSaves.enabled needs a single replica: rate limits for log in and recovery are kept in memory. Set replicaCount: 1 and autoscaling.enabled: false." }}
+{{- fail "cloudSaves.enabled needs a single replica: rate limits for save codes and recovery are kept in memory. Set replicaCount: 1 and autoscaling.enabled: false." }}
 {{- end }}
 {{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.host) }}
 {{- fail "cloudSaves.enabled needs a database: set postgresql.enabled: true, or externalDatabase.host and externalDatabase.existingSecret." }}

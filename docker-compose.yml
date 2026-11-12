@@ -11,7 +11,7 @@
 #
 #   docker compose up -d db mail
 #   CLOUD_SAVES=true CLOUD_PEPPER=local-test-pepper-not-secret-0123456789 \
-#     DATABASE_URL=postgres://games:games@localhost:5432/games COOKIE_SECURE=false \
+#     DATABASE_URL=postgres://games:games@localhost:5432/games \
 #     SMTP_HOST=localhost SMTP_PORT=1025 npm run dev
 #
 # Data lives in the `games-db` volume; `docker compose down -v` wipes it.
@@ -24,12 +24,10 @@ services:
       - "3000:3000"
     environment:
       CLOUD_SAVES: "true"
-      # A fixed test pepper, so accounts survive restarts. Changing it
-      # locks every test account out.
+      # A fixed test pepper, so save codes survive restarts. Changing it
+      # makes every test code stop working.
       CLOUD_PEPPER: local-test-pepper-not-secret-0123456789
       DATABASE_URL: postgres://games:games@db:5432/games
-      # Plain HTTP on localhost: send the session cookie without HTTPS.
-      COOKIE_SECURE: "false"
       SMTP_HOST: mail
       SMTP_PORT: "1025"
       SMTP_SECURE: "false"

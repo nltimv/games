@@ -60,8 +60,6 @@ spec:
               value: {{ .Values.cloudSaves.maxSaveBytes | int | quote }}
             - name: TRUST_PROXY
               value: {{ .Values.cloudSaves.trustProxy | quote }}
-            - name: COOKIE_SECURE
-              value: {{ .Values.cloudSaves.secureCookie | quote }}
             {{- if .Values.postgresql.enabled }}
             - name: PGHOST
               value: {{ include "games-hub.postgresqlName" . }}

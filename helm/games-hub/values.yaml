@@ -133,16 +133,16 @@ tolerations: []
 affinity: {}
 
 # ---------------------------------------------------------------------------
-# Cloud saves (player accounts and saves in PostgreSQL). Off by default: the
+# Cloud saves (saves in PostgreSQL, each reached with a save code). Off by default: the
 # hub then runs without a database and games save in the browser only.
 # Needs a database: either the bundled one (postgresql.enabled) or your own
 # server (externalDatabase). See the README section "Cloud saves".
 # ---------------------------------------------------------------------------
 cloudSaves:
   enabled: false
-  # -- The pepper: the secret key that account numbers and recovery emails
+  # -- The pepper: the secret key that save codes and recovery emails
   # are hashed with. It never goes into the database, so a database leak
-  # alone exposes neither. LOSING IT LOCKS EVERY PLAYER OUT: back it up.
+  # alone exposes neither. LOSING IT MAKES EVERY SAVE CODE STOP WORKING: back it up.
   # Leave existingSecret empty to have the chart generate one on first
   # install; it is kept on upgrades and on `helm uninstall`.
   pepper:
@@ -154,9 +154,6 @@ cloudSaves:
   # rate limits see the player's address. Set to "false" when nothing
   # proxies the app.
   trustProxy: "1"
-  # -- Sends the session cookie only over HTTPS. Set to false only for a
-  # plain-HTTP test install.
-  secureCookie: true
 
 # -- A single PostgreSQL instance deployed with the chart (a StatefulSet with
 # the official postgres image and a persistent volume).
@@ -199,7 +196,7 @@ externalDatabase:
   # -- disable, require (encrypted, certificate not checked) or verify-full.
   sslMode: disable
 
-# -- Mail for account recovery. Without it, recovery is hidden from players.
+# -- Mail for save code recovery. Without it, recovery is hidden from players.
 mail:
   enabled: false
   host: ""
