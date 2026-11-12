@@ -5,7 +5,9 @@
 // it from a refit at the shipyard, and new ships come with it. The queue
 // line, the Fleet licence line (`allowance`: the fleet allowance it gives)
 // and the single researches apply to the whole company at once. Each level
-// needs the one before it in its line.
+// needs the one before it in its line. `endsAct` marks the researches that
+// end an act (any one hazard shielding ends act 2); the wide Research view
+// lays the tree out by act from it (render/researchLayout.js).
 //
 // The Hauler licence ('kite-licence') is gone: a new company starts with a
 // Kite. Old saves keep it in their done list, where it does nothing.
@@ -62,6 +64,7 @@ export const RESEARCH = [
     id: 'warp-drive',
     name: 'Warp drive',
     needs: ['engine-2'],
+    endsAct: 1,
     cost: 250000,
     minutes: 480,
     effect: 'Ships can jump through the gates, and shipyards build Lark-class scouts, which survey unknown systems. This ends act 1.',
@@ -79,9 +82,9 @@ export const RESEARCH = [
   // Hazard shielding: one research per hazard, in the order the player
   // picks. Each one costs more than the one before (SHIELDING_STEPS), and
   // the first ends act 2.
-  { id: 'shield-debris', name: 'Debris shielding', hazard: 'dense debris', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
-  { id: 'shield-ion', name: 'Ion shielding', hazard: 'ion storms', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
-  { id: 'shield-radiation', name: 'Radiation shielding', hazard: 'radiation', needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
+  { id: 'shield-debris', name: 'Debris shielding', hazard: 'dense debris', endsAct: 2, needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
+  { id: 'shield-ion', name: 'Ion shielding', hazard: 'ion storms', endsAct: 2, needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
+  { id: 'shield-radiation', name: 'Radiation shielding', hazard: 'radiation', endsAct: 2, needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
   // Act 3: Pathfinder.
   { id: 'fleet-1', name: 'Fleet command I', shields: 1, cost: 1000000, minutes: 480, effect: 'Shipyards offer commanders, who lead wings of 4 ships on missions within 1 jump, for up to 16 hours.' },
   { id: 'fleet-2', name: 'Fleet command II', needs: ['fleet-1'], cost: 1500000, minutes: 600, effect: 'Wings of 6, areas of 2 jumps and missions of up to 24 hours.' },

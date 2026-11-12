@@ -2098,6 +2098,379 @@ button.dw-price-row[aria-pressed='true'] {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- Research tree (wide screens with a mouse) ---------- */
+
+/* The panel spreads over the map, above the view nav; the underway card steps aside. */
+.dw-app.is-tree .dw-panel {
+  left: var(--dw-gap);
+  bottom: calc(var(--dw-gap) + 56px + 12px);
+  width: auto;
+}
+
+.dw-app.is-tree .dw-underway,
+.dw-app.is-tree .dw-zoom {
+  display: none;
+}
+
+.dw-app.is-tree .dw-dock {
+  right: var(--dw-gap);
+  justify-content: center;
+}
+
+.dw-app.is-tree .dw-panel-body {
+  overflow: hidden;
+  padding: 16px 18px 18px;
+}
+
+.dw-tree-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* The head's title, labs and close button share one row, close last. */
+.dw-tree-head .dw-panel-head {
+  display: contents;
+}
+
+.dw-tree-head .dw-panel-title {
+  flex: 1 1 auto;
+}
+
+.dw-tree-labs {
+  order: 1;
+  display: flex;
+  gap: 10px;
+}
+
+.dw-tree-head .dw-panel-head > button {
+  order: 2;
+}
+
+.dw-tree-lab {
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: var(--radius-card);
+  background: rgba(111, 240, 216, 0.08);
+  border: 1px solid rgba(111, 240, 216, 0.25);
+}
+
+.dw-tree-lab.is-idle {
+  background: rgba(255, 211, 110, 0.07);
+  border-color: rgba(255, 211, 110, 0.3);
+}
+
+.dw-tree-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.dw-tree-map {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  border-radius: var(--radius-card);
+  background: rgba(2, 8, 24, 0.74);
+  border: 1px solid var(--glass-soft-edge);
+  overflow: hidden;
+}
+
+.dw-tree-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  outline: none;
+}
+
+.dw-tree-viewport.is-panning {
+  cursor: grabbing;
+}
+
+.dw-tree-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.dw-tree-band {
+  position: absolute;
+  top: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dw-tree-band-name {
+  position: absolute;
+  left: 28px;
+  top: 14px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--glass-muted);
+}
+
+.dw-tree-band-count {
+  position: absolute;
+  right: 28px;
+  top: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--glass-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.dw-tree-lines {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.dw-tree-line {
+  fill: none;
+  stroke: rgba(214, 232, 255, 0.16);
+  stroke-width: 1.5;
+}
+
+.dw-tree-line.is-open {
+  stroke: rgba(111, 240, 216, 0.45);
+  stroke-dasharray: 5 5;
+}
+
+.dw-tree-line.is-done {
+  stroke: rgba(111, 240, 216, 0.6);
+  stroke-width: 2;
+}
+
+.dw-tree-line.is-picked {
+  stroke: #ffffff;
+  stroke-opacity: 0.75;
+  stroke-width: 2;
+}
+
+.dw-tree-node {
+  position: absolute;
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  grid-template-rows: auto auto;
+  align-content: center;
+  column-gap: 9px;
+  row-gap: 1px;
+  padding: 0 12px;
+  border-radius: 12px;
+  text-align: left;
+  background: rgba(12, 22, 44, 0.88);
+  border: 1px solid var(--glass-soft-edge);
+  color: var(--glass-muted);
+  cursor: pointer;
+}
+
+.dw-tree-node strong {
+  grid-column: 2;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--glass-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dw-tree-node small {
+  grid-column: 2;
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.dw-tree-node .dw-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  width: auto;
+  height: 3px;
+}
+
+.dw-tree-dot {
+  grid-row: 1 / span 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(214, 232, 255, 0.4);
+}
+
+.dw-tree-node:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.dw-tree-node:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
+}
+
+.dw-tree-node.is-locked strong {
+  color: var(--glass-muted);
+}
+
+.dw-tree-node.is-open {
+  background: rgba(16, 52, 62, 0.92);
+  border-color: var(--aqua-edge);
+}
+
+.dw-tree-node.is-open .dw-tree-dot {
+  border-color: var(--aqua);
+}
+
+.dw-tree-node.is-done {
+  background: rgba(14, 44, 56, 0.9);
+  border-color: rgba(111, 240, 216, 0.22);
+}
+
+.dw-tree-node.is-done .dw-tree-dot {
+  border-color: var(--aqua);
+  background: var(--aqua);
+}
+
+.dw-tree-node.is-done small {
+  color: #9ff5e6;
+}
+
+.dw-tree-node.is-active {
+  background: rgba(18, 64, 72, 0.95);
+  border-color: var(--aqua);
+}
+
+.dw-tree-node.is-active .dw-tree-dot {
+  border-color: var(--aqua);
+  background: radial-gradient(circle, var(--aqua) 0 40%, transparent 45%);
+}
+
+.dw-tree-node.is-hub {
+  border-style: dashed;
+}
+
+.dw-tree-node.is-picked {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 1px #ffffff;
+}
+
+.dw-tree-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.dw-tree-zoom .dw-round {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+}
+
+.dw-tree-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 14px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(4, 10, 29, 0.7);
+  font-size: 12px;
+  color: var(--glass-muted);
+  pointer-events: none;
+}
+
+.dw-tree-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dw-tree-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(214, 232, 255, 0.4);
+}
+
+.dw-tree-legend .is-done i {
+  border-color: var(--aqua);
+  background: var(--aqua);
+}
+
+.dw-tree-legend .is-active i {
+  border-color: var(--aqua);
+  background: radial-gradient(circle, var(--aqua) 0 40%, transparent 45%);
+}
+
+.dw-tree-legend .is-open i {
+  border-color: var(--aqua);
+}
+
+.dw-tree-details {
+  flex: none;
+  align-self: flex-start;
+  width: 280px;
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--dw-row);
+  border: 1px solid var(--glass-soft-edge);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: var(--radius-card);
+}
+
+.dw-tree-details-name {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--glass-ink);
+}
+
+.dw-tree-details .dw-note {
+  margin: 0;
+}
+
+.dw-tree-needs {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dw-warn);
+}
+
+.dw-tree-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.dw-tree-facts dt {
+  color: var(--glass-muted);
+}
+
+.dw-tree-facts dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- Medium screens ---------- */
 
 @media (max-width: 1180px) {
