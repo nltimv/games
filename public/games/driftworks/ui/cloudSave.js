@@ -209,7 +209,6 @@ function createCloudPages(cloud, nav) {
       }
     };
     return [
-      h('p', { class: 'dw-note' }, 'Your account number:'),
       h('output', { class: 'dw-cloud-number', 'aria-label': 'Account number' }, number),
       h('div', { class: 'dw-row-actions' }, button('Copy number', { onClick: copy })),
       h('p', { class: 'dw-note is-warn' }, 'Write it down now. You need it to log in on another device, and it is not shown again.'),
