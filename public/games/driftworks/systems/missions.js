@@ -562,12 +562,13 @@ function tradeSpec(state, ship, commander, mission, t, work, at) {
         const max = affordableQty(state, from.id, good, state.credits - there.fees, room, known);
         if (max < 1) continue;
         const asks = marketView(state, from.id, good, known).price;
+        // The best paying buyers the commander's orders let it reach.
         const buyers = buyersOf(state, good, at)
           .filter(({ station, view }) => station.id !== from.id && view.price > asks + t.margin && buyerSystems.has(systemOf(station.id)) && t.allows(station))
+          .map(({ station }) => ({ station, course: plotCourse(state, ship, from.id, station.id) }))
+          .filter(({ course }) => course.ok && course.jumps <= t.maxJumps && there.fees + course.fees <= t.feeLimit)
           .slice(0, BUYERS_PER_GOOD);
-        for (const { station } of buyers) {
-          const course = plotCourse(state, ship, from.id, station.id);
-          if (!course.ok || course.jumps > t.maxJumps || there.fees + course.fees > t.feeLimit) continue;
+        for (const { station, course } of buyers) {
           const sized = sizeTrade(state, ship, good, from.id, station.id, max, at, course);
           if (!sized || sized.plan.profit < MIN_RUN_PROFIT || sized.plan.profit < t.margin * sized.qty) continue;
           const share = 0.8 ** (taken[`${station.id}|${good}`] ?? 0);

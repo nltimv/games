@@ -700,6 +700,10 @@ button.dw-price-row[aria-pressed='true'] {
   color: var(--glass-muted);
 }
 
+.dw-choice .is-loss {
+  color: var(--dw-warn);
+}
+
 .dw-choice .is-good {
   color: #9ff5e6;
   font-weight: 700;

@@ -407,6 +407,7 @@ function buildSystem(seed, point, depthOf, faction, neighbours, hazard) {
 
   const factory = factoryFor(seed, point, depthOf, faction, stations);
   if (factory) stations.push(factory);
+  addImports(seed, point, faction, stations);
 
   return {
     id,
@@ -440,7 +441,20 @@ function factoryFor(seed, point, depthOf, faction, stations) {
   const skip = Math.floor(rng() * all.length);
   const sells = all.filter((_, i) => i !== skip);
   const buys = [...new Set(sells.flatMap((good) => COMPONENTS[good]))];
-  // In the widest gap between the other stations.
+  return {
+    id: `${point.id}-factory`,
+    name: `${point.name} ${STATION_LABELS.factory}`,
+    short: STATION_LABELS.factory,
+    type: 'factory',
+    faction,
+    buys,
+    sells,
+    ...polar(between(rng, 165, 215), widestGap(rng, stations)),
+  };
+}
+
+/** The angle in the widest gap between a system's stations (a random one when it has none). */
+function widestGap(rng, stations) {
   const angles = stations.map((s) => deg(Math.atan2(s.y, s.x))).sort((a, b) => a - b);
   let angle = rng() * 360;
   if (angles.length) {
@@ -453,16 +467,45 @@ function factoryFor(seed, point, depthOf, faction, stations) {
       }
     });
   }
-  return {
-    id: `${point.id}-factory`,
-    name: `${point.name} ${STATION_LABELS.factory}`,
-    short: STATION_LABELS.factory,
-    type: 'factory',
+  return angle;
+}
+
+/**
+ * Aurel's four neighbours are short of goods Aurel's refinery makes, and pay
+ * well for them (the `imports` curve), so the first trade through a gate
+ * pays for its jumps. The goods are the same in every save.
+ */
+export const HOME_IMPORTS = {
+  brennan: ['iron', 'graphite'],
+  dace: ['silicon', 'iron'],
+  elm: ['graphite', 'silicon'],
+  fenn: ['iron', 'silicon'],
+};
+
+/**
+ * Gives a home neighbour its imports: its foundry or trading post buys them,
+ * and a system with neither gets a trading post. The new post rolls on its
+ * own seed, so the rest of the system is the same as before imports existed.
+ */
+function addImports(seed, point, faction, stations) {
+  const imports = HOME_IMPORTS[point.id];
+  if (!imports) return;
+  const host = stations.find((s) => s.type === 'foundry') ?? stations.find((s) => s.type === 'tradingPost');
+  if (host) {
+    host.imports = imports;
+    return;
+  }
+  const rng = createRng(hashString(`${seed}:imports:${point.id}`));
+  stations.push({
+    id: `${point.id}-${slug('tradingPost')}`,
+    name: `${point.name} ${STATION_LABELS.tradingPost}`,
+    short: STATION_LABELS.tradingPost,
+    type: 'tradingPost',
     faction,
-    buys,
-    sells,
-    ...polar(between(rng, 165, 215), angle),
-  };
+    ...stationTrade('tradingPost', 1),
+    imports,
+    ...polar(between(rng, 150, 220), widestGap(rng, stations)),
+  });
 }
 
 // ---------- Signals ----------
