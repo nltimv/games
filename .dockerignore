@@ -10,3 +10,4 @@ Dockerfile
 *.md
 test
 eslint.config.mjs
+docker-compose.yml

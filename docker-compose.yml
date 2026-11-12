@@ -1,0 +1,68 @@
+# Local test setup with cloud saves: the app, a PostgreSQL database, and
+# Mailpit to catch recovery mail.
+#
+#   docker compose up --build
+#
+# Games:   http://localhost:3000
+# Mailbox: http://localhost:8025 (recovery mails land here)
+#
+# To work on the server with `npm run dev` instead, start only the database
+# and the mailbox, then point the app at them:
+#
+#   docker compose up -d db mail
+#   CLOUD_SAVES=true CLOUD_PEPPER=local-test-pepper-not-secret-0123456789 \
+#     DATABASE_URL=postgres://games:games@localhost:5432/games COOKIE_SECURE=false \
+#     SMTP_HOST=localhost SMTP_PORT=1025 npm run dev
+#
+# Data lives in the `games-db` volume; `docker compose down -v` wipes it.
+# Not for production: the pepper and passwords below are public test values.
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      CLOUD_SAVES: "true"
+      # A fixed test pepper, so accounts survive restarts. Changing it
+      # locks every test account out.
+      CLOUD_PEPPER: local-test-pepper-not-secret-0123456789
+      DATABASE_URL: postgres://games:games@db:5432/games
+      # Plain HTTP on localhost: send the session cookie without HTTPS.
+      COOKIE_SECURE: "false"
+      SMTP_HOST: mail
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      MAIL_FROM: Games Hub <noreply@localhost>
+    read_only: true
+    depends_on:
+      db:
+        condition: service_healthy
+      mail:
+        condition: service_started
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: games
+      POSTGRES_PASSWORD: games
+      POSTGRES_DB: games
+    # Exposed so you can inspect it: psql postgres://games:games@localhost:5432/games
+    ports:
+      - "5432:5432"
+    volumes:
+      - games-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U games -d games"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  mail:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8025:8025" # web inbox
+      - "1025:1025" # SMTP, for an app started with npm (see above)
+
+volumes:
+  games-db:

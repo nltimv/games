@@ -32,6 +32,7 @@ entry to [`src/games.json`](src/games.json).
 ├── test/                     # node:test suites (shared code, Driftworks) and balance sims
 ├── eslint.config.mjs
 ├── Dockerfile                # Multi-stage, non-root, healthchecked image
+├── docker-compose.yml        # Local test setup: app + PostgreSQL + Mailpit
 ├── helm/games-hub/           # Helm chart for Kubernetes deployment
 └── .github/workflows/        # CI: lint and test, then build & publish image + Helm chart
 ```
@@ -235,13 +236,30 @@ chart refuses to render with `replicaCount` above 1 or autoscaling on.
 
 ### Running it locally
 
-```bash
-docker run -d --name games-db -e POSTGRES_USER=games -e POSTGRES_PASSWORD=games -p 5432:5432 postgres:17-alpine
-CLOUD_SAVES=true DATABASE_URL=postgres://games:games@localhost:5432/games \
-  CLOUD_PEPPER=local-dev-pepper-at-least-32-characters COOKIE_SECURE=false npm start
+[`docker-compose.yml`](docker-compose.yml) starts the app with cloud saves,
+a PostgreSQL database and [Mailpit](https://mailpit.axllent.org/), which
+catches recovery mail:
 
-# The API tests run against a database when TEST_DATABASE_URL is set (CI does):
-TEST_DATABASE_URL=postgres://games:games@localhost:5432/games npm test
+```bash
+docker compose up --build
+# Games:   http://localhost:3000
+# Mailbox: http://localhost:8025
+docker compose down -v   # stop and wipe the test database
+```
+
+To work on the server with `npm run dev`, start only the database and the
+mailbox and point the app at them:
+
+```bash
+docker compose up -d db mail
+CLOUD_SAVES=true CLOUD_PEPPER=local-test-pepper-not-secret-0123456789 \
+  DATABASE_URL=postgres://games:games@localhost:5432/games COOKIE_SECURE=false \
+  SMTP_HOST=localhost SMTP_PORT=1025 npm run dev
+
+# The API tests run against a database when TEST_DATABASE_URL is set (CI does).
+# They drop and recreate the cloud save tables, so give them a database of their own:
+docker compose exec db createdb -U games games_test
+TEST_DATABASE_URL=postgres://games:games@localhost:5432/games_test npm test
 ```
 
 Server settings: `CLOUD_SAVES`, `CLOUD_PEPPER` (32+ characters),
