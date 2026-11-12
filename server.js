@@ -12,7 +12,7 @@ const GAMES_MANIFEST = path.join(__dirname, 'src', 'games.json');
 app.disable('x-powered-by');
 
 // Behind an ingress or load balancer, trust its X-Forwarded-* headers so
-// rate limits see the player's address and secure cookies work.
+// rate limits see the player's address.
 if (process.env.TRUST_PROXY && process.env.TRUST_PROXY !== 'false') {
   const hops = Number(process.env.TRUST_PROXY);
   app.set('trust proxy', Number.isInteger(hops) ? hops : process.env.TRUST_PROXY);
