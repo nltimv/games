@@ -56,3 +56,16 @@ test('a new research finds its own place', () => {
   assert.equal(nodes.get('late-2').col, nodes.get('late').col + 1);
   assert.equal(nodes.get('a-1').y, nodes.get('a-2').y);
 });
+
+test('lines another path implies are left out, and fans sit next to each other', () => {
+  const layout = layoutResearch();
+  const nodes = byId(layout);
+  const has = (from, to) => layout.edges.some((e) => e.from === from && e.to === to);
+  assert.ok(has(SHIELDING_HUB, 'fleet-1'));
+  assert.ok(!has(SHIELDING_HUB, 'fleet-3'), 'Fleet command III waits for the shieldings through Fleet command I');
+  assert.ok(has('fleet-2', 'fleet-3'));
+  // Lane charts and Jump drive I both lead to every shielding: they sit side by side, the shieldings next to them.
+  assert.equal(Math.abs(nodes.get('lane-charts').row - nodes.get('jump-1').row), 1);
+  const rows = ['shield-debris', 'shield-ion', 'shield-radiation'].map((id) => nodes.get(id).row).sort((a, b) => a - b);
+  assert.equal(rows[2] - rows[0], 2);
+});

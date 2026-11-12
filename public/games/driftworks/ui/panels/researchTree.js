@@ -50,15 +50,8 @@ export function researchTreePanel(ctx) {
   };
   const byId = new Map(tree.nodes.map((n) => [n.id, n]));
   const paths = tree.edges.map((edge) => {
-    const a = byId.get(edge.from);
-    const b = byId.get(edge.to);
-    const x1 = a.x + a.w;
-    const y1 = a.y + a.h / 2;
-    const x2 = b.x;
-    const y2 = b.y + b.h / 2;
-    const bend = Math.max(24, (x2 - x1) / 2);
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', `M${x1} ${y1} C${x1 + bend} ${y1} ${x2 - bend} ${y2} ${x2} ${y2}`);
+    path.setAttribute('d', edgePath(tree, byId, edge));
     path.setAttribute('class', `dw-tree-line is-${lineState(edge)}`);
     return path;
   });
@@ -130,6 +123,32 @@ export function researchTreePanel(ctx) {
     ),
     h('div', { class: 'dw-tree-stage' }, h('div', { class: 'dw-tree-map' }, viewport, zoom, legend), details(ctx, view)),
   ];
+}
+
+// A research that leads to three or more in one column (the warp drive) gets
+// one trunk just before that column, with a branch into each; three or more
+// leading into one (the shieldings) share a trunk just after their column.
+// Everything else is a soft curve.
+const FAN = 3;
+const TRUNK = 18;
+const BEND = 8;
+
+function edgePath(tree, byId, edge) {
+  const a = byId.get(edge.from);
+  const b = byId.get(edge.to);
+  const x1 = a.x + a.w;
+  const y1 = a.y + a.h / 2;
+  const x2 = b.x;
+  const y2 = b.y + b.h / 2;
+  const fanOut = tree.edges.filter((e) => e.from === edge.from && byId.get(e.to).x === b.x).length >= FAN;
+  const fanIn = tree.edges.filter((e) => e.to === edge.to && byId.get(e.from).x === a.x).length >= FAN;
+  if ((fanOut || fanIn) && Math.abs(y2 - y1) > BEND * 2) {
+    const tx = fanOut ? x2 - TRUNK : x1 + TRUNK;
+    const dir = y2 > y1 ? 1 : -1;
+    return `M${x1} ${y1} H${tx - BEND} Q${tx} ${y1} ${tx} ${y1 + dir * BEND} V${y2 - dir * BEND} Q${tx} ${y2} ${tx + BEND} ${y2} H${x2}`;
+  }
+  const bend = Math.max(24, (x2 - x1) / 2);
+  return `M${x1} ${y1} C${x1 + bend} ${y1} ${x2 - bend} ${y2} ${x2} ${y2}`;
 }
 
 function stateOf(path) {
