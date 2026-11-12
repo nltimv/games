@@ -20,6 +20,8 @@ const BADGES = {
   error: { text: 'Not saving', variant: 'warn' },
 };
 
+const SIGNED_UP = 'Account created. Your company now saves to the cloud.';
+
 const TITLES = {
   number: 'Your account number',
   login: 'Log in',
@@ -50,6 +52,7 @@ function createCloudPages(cloud, nav) {
   let error = null;
   let pending = false;
   let confirmDelete = false;
+  let finished = false;
 
   const go = (next) => {
     view = next;
@@ -200,10 +203,10 @@ function createCloudPages(cloud, nav) {
 
   function numberPage() {
     let wroteDown = false;
-    const next = button('Continue', { variant: 'primary', disabled: true, onClick: () => {
-        if (!cloud.status().recovery) number = null;
-        go(number ? 'email' : 'home');
-      },
+    const next = button('Continue', {
+      variant: 'primary',
+      disabled: true,
+      onClick: () => (cloud.status().recovery ? go('email') : finish(SIGNED_UP)),
     });
     const copy = async () => {
       try {
@@ -250,8 +253,10 @@ function createCloudPages(cloud, nav) {
         } else if (result.conflict) {
           view = 'conflict';
         } else {
-          nav.toast(result.outdated ? 'The cloud save needs a newer version. Reload the page.' : 'Logged in. Your company is saved to the cloud.');
-          view = 'home';
+          if (result.outdated) {
+            nav.toast('The cloud save needs a newer version. Reload the page.');
+            view = 'home';
+          } else finish('Logged in. Your company is saved to the cloud.');
         }
       });
     };
@@ -277,9 +282,12 @@ function createCloudPages(cloud, nav) {
           return;
         }
         account = { hasEmail: true };
-        nav.toast(number ? 'Recovery email saved. Your number is on its way there too.' : 'Recovery email saved. A confirmation is on its way.');
-        number = null;
-        view = 'home';
+        // Sign up ends here: back to the game.
+        if (number) finish('Recovery email saved. Your number is on its way there too.');
+        else {
+          nav.toast('Recovery email saved. A confirmation is on its way.');
+          view = 'home';
+        }
       });
     };
     return [
@@ -329,7 +337,16 @@ function createCloudPages(cloud, nav) {
     ];
   }
 
+  /** Done (signed up, logged in, conflict settled): close and back to the game. */
+  function finish(message) {
+    finished = true;
+    number = null;
+    if (message) nav.toast(message);
+    nav.done();
+  }
+
   function render() {
+    if (finished) return;
     let body;
     if (view === 'number') body = numberPage();
     else if (view === 'login') body = loginPage();
@@ -348,14 +365,11 @@ function createCloudPages(cloud, nav) {
           { class: 'dw-row-actions' },
           button('Add email', { variant: 'primary', onClick: () => go('email') }),
           button('Continue without', {
-            onClick: () => {
-              number = null;
-              go('home');
-            },
+            onClick: () => finish(SIGNED_UP),
           }),
         ),
       ];
-    else if (view === 'conflict') body = conflictBody(cloud, { toast: nav.toast, onDone: () => go('home'), onLater: () => go('home') });
+    else if (view === 'conflict') body = conflictBody(cloud, { toast: nav.toast, onDone: () => finish(), onLater: () => go('home') });
     else body = home();
     nav.show([body, error ? h('p', { class: 'dw-note is-warn', role: 'alert' }, error) : null], TITLES[view] ?? 'Cloud save');
   }
