@@ -5,8 +5,9 @@
 // when CLOUD_SAVES is on.
 //
 // The code travels in the Authorization header ("Code 1234..."), never in a
-// URL or a cookie. Privacy rules: codes and emails are only stored as keyed
-// hashes, and nothing here logs a code, email or IP address.
+// URL or a cookie. Privacy rules: emails are only stored as keyed hashes;
+// codes are looked up by keyed hash and kept encrypted beside it, so
+// recovery can mail them again. Nothing here logs a code, email or IP address.
 
 const crypto = require('node:crypto');
 const express = require('express');
@@ -39,9 +40,11 @@ function cleanDevice(input) {
  * @param {number} options.maxSaveBytes
  * @param {object} [options.limits]      override rate limits (tests)
  * @param {() => boolean} [options.isReady]
+ * @param {Record<string, string>} [options.gameTitles]  game id → name, for mails ("driftworks" → "Driftworks")
  */
-function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 1024, limits = {}, isReady = () => true }) {
+function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 1024, limits = {}, isReady = () => true, gameTitles = {} }) {
   const hash = createHasher(pepper);
+  const gameTitle = (id) => gameTitles[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
   const limiters = {
     // New saves per address.
     create: createRateLimiter({ limit: 20, windowMs: 60 * 60 * 1000, ...limits.create }),
@@ -94,7 +97,7 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
     const [scheme, ...rest] = (req.headers.authorization || '').split(' ');
     const code = scheme === 'Code' ? normalizeCode(rest.join('')) : null;
     if (!code) return res.status(401).json({ error: 'A save code has 16 digits.' });
-    const { rows } = await pool.query('SELECT id, revision, email_hash IS NOT NULL AS has_email FROM saves WHERE code_hash = $1 AND game = $2', [
+    const { rows } = await pool.query('SELECT id, revision, email_hash IS NOT NULL AS has_email, code_enc IS NULL AS no_enc FROM saves WHERE code_hash = $1 AND game = $2', [
       hash.code(code),
       req.params.game,
     ]);
@@ -103,6 +106,8 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
       return res.status(401).json({ error: 'No save has that code.' });
     }
     req.save = { id: rows[0].id, revision: rows[0].revision, hasEmail: rows[0].has_email, code };
+    // A save from before codes were kept encrypted: keep it now, so recovery can mail it.
+    if (rows[0].no_enc) await pool.query('UPDATE saves SET code_enc = $2 WHERE id = $1 AND code_enc IS NULL', [rows[0].id, hash.encryptCode(code)]);
     next();
   });
 
@@ -112,7 +117,7 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
       const code = newSaveCode();
       await client.query('SAVEPOINT pick');
       try {
-        await client.query('UPDATE saves SET code_hash = $2 WHERE id = $1', [id, hash.code(code)]);
+        await client.query('UPDATE saves SET code_hash = $2, code_enc = $3 WHERE id = $1', [id, hash.code(code), hash.encryptCode(code)]);
         return code;
       } catch (err) {
         if (err.code !== '23505') throw err;
@@ -130,10 +135,11 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
       if (limited(res, limiters.create, req.ip)) return;
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = newSaveCode();
-        const { rowCount } = await pool.query('INSERT INTO saves (id, game, code_hash) VALUES ($1, $2, $3) ON CONFLICT (code_hash) DO NOTHING', [
+        const { rowCount } = await pool.query('INSERT INTO saves (id, game, code_hash, code_enc) VALUES ($1, $2, $3, $4) ON CONFLICT (code_hash) DO NOTHING', [
           crypto.randomUUID(),
           req.params.game,
           hash.code(code),
+          hash.encryptCode(code),
         ]);
         if (rowCount) return res.status(201).json({ code: formatCode(code), revision: 0 });
       }
@@ -200,7 +206,7 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
       const { rows } = await pool.query("UPDATE saves SET email_hash = $2 WHERE id = $1 RETURNING summary->>'name' AS name", [req.save.id, hash.email(email)]);
       res.status(204).end();
       if (!mailer) return;
-      await mailer.sendEmailLinked(email, { name: rows[0]?.name, code: formatCode(req.save.code) }).catch((err) => console.error(`Confirmation mail failed: ${err.message}`));
+      await mailer.sendEmailLinked(email, { game: gameTitle(req.params.game), name: rows[0]?.name, code: formatCode(req.save.code) }).catch((err) => console.error(`Confirmation mail failed: ${err.message}`));
     }),
   );
 
@@ -211,6 +217,28 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
     wrap(async (req, res) => {
       await pool.query('UPDATE saves SET email_hash = NULL WHERE id = $1', [req.save.id]);
       res.status(204).end();
+    }),
+  );
+
+  // A new code for the save, in place of the one sent: the old code stops
+  // working everywhere (a leaked code is revoked). The save itself is kept.
+  router.post(
+    '/saves/:game/code',
+    checkGame,
+    requireSave,
+    wrap(async (req, res) => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const code = await assignNewCode(client, req.save.id);
+        await client.query('COMMIT');
+        res.json({ code: formatCode(code) });
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     }),
   );
 
@@ -227,14 +255,23 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
     recover(email, emailHash).catch((err) => console.error(`Recovery failed: ${err.message}`));
   });
 
-  /** Every save linked to the address gets a new code; the old codes stop working. */
+  /**
+   * Mails the codes of every save linked to the address. A save whose code
+   * the server cannot read back (made before codes were kept encrypted, and
+   * not used since) gets a new code instead; its old code stops working.
+   */
   async function recover(email, emailHash) {
     const client = await pool.connect();
     const saves = [];
     try {
       await client.query('BEGIN');
-      const { rows } = await client.query("SELECT id, summary->>'name' AS name FROM saves WHERE email_hash = $1 ORDER BY updated_at DESC LIMIT 50 FOR UPDATE", [emailHash]);
-      for (const row of rows) saves.push({ name: row.name, code: formatCode(await assignNewCode(client, row.id)) });
+      const { rows } = await client.query("SELECT id, game, summary->>'name' AS name, code_enc FROM saves WHERE email_hash = $1 ORDER BY updated_at DESC LIMIT 50 FOR UPDATE", [
+        emailHash,
+      ]);
+      for (const row of rows) {
+        const code = hash.decryptCode(row.code_enc) ?? (await assignNewCode(client, row.id));
+        saves.push({ game: row.game, name: row.name, code: formatCode(code) });
+      }
       await client.query(rows.length ? 'COMMIT' : 'ROLLBACK');
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
@@ -242,7 +279,10 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
     } finally {
       client.release();
     }
-    if (saves.length) await mailer.sendNewCodes(email, saves);
+    // One mail per game, in that game's name.
+    const byGame = new Map();
+    for (const { game, ...save } of saves) byGame.set(game, [...(byGame.get(game) ?? []), save]);
+    for (const [game, list] of byGame) await mailer.sendCodes(email, { game: gameTitle(game), saves: list });
   }
 
   router.use((err, _req, res, _next) => {

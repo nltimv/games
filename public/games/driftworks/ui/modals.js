@@ -1,11 +1,12 @@
 // The "while you were away" dialog, and the Settings page of the game
-// menu (starting over; see menu.js).
+// menu and the main menu (see menu.js and mainMenu.js).
 
 import { formatClock, formatDuration } from '../../../shared/js/format.js';
 import { logSince } from '../systems/log.js';
 import { h } from './dom.js';
 import { button } from './components.js';
 import { plusCredits } from './format.js';
+import { streamerToggle } from './streamer.js';
 
 const AWAY_KINDS = new Set(['arrival', 'sale', 'goal', 'warning', 'purchase']);
 
@@ -51,39 +52,21 @@ export function showAway(dialog, state, since, now) {
 }
 
 /**
- * The Settings page of the game menu: start over. Saves and their codes
- * are the main menu's job. `head` is the page heading (with its
- * Back button); `onDone` closes the menu after a reset.
+ * The Settings page, in the game menu and the main menu. Starting over is
+ * New game in the main menu, and removing a save is Load game, Manage.
+ * `head` is the page heading with its Back button.
  */
-export function settingsPage({ session, onToast, onDone, head }) {
-  let confirmReset = false;
-  const body = h('div', { class: 'dw-modal-body' });
-
-  function render() {
-    const reset = () => {
-      if (!confirmReset) {
-        confirmReset = true;
-        render();
-        body.querySelector('[data-key="settings-reset"]')?.focus({ preventScroll: true });
-        return;
-      }
-      session.reset();
-      onToast('A new company starts in Aurel.');
-      onDone();
-    };
-
-    body.replaceChildren(
-      ...[
-        h('p', { class: 'dw-note' }, 'Starting over replaces this save with a new company. To keep it and start another, use New game in the main menu.'),
-        h(
-          'div',
-          { class: 'dw-section' },
-          confirmReset ? h('p', { class: 'dw-note is-warn' }, 'This deletes your company for good. Press again to start over.') : null,
-          h('div', { class: 'dw-row-actions' }, button(confirmReset ? 'Yes, delete and start over' : 'Start over', { variant: 'danger', onClick: reset, key: 'settings-reset' })),
-        ),
-      ].filter(Boolean),
-    );
-  }
-  render();
+export function settingsPage({ head }) {
+  const body = h(
+    'div',
+    { class: 'dw-modal-body' },
+    h(
+      'div',
+      { class: 'dw-section' },
+      h('h3', { class: 'dw-section-title' }, h('span', null, 'Privacy')),
+      streamerToggle(),
+      h('p', { class: 'dw-note' }, 'For streams and screenshots: save codes show as dots until you press Show, and email fields are masked. Applies on this device.'),
+    ),
+  );
   return [head, body];
 }

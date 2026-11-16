@@ -2,11 +2,12 @@
 // catch up on time away, then run a one-second clock for the simulation. The map draws only when something
 // changes (see render/mapView.js).
 
-import { adoptLegacySave, cloudApi, openSave, reloadIntoSave, takeResume } from './core/saves.js';
+import { adoptLegacySave, cloudApi, openSave, reloadIntoSave, slots, takeResume } from './core/saves.js';
 import { createSession } from './core/session.js';
 import { createApp } from './ui/app.js';
 import { showConflict } from './ui/cloudSave.js';
 import { showMainMenu } from './ui/mainMenu.js';
+import { showSaveCode } from './ui/saveCodePrompt.js';
 
 const AUTOSAVE_MS = 15_000;
 const REFRESH_PANELS_MS = 30_000;
@@ -36,7 +37,22 @@ const awaySince = session.state.lastSeenAt;
 session.tick(bootNow);
 
 const app = createApp(session);
-app.showStartup(awaySince, bootNow);
+
+// A save that just got its code (a new game, or a save from before cloud
+// saves) shows it first and offers a recovery email; then what's new and
+// the time-away summary.
+let codePrompt = null;
+let codeQueued = false;
+function promptForCode() {
+  if (codePrompt || !cloud.status().codeUnseen) return codePrompt;
+  codePrompt = showSaveCode(modal, { cloud, name: slots.get(save.id)?.name ?? 'Your save', toast: app.toast }).finally(() => {
+    codePrompt = null;
+  });
+  return codePrompt;
+}
+const firstPrompt = promptForCode();
+if (firstPrompt) firstPrompt.then(() => app.showStartup(awaySince, bootNow));
+else app.showStartup(awaySince, bootNow);
 session.markSeen(bootNow);
 session.save();
 
@@ -96,6 +112,14 @@ cloud.subscribe((status) => {
   if (status.reloadNeeded) reloadIntoSave();
   // Another device saved while this one played: ask, once.
   if (status.state === 'conflict' && cloudState !== 'conflict') whenModalFree(() => cloud.status().conflict && showConflict(modal, cloudPrompts));
+  // The code came after the game started (a slow or late connection).
+  if (status.codeUnseen && !codePrompt && !codeQueued) {
+    codeQueued = true;
+    whenModalFree(() => {
+      codeQueued = false;
+      promptForCode();
+    });
+  }
   cloudState = status.state;
   app.render();
 });

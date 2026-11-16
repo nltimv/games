@@ -11,7 +11,9 @@
 // revision this device last synced (`revision`), whether the local save
 // changed since (`dirty`), and a random device id.
 
-const META_DEFAULTS = { code: null, revision: 0, dirty: false, device: '', backup: null, hasEmail: false };
+// `codeUnseen`: the save got a code that the player has not been shown yet
+// (a new save, a save from before cloud saves, or a replaced code).
+const META_DEFAULTS = { code: null, revision: 0, dirty: false, device: '', backup: null, hasEmail: false, codeUnseen: false };
 
 /**
  * What to do with a local save and the cloud save (pure).
@@ -87,6 +89,7 @@ export function createCloudApi({ game, fetchFn = globalThis.fetch?.bind(globalTh
     remove: (code) => request('DELETE', saves, { code }),
     setEmail: (code, email) => request('PUT', `${saves}/email`, { code, body: { email } }),
     removeEmail: (code) => request('DELETE', `${saves}/email`, { code }),
+    changeCode: (code) => request('POST', `${saves}/code`, { code, body: {} }),
     recover: (email) => request('POST', '/recovery', { body: { email } }),
   };
 }
@@ -173,7 +176,7 @@ export function createCloudSync({ game, saveKey, metaKey, getName = () => '', su
     writeMeta({ backup: { data, from, at: now() } });
   }
 
-  /** The code stopped working (recovered by email, or the cloud save was deleted): this save gets a new one. */
+  /** The code stopped working (the cloud save was deleted, or its code replaced): this save gets a new one. */
   function loseCode() {
     conflict = null;
     codeReplaced = true;
@@ -185,7 +188,7 @@ export function createCloudSync({ game, saveKey, metaKey, getName = () => '', su
     if (meta.code) return true;
     const res = await api.create();
     if (res.status !== 201) return false;
-    writeMeta({ code: res.body.code.replace(/\D/g, ''), revision: 0, dirty: true });
+    writeMeta({ code: res.body.code.replace(/\D/g, ''), revision: 0, dirty: true, codeUnseen: true });
     return true;
   }
 
@@ -297,7 +300,19 @@ export function createCloudSync({ game, saveKey, metaKey, getName = () => '', su
     },
 
     status() {
-      return { enabled: config.cloud, recovery: config.recovery, code: meta.code, state: status, lastSyncedAt, conflict, backup: meta.backup, reloadNeeded, codeReplaced };
+      return {
+        enabled: config.cloud,
+        recovery: config.recovery,
+        code: meta.code,
+        codeUnseen: Boolean(meta.code && meta.codeUnseen),
+        hasEmail: meta.hasEmail,
+        state: status,
+        lastSyncedAt,
+        conflict,
+        backup: meta.backup,
+        reloadNeeded,
+        codeReplaced,
+      };
     },
 
     subscribe(listener) {
@@ -348,6 +363,31 @@ export function createCloudSync({ game, saveKey, metaKey, getName = () => '', su
       } finally {
         busy = null;
       }
+    },
+
+    /** The player was shown the save's code: do not show it again. */
+    codeSeen() {
+      if (meta.codeUnseen) writeMeta({ codeUnseen: false });
+    },
+
+    /**
+     * Links a recovery email to the save; the server mails the code there.
+     * Resolves to { ok, error }.
+     */
+    async linkEmail(email) {
+      if (!meta.code) return { ok: false, error: 'This save has no code yet.' };
+      let res;
+      try {
+        // Push first, so the mail the server sends names the save.
+        if (meta.dirty) await sync.sync().catch(() => {});
+        res = await api.setEmail(meta.code, email);
+      } catch {
+        return { ok: false, error: 'Could not reach the server. Check your connection and try again.' };
+      }
+      if (res.status !== 204) return { ok: false, error: res.body?.error ?? 'Could not link the email.' };
+      writeMeta({ hasEmail: true });
+      for (const listener of listeners) listener(sync.status());
+      return { ok: true };
     },
 
     /** The save's name changed: send it along with the next push. */

@@ -6,12 +6,13 @@
 // resolves with the id of the save to play.
 
 import { formatCredits, formatDuration } from '../../../shared/js/format.js';
-import { formatCode } from '../../../shared/js/cloudSync.js';
 import { MAX_NAME_LENGTH, cleanName } from '../../../shared/js/saveSlots.js';
 import { GAME_VERSION } from '../content/changelog.js';
 import { LEGACY_SAVE_NAME, canLoadSave, cloudApi, slotSummary, slots } from '../core/saves.js';
 import { h } from './dom.js';
 import { button } from './components.js';
+import { codeBox, codeText } from './streamer.js';
+import { settingsPage } from './modals.js';
 import { menuItem, pageHead } from './menu.js';
 import { startTitleScreen, titleLogo } from './titleScreen.js';
 
@@ -59,6 +60,7 @@ export function showMainMenu(dialog, { config }) {
     let notice = null; // { text, warn }
     let pending = false;
     let confirmDelete = false;
+    let confirmChange = false;
     const title = startTitleScreen();
 
     // The game is not running yet: there is nothing to go back to.
@@ -79,6 +81,7 @@ export function showMainMenu(dialog, { config }) {
       slotId = id;
       notice = message;
       confirmDelete = false;
+      confirmChange = false;
       render();
     }
 
@@ -136,6 +139,7 @@ export function showMainMenu(dialog, { config }) {
             key: 'main-load',
             chevron: true,
           }),
+          menuItem({ icon: 'settings', label: 'Settings', sub: 'Streamer mode', onClick: () => go('settings'), key: 'main-settings', chevron: true }),
           menuItem({ icon: 'hub', label: 'Back to Games Hub', href: HUB_URL, key: 'main-hub' }),
         ),
         h('p', { class: 'dw-gm-version' }, `Driftworks ${GAME_VERSION}`),
@@ -154,7 +158,7 @@ export function showMainMenu(dialog, { config }) {
         pageHead('Saves have changed', { eyebrow: `Driftworks ${GAME_VERSION}` }),
         h('p', { class: 'dw-note' }, `Your company is now a save called "${slot?.name ?? LEGACY_SAVE_NAME}". Nothing is lost.`),
         config.cloud
-          ? h('p', { class: 'dw-note' }, 'When you continue, it is also saved online and gets a save code. With that code you can load it on any device. You find the code under Load game.')
+          ? h('p', { class: 'dw-note' }, 'When you continue, it is also saved online and gets a save code, which loads it on any device. You see the code next, and later under Load game.')
           : null,
         h('p', { class: 'dw-note' }, 'You can now keep several saves, name them, and pick one in this menu each time you open the game.'),
         h('div', { class: 'dw-row-actions' }, button('Continue', { variant: 'primary', onClick: start, key: 'legacy-continue' }), button('Main menu', { onClick: () => (slots.dismissLegacyNotice(), go('main')) })),
@@ -181,7 +185,7 @@ export function showMainMenu(dialog, { config }) {
       return h(
         'div',
         { class: 'dw-save-card' },
-        h('div', { class: 'dw-save-info' }, h('strong', null, slot.name), h('span', null, describeSave(slotSummary(slot.id))), h('span', { class: 'dw-save-code' }, meta.code ? formatCode(meta.code) : config.cloud ? 'Gets a save code when loaded' : 'On this device only')),
+        h('div', { class: 'dw-save-info' }, h('strong', null, slot.name), h('span', null, describeSave(slotSummary(slot.id))), h('span', { class: 'dw-save-code' }, meta.code ? codeText(meta.code) : config.cloud ? 'Gets a save code when loaded' : 'On this device only')),
         h(
           'div',
           { class: 'dw-save-actions' },
@@ -205,7 +209,7 @@ export function showMainMenu(dialog, { config }) {
     }
 
     function addPage() {
-      const input = field({ label: 'Save code', inputmode: 'numeric', autocomplete: 'off', placeholder: '0000 0000 0000 0000', maxlength: 24 });
+      const input = field({ label: 'Save code', inputmode: 'numeric', autocomplete: 'off', placeholder: '0000 0000 0000 0000', maxlength: 24, 'data-secret': true });
       const submit = (e) => {
         e.preventDefault();
         const code = input.querySelector('input').value.replace(/\D/g, '');
@@ -246,14 +250,14 @@ export function showMainMenu(dialog, { config }) {
           const res = await cloudApi.recover(input.querySelector('input').value);
           if (res.status === 202) {
             page = 'add';
-            notice = say('Check your inbox. If saves are linked to that address, their new codes are on the way.');
+            notice = say('Check your inbox. If saves are linked to that address, their codes are on the way.');
           } else notice = say(res.body?.error ?? 'Could not send the mail.', true);
         });
       };
       return [
         pageHead('Lost a code?', { onBack: () => go('add') }),
-        h('p', { class: 'dw-note' }, 'If you linked an email to a save, we send new codes for your saves there. The old codes stop working.'),
-        h('form', { class: 'dw-cloud-form', onSubmit: submit }, input, h('div', { class: 'dw-row-actions' }, button('Send new codes', { variant: 'primary', disabled: pending, onClick: submit, key: 'recover-submit' }))),
+        h('p', { class: 'dw-note' }, 'If you linked an email to a save, we mail the codes of your saves there.'),
+        h('form', { class: 'dw-cloud-form', onSubmit: submit }, input, h('div', { class: 'dw-row-actions' }, button('Send my codes', { variant: 'primary', disabled: pending, onClick: submit, key: 'recover-submit' }))),
       ];
     }
 
@@ -261,7 +265,7 @@ export function showMainMenu(dialog, { config }) {
       const slot = slots.get(slotId);
       if (!slot) return loadPage();
       const meta = slots.meta(slot.id);
-      const code = meta.code ? formatCode(meta.code) : null;
+      const code = meta.code ? codeText(meta.code) : null;
 
       const nameInput = field({ label: 'Name', maxlength: MAX_NAME_LENGTH, value: slot.name, autocomplete: 'off' });
       const rename = (e) => {
@@ -290,6 +294,17 @@ export function showMainMenu(dialog, { config }) {
           } else notice = say('Could not remove the email.', true);
         });
 
+      const changeCode = () =>
+        run(async () => {
+          const res = await cloudApi.changeCode(meta.code);
+          if (res.status === 200) {
+            slots.setMeta(slot.id, { code: res.body.code.replace(/\D/g, '') });
+            confirmChange = false;
+            notice = say('This save has a new code. The old one no longer works.');
+          } else if (res.status === 401) notice = say('The cloud no longer knows this code. Load the save to give it a new one.', true);
+          else notice = say('Could not change the code. Try again later.', true);
+        });
+
       const removeHere = () => {
         slots.remove(slot.id);
         go('load', { id: null, message: say(code ? `"${slot.name}" was removed from this device. Its code still loads it: ${code}` : `"${slot.name}" was deleted.`) });
@@ -315,13 +330,38 @@ export function showMainMenu(dialog, { config }) {
               'div',
               { class: 'dw-section' },
               h('h3', { class: 'dw-section-title' }, h('span', null, 'Save code')),
-              h('output', { class: 'dw-cloud-number', 'aria-label': 'Save code' }, code),
+              codeBox(meta.code),
               h('p', { class: 'dw-note' }, 'Enter this code on another device to load this save there. Anyone with the code can play the save, so keep it to yourself.'),
               h(
                 'div',
                 { class: 'dw-row-actions' },
                 button('Copy code', { onClick: async () => go('manage', { message: (await copyText(meta.code)) ? say('Code copied.') : say('Select the code and copy it.') }), key: 'manage-copy' }),
+                config.cloud && !confirmChange
+                  ? button('Change code', {
+                      onClick: () => {
+                        confirmChange = true;
+                        notice = null;
+                        render();
+                      },
+                      key: 'manage-change',
+                    })
+                  : null,
               ),
+              confirmChange
+                ? [
+                    h(
+                      'p',
+                      { class: 'dw-note is-warn' },
+                      'The save gets a new code, and the old one stops working everywhere. Use this if someone else got hold of the code. On your other devices, remove the save and add it again with the new code.',
+                    ),
+                    h(
+                      'div',
+                      { class: 'dw-row-actions' },
+                      button('Change code', { variant: 'danger', disabled: pending, onClick: changeCode, key: 'manage-change-confirm' }),
+                      button('Cancel', { onClick: () => go('manage') }),
+                    ),
+                  ]
+                : null,
             )
           : h('p', { class: 'dw-note' }, config.cloud ? 'This save gets its save code the next time you load it.' : 'This save is kept in this browser only.'),
         code && config.recovery
@@ -331,11 +371,11 @@ export function showMainMenu(dialog, { config }) {
               h('h3', { class: 'dw-section-title' }, h('span', null, 'Recovery email')),
               meta.hasEmail
                 ? [
-                    h('p', { class: 'dw-note' }, 'An email is linked. If you lose the code, you can have a new one sent there.'),
+                    h('p', { class: 'dw-note' }, 'An email is linked. If you lose the code, you can have it sent there again.'),
                     h('div', { class: 'dw-row-actions' }, button('Remove email', { disabled: pending, onClick: unlinkEmail })),
                   ]
                 : [
-                    h('p', { class: 'dw-note' }, 'Optional. We mail the code there now, and a new one if you ever lose it. The address is stored scrambled, so it cannot be read back.'),
+                    h('p', { class: 'dw-note' }, 'Optional. We mail the code there now, and again if you ever lose it. The address is stored scrambled, so it cannot be read back.'),
                     h('form', { class: 'dw-cloud-form', onSubmit: linkEmail }, emailInput, h('div', { class: 'dw-row-actions' }, button('Link email', { disabled: pending, onClick: linkEmail }))),
                   ],
             )
@@ -370,7 +410,7 @@ export function showMainMenu(dialog, { config }) {
     }
 
     function render() {
-      const pages = { main: mainPage, legacy: legacyPage, new: newPage, load: loadPage, add: addPage, recover: recoverPage, manage: managePage };
+      const pages = { settings: () => settingsPage({ head: pageHead('Settings', { onBack: () => go('main') }) }), main: mainPage, legacy: legacyPage, new: newPage, load: loadPage, add: addPage, recover: recoverPage, manage: managePage };
       show((pages[page] ?? mainPage)());
     }
 
