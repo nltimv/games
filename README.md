@@ -116,7 +116,7 @@ Key values (see [`values.yaml`](helm/games-hub/values.yaml) for the full list):
 
 | Value                | Default                    | Description                          |
 | --------------------- | --------------------------- | ------------------------------------ |
-| `image.repository`    | `ghcr.io/OWNER/games-hub`   | Container image to deploy            |
+| `image.repository`    | `ghcr.io/nltimv/games`      | Container image to deploy            |
 | `image.tag`           | chart `appVersion`           | Image tag override — set this to a published version, e.g. `1.0.0` |
 | `image.digest`        | `""`                         | Optional digest pin (`sha256:...`), appended as `repository:tag@digest` |
 | `service.port`        | `3000`                      | Service & container port             |

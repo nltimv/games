@@ -7,7 +7,7 @@ replicaCount: 1
 image:
   # -- Container image repository. Override with e.g.
   # `--set image.repository=ghcr.io/<owner>/<repo>` for your fork.
-  repository: ghcr.io/OWNER/games-hub
+  repository: ghcr.io/nltimv/games
   pullPolicy: IfNotPresent
   # -- Overrides the image tag whose default is the chart appVersion.
   tag: ""
