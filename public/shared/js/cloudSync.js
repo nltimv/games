@@ -89,6 +89,7 @@ export function createCloudApi({ game, fetchFn = globalThis.fetch?.bind(globalTh
     remove: (code) => request('DELETE', saves, { code }),
     setEmail: (code, email) => request('PUT', `${saves}/email`, { code, body: { email } }),
     removeEmail: (code) => request('DELETE', `${saves}/email`, { code }),
+    changeCode: (code) => request('POST', `${saves}/code`, { code, body: {} }),
     recover: (email) => request('POST', '/recovery', { body: { email } }),
   };
 }

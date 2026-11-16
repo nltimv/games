@@ -236,6 +236,28 @@ test('recovery gives a new code only to a save whose code the server cannot read
   assert.equal((await call('GET', '/saves/driftworks', { code: fresh })).status, 200);
 });
 
+test('changing the code revokes the old one, keeps the save, and recovery mails the new one', { skip }, async () => {
+  const code = await newSave();
+  await call('PUT', '/saves/driftworks', { code, body: { baseRevision: 0, data: save(7), summary: { name: 'Leaked' } } });
+  await call('PUT', '/saves/driftworks/email', { code, body: { email: 'change@example.com' } });
+  await waitForMail();
+  sent.length = 0;
+
+  const res = await call('POST', '/saves/driftworks/code', { code, body: {} });
+  assert.equal(res.status, 200);
+  assert.match(res.body.code, /^\d{4} \d{4} \d{4} \d{4}$/);
+  assert.notEqual(res.body.code, code);
+  assert.equal((await call('GET', '/saves/driftworks', { code })).status, 401, 'the old code is revoked');
+  const now = await call('GET', '/saves/driftworks', { code: res.body.code });
+  assert.equal(now.body.data.credits, 7);
+  assert.equal(now.body.revision, 1);
+  assert.equal(now.body.hasEmail, true, 'the email stays linked');
+
+  await call('POST', '/recovery', { body: { email: 'change@example.com' } });
+  await waitForMail();
+  assert.deepEqual(sent[0].saves, [{ name: 'Leaked', code: res.body.code }]);
+});
+
 test('recovery is rate limited per address', { skip }, async () => {
   const statuses = [];
   for (let i = 0; i < 3; i++) statuses.push((await call('POST', '/recovery', { body: { email: 'ratelimit@example.com' } })).status);

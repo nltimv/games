@@ -218,6 +218,28 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
     }),
   );
 
+  // A new code for the save, in place of the one sent: the old code stops
+  // working everywhere (a leaked code is revoked). The save itself is kept.
+  router.post(
+    '/saves/:game/code',
+    checkGame,
+    requireSave,
+    wrap(async (req, res) => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const code = await assignNewCode(client, req.save.id);
+        await client.query('COMMIT');
+        res.json({ code: formatCode(code) });
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    }),
+  );
+
   // Recovery: always 202, so it never tells whether an address has saves.
   // The work happens after the answer, so timing tells nothing either.
   router.post('/recovery', (req, res) => {
