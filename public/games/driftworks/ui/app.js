@@ -75,7 +75,7 @@ export function createApp(session, doc = document) {
   // `map` is the map shown behind the panels ('system' or 'galaxy'),
   // `systemId` the system the System view shows and `marketGood` the good
   // whose prices the galaxy map shows (with Market charts).
-  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null, salvage: null, tree: null };
+  const ui = { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, picking: false, miner: null, trade: null, overview: false, menu: null, guide: null, marketGood: null, salvage: null, tree: null };
   let shownCredits = null;
   let panelKey = null;
   // On phones, the panel's sheet (created with the map, below).
@@ -120,13 +120,15 @@ export function createApp(session, doc = document) {
     if (home && !isSurveyed(session.state, home)) return select('system', home, extra);
     // Picking a field right after a ship sends that ship (when it can mine).
     const miner = kind === 'field' && ui.selection?.kind === 'ship' ? { miner: ui.selection.id } : {};
-    Object.assign(ui, { ...showFor(kind, id), selection: { kind, id }, overview: false, menu: null, ...miner, ...extra });
+    // Picking anything but more ships ends picking (see pickShips).
+    Object.assign(ui, { ...showFor(kind, id), selection: { kind, id }, picking: false, overview: false, menu: null, ...miner, ...extra });
     if (kind !== 'station' || ui.trade?.stationId !== id) ui.trade = null;
     render();
     focusPanelIfNeeded();
     // On phones the sheet covers the lower half: slide the pick into view.
     // Elsewhere, only a pick out of view (from a list) slides in.
-    const point = mapPoint(kind, id);
+    // While picking ships the map holds still, so the next ship stays put.
+    const point = ui.picking ? null : mapPoint(kind, id);
     if (point && isPhone()) map.focusOn(point.x, point.y);
     else if (point) map.reveal(point.x, point.y);
   }
@@ -163,15 +165,15 @@ export function createApp(session, doc = document) {
   /**
    * Selects several ships at once (a box selection). One ship is a normal
    * selection, none clears it. With `additive`, ships already selected
-   * stay selected.
+   * stay selected. Picking (see pickShips) goes on unless `picking` says.
    */
-  function selectShips(ids, { additive = false } = {}) {
+  function selectShips(ids, { additive = false, picking = ui.picking } = {}) {
     const current = !additive ? [] : ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
     const all = [...new Set([...current, ...ids])].filter((id) => findShip(session.state, id));
     if (!all.length) return additive ? undefined : close();
-    if (all.length === 1) return select('ship', all[0]);
+    if (all.length === 1) return select('ship', all[0], { picking });
     const view = isMapView(ui.view) ? ui.view : ui.map;
-    Object.assign(ui, { view, map: view, selection: { kind: 'ships', ids: all }, overview: false, menu: null, trade: null });
+    Object.assign(ui, { view, map: view, selection: { kind: 'ships', ids: all }, picking, overview: false, menu: null, trade: null });
     render();
     focusPanelIfNeeded();
   }
@@ -202,6 +204,40 @@ export function createApp(session, doc = document) {
     return rest.length ? selectShips(rest) : close();
   }
 
+  /**
+   * Touch screens have no Shift: pressing and holding a ship adds it to the
+   * selection and starts picking. While picking, a tap on a ship (or a
+   * flock or badge) adds it or takes it out again, and holding a place
+   * gives orders to all of them. A tap on empty space ends it.
+   */
+  function pickShips(ids) {
+    if (!ids.length) return;
+    const first = !ui.picking;
+    selectShips(ids, { additive: true, picking: true });
+    if (!first) return;
+    // Picking happens on the map: fold the sheet down to its head, which
+    // counts the ships, and slide the first pick into view.
+    sheet?.fold();
+    const point = isPhone() ? mapPoint('ship', ids[0]) : null;
+    if (point) map.focusOn(point.x, point.y);
+    navigator.vibrate?.(15);
+    toast('Picking ships: tap more ships to add them, then hold a place to give orders.');
+  }
+
+  /** A tap while picking: adds the ships under it, or takes them out if all are in. */
+  function togglePicked(target) {
+    if (target.kind === 'ship') return toggleShip(target.id);
+    const ids = target.kind === 'ships-at' ? shipsAtBadge(target.id) : target.ids;
+    const selected = new Set(selectedIds());
+    if (!ids.every((id) => selected.has(id))) return selectShips(ids, { additive: true });
+    const rest = [...selected].filter((id) => !ids.includes(id));
+    return rest.length ? selectShips(rest) : close();
+  }
+
+  function selectedIds() {
+    return ui.selection?.kind === 'ships' ? ui.selection.ids : ui.selection?.kind === 'ship' ? [ui.selection.id] : [];
+  }
+
   /** The ships selected now: one, several, or none. */
   function selectedShips() {
     if (!isMapView(ui.view)) return [];
@@ -211,6 +247,7 @@ export function createApp(session, doc = document) {
 
   function close() {
     ui.selection = null;
+    ui.picking = false;
     ui.trade = null;
     ui.overview = false;
     ui.menu = null;
@@ -227,6 +264,7 @@ export function createApp(session, doc = document) {
     if (view === ui.view && isMapView(view)) {
       if (isPhone()) ui.overview = !ui.overview || Boolean(ui.selection);
       ui.selection = null;
+      ui.picking = false;
     } else if (isMapView(view) && ui.selection && !['ship', 'ships'].includes(ui.selection.kind)) {
       // Ships stay selected across the two maps; places belong to one.
       ui.selection = null;
@@ -249,6 +287,11 @@ export function createApp(session, doc = document) {
     if (!target) return;
     // A galaxy ship badge stands for its system.
     if (target.kind === 'ships-at') target = { kind: 'system', id: target.id.split('|')[0] };
+    // On touch, holding a ship picks it (see pickShips).
+    if (point.touch && (target.kind === 'ship' || target.kind === 'flock')) {
+      pickShips(target.kind === 'ship' ? [target.id] : target.ids);
+      return;
+    }
     if (target.kind === 'ship') {
       select('ship', target.id);
       return;
@@ -369,11 +412,11 @@ export function createApp(session, doc = document) {
     if (visible) {
       renderInto(els.panelBody, panelContent(ctx));
       // A different thing in the panel starts at the top, and on phones
-      // opens the sheet again.
+      // opens the sheet again (but not while picking ships on the map).
       const key = `${ui.view}:${ui.selection?.kind}:${ui.selection?.id}`;
       if (key !== panelKey) {
         els.panelBody.scrollTop = 0;
-        sheet?.open();
+        if (!ui.picking) sheet?.open();
       }
       panelKey = key;
     } else panelKey = null;
@@ -476,7 +519,7 @@ export function createApp(session, doc = document) {
     if (change.result && change.result.ok === false && change.result.error) toast(change.result.error, 'warning');
     for (const entry of change.log.filter((e) => TOAST_KINDS.has(e.kind)).slice(-3)) toast(entry.text, entry.kind);
     if (change.source === 'load') {
-      Object.assign(ui, { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, trade: null, miner: null, overview: false, menu: null });
+      Object.assign(ui, { view: 'system', map: 'system', systemId: HOME_SYSTEM.id, selection: null, picking: false, trade: null, miner: null, overview: false, menu: null });
       shownCredits = null;
     }
     render();
@@ -549,7 +592,9 @@ export function createApp(session, doc = document) {
     getStartView: startViewFor,
     getOpenSystem: () => ui.systemId,
     isCompact: isPhone,
+    isPicking: () => ui.picking && isMapView(ui.view),
     onSelect(target, mods = {}) {
+      if (ui.picking && isMapView(ui.view) && ['ship', 'flock', 'ships-at'].includes(target?.kind)) return togglePicked(target);
       const again = target && ui.selection?.kind === target.kind && ui.selection.id === target.id;
       if (target?.kind === 'ship' && mods.additive) toggleShip(target.id);
       else if (target?.kind === 'ships-at') pickBadge(target.id, mods);
