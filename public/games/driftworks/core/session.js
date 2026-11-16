@@ -23,8 +23,8 @@ function startFresh(saves, now) {
   return state;
 }
 
-export function createSession({ storage, clock = () => Date.now() } = {}) {
-  const saves = createSaveStore(storage);
+export function createSession({ storage, saveName, clock = () => Date.now() } = {}) {
+  const saves = createSaveStore(storage, saveName);
   let state = normalize(saves.load() ?? startFresh(saves, clock()));
   const listeners = new Set();
 

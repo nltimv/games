@@ -1,5 +1,5 @@
 // The "while you were away" dialog, and the Settings page of the game
-// menu (backups and starting over; see menu.js).
+// menu (starting over; see menu.js).
 
 import { formatClock, formatDuration } from '../../../shared/js/format.js';
 import { logSince } from '../systems/log.js';
@@ -51,35 +51,15 @@ export function showAway(dialog, state, since, now) {
 }
 
 /**
- * The Settings page of the game menu: copy a backup code, restore one, or
- * start over. `head` is the page heading (with its Back button); `onDone`
- * closes the menu after a load or a reset.
+ * The Settings page of the game menu: start over. Saves and their codes
+ * are the main menu's job. `head` is the page heading (with its
+ * Back button); `onDone` closes the menu after a reset.
  */
 export function settingsPage({ session, onToast, onDone, head }) {
   let confirmReset = false;
   const body = h('div', { class: 'dw-modal-body' });
 
   function render() {
-    const code = session.exportText();
-    const exportBox = h('textarea', { readonly: true, 'aria-label': 'Backup code', rows: 3 }, code);
-    const importBox = h('textarea', { 'aria-label': 'Paste a backup code', placeholder: 'Paste a backup code here', rows: 3 });
-
-    const copy = async () => {
-      try {
-        await navigator.clipboard.writeText(code);
-        onToast('Backup code copied.');
-      } catch {
-        exportBox.select();
-        onToast('Select the code and copy it.');
-      }
-    };
-    const load = () => {
-      if (!importBox.value.trim()) return onToast('Paste a backup code first.', 'warning');
-      if (session.importText(importBox.value)) {
-        onToast('Backup loaded.');
-        onDone();
-      } else onToast('That code is not a Driftworks backup.', 'warning');
-    };
     const reset = () => {
       if (!confirmReset) {
         confirmReset = true;
@@ -94,9 +74,7 @@ export function settingsPage({ session, onToast, onDone, head }) {
 
     body.replaceChildren(
       ...[
-        h('p', { class: 'dw-note' }, 'Your company is saved in this browser. Copy the backup code to move it to another device or keep it safe.'),
-        h('div', { class: 'dw-section' }, exportBox, h('div', { class: 'dw-row-actions' }, button('Copy backup code', { onClick: copy, key: 'settings-copy' }))),
-        h('div', { class: 'dw-section' }, importBox, h('div', { class: 'dw-row-actions' }, button('Load backup', { onClick: load, key: 'settings-load' }))),
+        h('p', { class: 'dw-note' }, 'Starting over replaces this save with a new company. To keep it and start another, use New game in the main menu.'),
         h(
           'div',
           { class: 'dw-section' },

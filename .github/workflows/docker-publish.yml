@@ -24,6 +24,22 @@ jobs:
     permissions:
       contents: read
 
+    # A throwaway PostgreSQL for the cloud save API tests (test/cloud).
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: games
+          POSTGRES_PASSWORD: games
+          POSTGRES_DB: games_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U games"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,6 +58,8 @@ jobs:
 
       - name: Test
         run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://games:games@localhost:5432/games_test
 
   version:
     name: Resolve release version
@@ -139,7 +157,18 @@ jobs:
         uses: azure/setup-helm@v4
 
       - name: Lint chart
-        run: helm lint helm/games-hub
+        run: |
+          helm lint helm/games-hub
+          # Cloud saves with the bundled database, and with an external one plus mail.
+          helm lint helm/games-hub --set cloudSaves.enabled=true --set postgresql.enabled=true
+          helm lint helm/games-hub --set cloudSaves.enabled=true \
+            --set externalDatabase.host=db.example --set externalDatabase.existingSecret=db \
+            --set mail.enabled=true --set mail.host=smtp.example --set mail.existingSecret=smtp
+          # More than one replica with cloud saves must be refused.
+          if helm template t helm/games-hub --set cloudSaves.enabled=true --set postgresql.enabled=true --set replicaCount=2 >/dev/null 2>&1; then
+            echo "Expected the chart to refuse cloud saves with 2 replicas" >&2
+            exit 1
+          fi
 
       - name: Package chart
         run: |

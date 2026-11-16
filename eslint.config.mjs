@@ -31,7 +31,7 @@ export default [
     languageOptions: { sourceType: 'module', globals: globals.browser },
   },
   {
-    files: ['server.js'],
+    files: ['server.js', 'server/**/*.js'],
     languageOptions: { sourceType: 'commonjs', globals: globals.node },
   },
   {

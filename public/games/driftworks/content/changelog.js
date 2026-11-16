@@ -13,10 +13,11 @@ export const CHANGELOG = [
     version: '0.5.0',
     title: 'A proper menu, and a map that knows the way up',
     changes: [
-      'A new game menu holds your settings, backups and the way back to the Games Hub.',
+      'The game opens with a main menu: continue, start a new game, or load another save. You can keep several saves and name them.',
+      'A new in-game menu holds What’s new, settings, your save and the way back to the Games Hub.',
       'The button at the top left now takes you up from a system to the galaxy map.',
       'Scouts come with the warp drive. The Scout licence research is gone, and if it was still in your lab, its credits are back in your account.',
-      'Cloud saves: make an account without any personal details, play on any device with autosave, and choose which save to keep when two devices disagree. Playing offline still works.',
+      'Cloud saves: every save gets a save code. Enter the code on another device to play the same save there, with autosave. No account or personal details needed, and playing offline still works. Save codes replace backup codes.',
       'Research on a computer now shows the whole research tree, grouped by act, with what each research needs.',
       'This list shows up after each update, and the menu keeps it for later.',
     ],
