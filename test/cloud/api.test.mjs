@@ -10,6 +10,7 @@ const express = require('express');
 const { createPool, migrate } = require('../../server/db.js');
 const { createCloudRouter } = require('../../server/cloud.js');
 const { createHasher } = require('../../server/crypto.js');
+const fs = require('node:fs');
 
 const URL = process.env.TEST_DATABASE_URL;
 const PEPPER = 'a-test-pepper-that-is-long-enough-123';
@@ -90,7 +91,7 @@ test('migrations are applied once and are safe to run again', { skip }, async ()
   const { rows } = await pool.query('SELECT name FROM schema_migrations');
   assert.deepEqual(
     rows.map((r) => r.name),
-    ['001_init.sql'],
+    ['001_init.sql', '002_saves_from_accounts.sql'],
   );
 });
 
@@ -217,4 +218,46 @@ test('deleting a cloud save removes it and its code', { skip }, async () => {
   assert.equal((await call('DELETE', '/saves/driftworks', { code })).status, 204);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM saves')).rows[0].n, 0);
   assert.equal((await call('GET', '/saves/driftworks', { code })).status, 401);
+});
+
+// Runs last: it rebuilds the tables as the first cloud save version left them.
+test('a database from the accounts version is upgraded; saves with a recovery email are kept', { skip }, async () => {
+  const hash = createHasher(PEPPER);
+  await pool.query('DROP TABLE IF EXISTS saves, sessions, accounts, schema_migrations CASCADE');
+  await pool.query(fs.readFileSync(new globalThis.URL('fixtures/accounts-schema.sql', import.meta.url), 'utf8'));
+  await pool.query(
+    "CREATE TABLE schema_migrations (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now()); INSERT INTO schema_migrations VALUES (1, '001_init.sql', now())",
+  );
+  const withEmail = '11111111-1111-4111-8111-111111111111';
+  const without = '22222222-2222-4222-8222-222222222222';
+  await pool.query('INSERT INTO accounts (id, number_hash, email_hash) VALUES ($1, $2, $3), ($4, $5, NULL)', [
+    withEmail,
+    Buffer.from('a'),
+    hash.email('old@example.com'),
+    without,
+    Buffer.from('b'),
+  ]);
+  await pool.query(
+    "INSERT INTO saves (account_id, game, revision, data, summary) VALUES ($1, 'driftworks', 5, $2, $3), ($4, 'driftworks', 2, $5, '{}')",
+    [withEmail, save(77), { name: 'Old' }, without, save(1)],
+  );
+
+  assert.deepEqual(await migrate(pool), ['002_saves_from_accounts.sql']);
+  const tables = await pool.query("SELECT to_regclass('accounts') AS a, to_regclass('sessions') AS s");
+  assert.deepEqual(tables.rows[0], { a: null, s: null });
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM saves')).rows[0].n, 1, 'the save without an email is dropped');
+
+  // The kept save is reached through email recovery, which gives it a code.
+  assert.equal((await call('POST', '/recovery', { body: { email: 'old@example.com' } })).status, 202);
+  await waitForMail();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].saves[0].name, 'Old');
+  const got = await call('GET', '/saves/driftworks', { code: sent[0].saves[0].code });
+  assert.equal(got.status, 200);
+  assert.equal(got.body.revision, 5);
+  assert.equal(got.body.data.credits, 77);
+
+  // And new saves work as on a fresh database.
+  const code = await newSave();
+  assert.equal((await call('PUT', '/saves/driftworks', { code, body: { baseRevision: 0, data: save(3) } })).status, 200);
 });

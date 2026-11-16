@@ -3,6 +3,8 @@
 // PostgreSQL pool and schema migrations. Migrations are the numbered .sql
 // files in ./migrations, applied in order on start, each in a transaction,
 // under an advisory lock so two pods starting together cannot race.
+// A migration that has shipped is never edited or renumbered: databases that
+// ran it will not run it again. Change the schema with a new file instead.
 
 const fs = require('node:fs');
 const path = require('node:path');
