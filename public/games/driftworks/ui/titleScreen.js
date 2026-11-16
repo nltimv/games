@@ -381,7 +381,13 @@ export function startTitleScreen() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, hgt);
 
-    // Stars drift left, nearer ones faster.
+    // Stars drift left, nearer ones faster, and stay behind the planet.
+    const { planet } = scene;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w, hgt);
+    ctx.arc(planet.x, planet.y, planet.r, 0, Math.PI * 2);
+    ctx.clip('evenodd');
     for (const star of stars) {
       let x = (star.x - t * 6 * star.depth) % w;
       if (x < 0) x += w;
@@ -391,6 +397,7 @@ export function startTitleScreen() {
       const s = star.size;
       ctx.fillRect(x - s / 2, y - s / 2, s, s);
     }
+    ctx.restore();
 
     const { station } = scene;
     if (sprites.dock) drawSprite(ctx, sprites.dock, station.x, station.y, 0, 0.6 + 0.4 * Math.sin(t * 0.8));
