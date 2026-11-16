@@ -13,6 +13,7 @@ import { LEGACY_SAVE_NAME, canLoadSave, cloudApi, slotSummary, slots } from '../
 import { h } from './dom.js';
 import { button } from './components.js';
 import { menuItem, pageHead } from './menu.js';
+import { startTitleScreen, titleLogo } from './titleScreen.js';
 
 const HUB_URL = '/';
 
@@ -58,6 +59,7 @@ export function showMainMenu(dialog, { config }) {
     let notice = null; // { text, warn }
     let pending = false;
     let confirmDelete = false;
+    const title = startTitleScreen();
 
     // The game is not running yet: there is nothing to go back to.
     const keepOpen = (e) => e.preventDefault();
@@ -65,7 +67,8 @@ export function showMainMenu(dialog, { config }) {
 
     function play(id) {
       dialog.removeEventListener('cancel', keepOpen);
-      dialog.classList.remove('is-menu', 'is-main-menu');
+      dialog.classList.remove('is-menu', 'is-main-menu', 'is-title');
+      title.stop();
       dialog.close();
       dialog.replaceChildren();
       resolve(id);
@@ -102,6 +105,8 @@ export function showMainMenu(dialog, { config }) {
       const line = notice ? h('p', { class: `dw-note${notice.warn ? ' is-warn' : ''}`, role: 'status' }, notice.text) : null;
       dialog.replaceChildren(...[head, line, ...rest].filter(Boolean));
       dialog.classList.add('is-menu', 'is-main-menu');
+      // The first page shows the logo over the title scene, its menu on a card below.
+      dialog.classList.toggle('is-title', page === 'main');
       if (!dialog.open) dialog.showModal();
       // Pages that ask for one thing start in its field; the others on their first button.
       const input = ['new', 'add', 'recover'].includes(page) ? dialog.querySelector('input') : null;
@@ -115,10 +120,10 @@ export function showMainMenu(dialog, { config }) {
       const saves = slots.list();
       const latest = saves[0];
       return [
-        pageHead('Driftworks', { eyebrow: 'Games Hub' }),
+        titleLogo(),
         h(
           'nav',
-          { class: 'dw-gm-list', 'aria-label': 'Main menu' },
+          { class: 'dw-gm-list dw-title-card glass', 'aria-label': 'Main menu' },
           latest
             ? menuItem({ icon: 'play', label: 'Continue', sub: `${latest.name} · ${describeSave(slotSummary(latest.id))}`, onClick: () => play(latest.id), key: 'main-continue' })
             : null,
