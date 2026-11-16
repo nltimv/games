@@ -147,9 +147,10 @@ without them the hub needs no database and games save in the browser only.
 - **Save codes, no accounts.** Every save gets a random 16-digit save
   code. Entering the code on another device loads the same save there:
   whoever has the code can play the save. The code is shown in the game's
-  save list. On the server it is stored only as a keyed hash (HMAC-SHA256
-  with a server secret, the *pepper*), so the database alone does not
-  reveal it.
+  save list. On the server it is looked up by a keyed hash (HMAC-SHA256
+  with a server secret, the *pepper*) and kept encrypted with a key derived
+  from the pepper (AES-256-GCM), so recovery can mail it again. The
+  database alone does not reveal it.
 - **Driftworks.** The game opens with a main menu: Continue, New game and
   Load game. A device can hold several named saves; each plays from the
   browser's storage, works offline, and is pushed to its cloud save every
@@ -160,8 +161,9 @@ without them the hub needs no database and games save in the browser only.
   save and gets its code after a short explanation.
 - **Recovery.** A player can link an email to a save; a confirmation with
   the code is mailed there. The address is stored as a keyed hash too. If
-  the code is lost, entering the email sends new codes for every save
-  linked to it, and the old codes stop working. Without mail configured
+  the code is lost, entering the email mails the codes of every save
+  linked to it. (A save made before codes were kept encrypted, and not
+  played since, gets a new code instead.) Without mail configured
   the option is hidden.
 - **Server.** PostgreSQL, schema migrations applied on start
   ([`server/migrations/`](server/migrations)), rate limits on new saves,

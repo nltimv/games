@@ -66,3 +66,17 @@ test('rate limiter blocks after the limit and resets after the window', () => {
   assert.equal(limiter.blocked('ip').ok, true);
   assert.equal(limiter.hit('ip').ok, true);
 });
+
+test('codes encrypt and decrypt under the pepper only, with a fresh iv each time', () => {
+  const hasher = createHasher(PEPPER);
+  const code = '1234567890123456';
+  const a = hasher.encryptCode(code);
+  const b = hasher.encryptCode(code);
+  assert.notDeepEqual(a, b);
+  assert.equal(hasher.decryptCode(a), code);
+  assert.equal(createHasher(`${PEPPER}-other`).decryptCode(a), null);
+  const tampered = Buffer.from(a);
+  tampered[tampered.length - 1] ^= 1;
+  assert.equal(hasher.decryptCode(tampered), null);
+  assert.equal(hasher.decryptCode(null), null);
+});

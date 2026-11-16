@@ -21,7 +21,7 @@ let server;
 let base;
 const sent = [];
 const mailer = {
-  async sendNewCodes(to, saves) {
+  async sendCodes(to, saves) {
     sent.push({ kind: 'recovery', to, saves });
   },
   async sendEmailLinked(to, save) {
@@ -90,11 +90,11 @@ test('migrations are applied once and are safe to run again', { skip }, async ()
   const { rows } = await pool.query('SELECT name FROM schema_migrations');
   assert.deepEqual(
     rows.map((r) => r.name),
-    ['001_init.sql'],
+    ['001_init.sql', '002_code_encrypted.sql'],
   );
 });
 
-test('a new save gets a grouped code; the database holds only its hash; no cookie is set', { skip }, async () => {
+test('a new save gets a grouped code; the database holds its hash and no plain code; no cookie is set', { skip }, async () => {
   const res = await call('POST', '/saves/driftworks', { body: {} });
   assert.equal(res.status, 201);
   assert.match(res.body.code, /^\d{4} \d{4} \d{4} \d{4}$/);
@@ -103,7 +103,7 @@ test('a new save gets a grouped code; the database holds only its hash; no cooki
   const { rows } = await pool.query('SELECT * FROM saves');
   assert.equal(rows.length, 1);
   assert.deepEqual(rows[0].code_hash, createHasher(PEPPER).code(digits));
-  assert.ok(!JSON.stringify(rows).includes(digits), 'the code is not stored');
+  assert.ok(!JSON.stringify(rows).includes(digits), 'the code is not stored in plain text');
 
   const empty = await call('GET', '/saves/driftworks', { code: res.body.code });
   assert.equal(empty.status, 200);
@@ -179,7 +179,7 @@ test('linking an email stores only its hash and mails a confirmation with the co
   assert.equal((await call('GET', '/saves/driftworks', { code })).body.hasEmail, false);
 });
 
-test('recovery mails new codes for every save of the address; the old codes stop working', { skip }, async () => {
+test('recovery mails the existing codes of every save of the address, and they keep working', { skip }, async () => {
   const one = await newSave();
   const two = await newSave();
   const other = await newSave();
@@ -195,14 +195,45 @@ test('recovery mails new codes for every save of the address; the old codes stop
   assert.equal(sent.length, 1);
   assert.equal(sent[0].kind, 'recovery');
   assert.equal(sent[0].to, 'player@example.com');
-  assert.equal(sent[0].saves.length, 2);
-  const first = sent[0].saves.find((s) => s.name === 'First');
-  assert.notEqual(first.code, one);
+  assert.deepEqual(sent[0].saves.map((s) => s.code).sort(), [one, two].sort());
+  assert.equal(sent[0].saves.find((s) => s.code === one).name, 'First');
 
-  assert.equal((await call('GET', '/saves/driftworks', { code: one })).status, 401, 'old code stops working');
-  assert.equal((await call('GET', '/saves/driftworks', { code: two })).status, 401);
-  assert.equal((await call('GET', '/saves/driftworks', { code: first.code })).body.data.credits, 42, 'the save itself is kept');
+  assert.equal((await call('GET', '/saves/driftworks', { code: one })).body.data.credits, 42, 'the code still works');
+  assert.equal((await call('GET', '/saves/driftworks', { code: two })).status, 200);
   assert.equal((await call('GET', '/saves/driftworks', { code: other })).status, 200, 'other saves are untouched');
+});
+
+test('codes are stored encrypted, not in plain text; a save from before that gets it on its next use', { skip }, async () => {
+  const code = await newSave();
+  const digits = code.replace(/\D/g, '');
+  const hasher = createHasher(PEPPER);
+  const { rows } = await pool.query('SELECT code_enc FROM saves');
+  assert.ok(!rows[0].code_enc.toString('latin1').includes(digits));
+  assert.equal(hasher.decryptCode(rows[0].code_enc), digits);
+
+  await pool.query('UPDATE saves SET code_enc = NULL');
+  assert.equal((await call('GET', '/saves/driftworks', { code })).status, 200);
+  const after = (await pool.query('SELECT code_enc FROM saves')).rows[0].code_enc;
+  assert.equal(hasher.decryptCode(after), digits);
+});
+
+test('recovery gives a new code only to a save whose code the server cannot read back', { skip }, async () => {
+  const kept = await newSave();
+  const old = await newSave();
+  for (const code of [kept, old]) await call('PUT', '/saves/driftworks/email', { code, body: { email: 'mixed@example.com' } });
+  await waitForMail();
+  sent.length = 0;
+  await pool.query('UPDATE saves SET code_enc = NULL WHERE code_hash = $1', [createHasher(PEPPER).code(old.replace(/\D/g, ''))]);
+
+  assert.equal((await call('POST', '/recovery', { body: { email: 'mixed@example.com' } })).status, 202);
+  await waitForMail();
+  const codes = sent[0].saves.map((s) => s.code);
+  assert.ok(codes.includes(kept));
+  assert.ok(!codes.includes(old));
+  assert.equal((await call('GET', '/saves/driftworks', { code: kept })).status, 200);
+  assert.equal((await call('GET', '/saves/driftworks', { code: old })).status, 401, 'the unreadable code was replaced');
+  const fresh = codes.find((c) => c !== kept);
+  assert.equal((await call('GET', '/saves/driftworks', { code: fresh })).status, 200);
 });
 
 test('recovery is rate limited per address', { skip }, async () => {

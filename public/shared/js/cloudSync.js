@@ -175,7 +175,7 @@ export function createCloudSync({ game, saveKey, metaKey, getName = () => '', su
     writeMeta({ backup: { data, from, at: now() } });
   }
 
-  /** The code stopped working (recovered by email, or the cloud save was deleted): this save gets a new one. */
+  /** The code stopped working (the cloud save was deleted, or its code replaced): this save gets a new one. */
   function loseCode() {
     conflict = null;
     codeReplaced = true;

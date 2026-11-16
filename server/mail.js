@@ -29,24 +29,24 @@ function createMailer(env = process.env) {
           line(save),
           '',
           'Keep this mail: with the save code you can load the save on any device.',
-          'If you lose the code, choose "Lost a code?" in the game and we send a new one here.',
+          'If you lose the code, choose "Lost a code?" in the game and we send it here again.',
           'If you did not add this address, you can ignore this mail.',
         ].join('\n'),
       });
     },
-    /** Sends the new codes of every save linked to the address. */
-    async sendNewCodes(to, saves) {
+    /** Sends the codes of every save linked to the address. */
+    async sendCodes(to, saves) {
       await transport.sendMail({
         from,
         to,
-        subject: saves.length > 1 ? 'Your new Games Hub save codes' : 'Your new Games Hub save code',
+        subject: saves.length > 1 ? 'Your Games Hub save codes' : 'Your Games Hub save code',
         text: [
-          'Someone asked to recover the Games Hub saves linked to this email address.',
+          'Someone asked for the codes of the Games Hub saves linked to this email address.',
           '',
           ...saves.map(line),
           '',
-          'The old codes no longer work. Add a save to a device with its new code.',
-          'If you did not ask for this, use the new codes from now on; nothing else changed.',
+          'Add a save to a device with its code: Load game, Add a save with a code.',
+          'If you did not ask for this, you can ignore this mail; nothing changed.',
         ].join('\n'),
       });
     },

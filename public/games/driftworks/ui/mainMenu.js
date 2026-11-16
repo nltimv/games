@@ -246,14 +246,14 @@ export function showMainMenu(dialog, { config }) {
           const res = await cloudApi.recover(input.querySelector('input').value);
           if (res.status === 202) {
             page = 'add';
-            notice = say('Check your inbox. If saves are linked to that address, their new codes are on the way.');
+            notice = say('Check your inbox. If saves are linked to that address, their codes are on the way.');
           } else notice = say(res.body?.error ?? 'Could not send the mail.', true);
         });
       };
       return [
         pageHead('Lost a code?', { onBack: () => go('add') }),
-        h('p', { class: 'dw-note' }, 'If you linked an email to a save, we send new codes for your saves there. The old codes stop working.'),
-        h('form', { class: 'dw-cloud-form', onSubmit: submit }, input, h('div', { class: 'dw-row-actions' }, button('Send new codes', { variant: 'primary', disabled: pending, onClick: submit, key: 'recover-submit' }))),
+        h('p', { class: 'dw-note' }, 'If you linked an email to a save, we mail the codes of your saves there.'),
+        h('form', { class: 'dw-cloud-form', onSubmit: submit }, input, h('div', { class: 'dw-row-actions' }, button('Send my codes', { variant: 'primary', disabled: pending, onClick: submit, key: 'recover-submit' }))),
       ];
     }
 
@@ -331,11 +331,11 @@ export function showMainMenu(dialog, { config }) {
               h('h3', { class: 'dw-section-title' }, h('span', null, 'Recovery email')),
               meta.hasEmail
                 ? [
-                    h('p', { class: 'dw-note' }, 'An email is linked. If you lose the code, you can have a new one sent there.'),
+                    h('p', { class: 'dw-note' }, 'An email is linked. If you lose the code, you can have it sent there again.'),
                     h('div', { class: 'dw-row-actions' }, button('Remove email', { disabled: pending, onClick: unlinkEmail })),
                   ]
                 : [
-                    h('p', { class: 'dw-note' }, 'Optional. We mail the code there now, and a new one if you ever lose it. The address is stored scrambled, so it cannot be read back.'),
+                    h('p', { class: 'dw-note' }, 'Optional. We mail the code there now, and again if you ever lose it. The address is stored scrambled, so it cannot be read back.'),
                     h('form', { class: 'dw-cloud-form', onSubmit: linkEmail }, emailInput, h('div', { class: 'dw-row-actions' }, button('Link email', { disabled: pending, onClick: linkEmail }))),
                   ],
             )

@@ -120,7 +120,7 @@ export function showSaveCode(dialog, { cloud, name, toast }) {
       return [
         eyebrow,
         h('h2', { id: 'modal-title' }, 'Add a recovery email'),
-        h('p', { class: 'dw-note' }, 'If you ever lose the code, we send a new one to this address. We mail you the code now too.'),
+        h('p', { class: 'dw-note' }, 'We mail the code there now, and again if you ever lose it.'),
         h(
           'form',
           { class: 'dw-cloud-form', onSubmit: submit },
