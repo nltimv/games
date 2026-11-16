@@ -37,14 +37,14 @@ import {
   specLabel,
 } from '../../systems/orders.js';
 import { bestModules, orderSlots } from '../../systems/research.js';
-import { minePreview, saleValue, stationsInRange } from '../../systems/advisor.js';
+import { minePreview, saleProfit, saleValue, stationsInRange } from '../../systems/advisor.js';
 import { findEntry } from '../../systems/market.js';
 import { surveyable, surveyorOf } from '../../systems/explore.js';
 import { plotCourse } from '../../systems/travel.js';
 import { bar, countdown, h } from '../dom.js';
 import { buildTag, button, chip, contractMark, panelHead, removeButton, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { at, plusCredits, rackName, routeText, span, timing, tonnes } from '../format.js';
+import { at, netAfterFees, plusCredits, rackName, routeText, span, timing, tonnes } from '../format.js';
 import { richnessLabel } from './field.js';
 import { aboardSection, commanderSections, fleetSection } from './commander.js';
 
@@ -333,10 +333,12 @@ function newOrders(ctx, ship) {
       if (course && !course.ok) continue;
       const total = goods.reduce((sum, g) => sum + saleValue(state, station.id, g, view.cargo[g], now).total, 0);
       const here = !queued && ship.at === station.id;
-      (local ? near : far).push({ station, goods, total, here, course });
+      // Away: what is left after the goods' cost and the jump fees there and back.
+      const net = local ? null : saleProfit(state, view, station.id, goods, course.fees, now).profit;
+      (local ? near : far).push({ station, goods, total, here, course, net });
     }
     near.sort((a, b) => b.total - a.total);
-    far.sort((a, b) => b.total - (b.course?.fees ?? 0) - (a.total - (a.course?.fees ?? 0)));
+    far.sort((a, b) => b.net - a.net);
     const rows = [...near, ...far.slice(0, 3)];
     sections.push(
       h(
@@ -363,6 +365,7 @@ function newOrders(ctx, ship) {
                     h('strong', { class: 'is-good' }, `${row.here ? '' : 'about '}${plusCredits(row.total)}`),
                   ),
                   h('span', null, [row.goods.map((g) => goodName(g).toLowerCase()).join(', '), row.course ? ` · ${routeText(row.course)}` : ''].join('')),
+                  row.net != null ? h('span', { class: row.net < 0 ? 'is-loss' : null }, netAfterFees(row.net)) : null,
                 ),
               ),
             )

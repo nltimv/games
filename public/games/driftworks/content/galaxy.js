@@ -407,6 +407,7 @@ function buildSystem(seed, point, depthOf, faction, neighbours, hazard) {
 
   const factory = factoryFor(seed, point, depthOf, faction, stations);
   if (factory) stations.push(factory);
+  addImports(point, stations);
 
   return {
     id,
@@ -440,7 +441,20 @@ function factoryFor(seed, point, depthOf, faction, stations) {
   const skip = Math.floor(rng() * all.length);
   const sells = all.filter((_, i) => i !== skip);
   const buys = [...new Set(sells.flatMap((good) => COMPONENTS[good]))];
-  // In the widest gap between the other stations.
+  return {
+    id: `${point.id}-factory`,
+    name: `${point.name} ${STATION_LABELS.factory}`,
+    short: STATION_LABELS.factory,
+    type: 'factory',
+    faction,
+    buys,
+    sells,
+    ...polar(between(rng, 165, 215), widestGap(rng, stations)),
+  };
+}
+
+/** The angle in the widest gap between a system's stations (a random one when it has none). */
+function widestGap(rng, stations) {
   const angles = stations.map((s) => deg(Math.atan2(s.y, s.x))).sort((a, b) => a - b);
   let angle = rng() * 360;
   if (angles.length) {
@@ -453,16 +467,32 @@ function factoryFor(seed, point, depthOf, faction, stations) {
       }
     });
   }
-  return {
-    id: `${point.id}-factory`,
-    name: `${point.name} ${STATION_LABELS.factory}`,
-    short: STATION_LABELS.factory,
-    type: 'factory',
-    faction,
-    buys,
-    sells,
-    ...polar(between(rng, 165, 215), angle),
-  };
+  return angle;
+}
+
+/**
+ * Aurel's four neighbours are short of goods Aurel's refinery makes, and pay
+ * well for them (the `imports` curve), so the first trade through a gate
+ * pays for its jumps. The goods are the same in every save.
+ */
+export const HOME_IMPORTS = {
+  brennan: ['iron', 'graphite'],
+  dace: ['silicon', 'iron'],
+  elm: ['graphite', 'silicon'],
+  fenn: ['iron', 'silicon'],
+};
+
+/**
+ * Gives a home neighbour its imports: its foundry or trading post buys them,
+ * else its refinery, which then makes none of them itself (see
+ * marketEntries), else its shipyard. No station is added, so saves keep
+ * the systems they know.
+ */
+function addImports(point, stations) {
+  const imports = HOME_IMPORTS[point.id];
+  if (!imports) return;
+  const host = ['foundry', 'tradingPost', 'refinery', 'shipyard'].map((type) => stations.find((s) => s.type === type)).find(Boolean);
+  if (host) host.imports = imports;
 }
 
 // ---------- Signals ----------

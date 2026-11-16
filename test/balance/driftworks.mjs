@@ -5,6 +5,8 @@
 //   npm run balance                     the worker profile, 6 days
 //   npm run balance -- casual 4         a profile and a number of days
 //   npm run balance -- all              every profile, side by side
+//   npm run balance -- goals            worker and casual for 30 days: fails when
+//                                       the action that completed a goal lost money
 //
 // Profiles:
 //   newcomer  one long first session (60 min), watching closely
@@ -67,7 +69,7 @@ import { LICENCE_LINE, RESEARCH, SHIELDINGS } from '../../public/games/driftwork
 import { HULLS } from '../../public/games/driftworks/content/ships.js';
 import { GOODS } from '../../public/games/driftworks/content/goods.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
-import { allSystems, lanesFrom, systemOf, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
+import { allStations, allSystems, lanesFrom, systemOf, useGalaxy } from '../../public/games/driftworks/content/galaxy.js';
 import { checkGoals } from '../../public/games/driftworks/systems/goals.js';
 import { createShip, hullLock, missingLicence } from '../../public/games/driftworks/systems/fleet.js';
 import {
@@ -104,7 +106,7 @@ import {
 } from '../../public/games/driftworks/systems/orders.js';
 import { freeLab, isResearched, orderSlots, researchCost, researchStatus, shieldingsDone, startResearch } from '../../public/games/driftworks/systems/research.js';
 import { SHIELDED_DEPTH, isShielded } from '../../public/games/driftworks/systems/shielding.js';
-import { bestTradeQty, saleValue, stationsInRange, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
+import { bestTradeQty, farTrade, feesBack, salvageResale, saleValue, stationsInRange, tradePlan } from '../../public/games/driftworks/systems/advisor.js';
 import { affordableQty, marketEntries, marketView, findEntry } from '../../public/games/driftworks/systems/market.js';
 import { holdOf } from '../../public/games/driftworks/systems/modules.js';
 import { canCarry, cargoTotal } from '../../public/games/driftworks/systems/cargo.js';
@@ -158,6 +160,8 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
   const report = { profileName, days, from, fleets, session: [], buys: [], research: [], breaks: [], perDay: [], spans: [], goals: {}, idleAfter: [], tradeRates: [], surveys: [], contracts: [], missions: [], salvaged: [], actEnds: {}, pointHours: {} };
   for (const id of state.goals) report.goals[id] = -Infinity;
   report.startStats = structuredClone(state.stats);
+  report.goalActions = {};
+  const ledger = goalLedger(state, report.goalActions);
   let clicks = 0;
   // Clicks by what they were for, since the last look began.
   let kinds = {};
@@ -191,6 +195,7 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
       row[ship.fleet || ship.commander ? 'fleet' : 'hand'] += HULLS[ship.hull].points * hours;
     }
     advance(state, t);
+    ledger.digest();
     for (const c of watched) {
       if (!state.contracts.active.includes(c) && c.delivered >= c.qty) {
         contractPay += c.reward;
@@ -286,11 +291,18 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
     const room = holdOf(ship) - cargoTotal(ship);
     // A player reading the menus starts from stations in range of the ship.
     const starts = profile.local && !homeOnly ? stationsInRange(state, ship.at) : stations;
+    // Goods other haulers already go to buy somewhere: a player spreads them out
+    // rather than sending two after the same stock.
+    const taken = new Set(
+      state.ships
+        .filter((s) => s !== ship && role(s) === 'hauler')
+        .flatMap((s) => [s.order?.spec, ...s.queue].filter((spec) => spec?.type === 'buy').map((spec) => `${spec.stationId}|${spec.good}`)),
+    );
     for (const from of starts) {
       const start = ship.at === from.id ? { ok: true, time: 0, fees: 0 } : plotCourse(state, ship, ship.at, from.id);
       if (!start.ok) continue;
       for (const entry of marketEntries(from.id)) {
-        if (entry.side !== 'sells' || !canCarry(ship, entry.good) || GOODS[entry.good].tier < minTier) continue;
+        if (entry.side !== 'sells' || !canCarry(ship, entry.good) || GOODS[entry.good].tier < minTier || taken.has(`${from.id}|${entry.good}`)) continue;
         const max = affordableQty(state, from.id, entry.good, cash() * 0.8, room, now);
         if (max <= 0) continue;
         const cost = marketView(state, from.id, entry.good, now).price;
@@ -589,16 +601,28 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
     // A player looks into a signal that is not much further than the next survey.
     const signal = nearestSignal(scout, (s) => !isInvestigated(state, s) && !workerAt(state, s.id, 'investigate'));
     if (signal && (!best || signal.time <= best.time + HOUR)) {
-      if (giveOrder(state, scout, { type: 'investigate', signalId: signal.signal.id }).ok) click(1, 'scouts');
+      if (giveOrder(state, scout, { type: 'investigate', signalId: signal.signal.id }).ok) {
+        click(1, 'scouts');
+        ledger.elsewhere(scout);
+      }
       return;
     }
-    if (best && giveOrder(state, scout, { type: 'survey', systemId: best.id }).ok) click(1, 'scouts');
+    if (best && giveOrder(state, scout, { type: 'survey', systemId: best.id }).ok) {
+      click(1, 'scouts');
+      ledger.surveyBy(best.id, scout);
+    }
   }
 
   /** Sends a hauler with a sealed hold to the nearest derelict nobody is salvaging. Returns whether it went. */
   function salvage(ship) {
     if (holdOf(ship) - cargoTotal(ship) < 1) return false;
-    const wreck = nearestSignal(ship, (s) => s.kind === 'derelict' && derelictLeft(state, s) > 0 && canCarry(ship, s.good) && !workerAt(state, s.id, 'salvage'));
+    // The salvage order's note gives the best sale after the jump fees both ways: a player goes when it pays.
+    const pays = (s) => {
+      const qty = Math.min(holdOf(ship) - cargoTotal(ship), derelictLeft(state, s));
+      const out = plotCourse(state, ship, ship.at, s.id);
+      return out.ok && (salvageResale(state, ship, s, qty, out.fees)?.profit ?? 0) > 0;
+    };
+    const wreck = nearestSignal(ship, (s) => s.kind === 'derelict' && derelictLeft(state, s) > 0 && canCarry(ship, s.good) && !workerAt(state, s.id, 'salvage') && pays(s));
     if (!wreck || wreck.time > 3 * HOUR) return false;
     if (!giveOrder(state, ship, { type: 'salvage', signalId: wreck.signal.id }).ok) return false;
     click(1, 'derelicts');
@@ -955,6 +979,22 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
         return;
       }
       if (cargoTotal(ship) === 0 && salvage(ship)) return;
+      // "Sell goods in another system": a player follows the guide's trade
+      // (select the hauler, Buy at the station, then pick the buyer on the
+      // galaxy map and Sell), once.
+      if (currentGoalId() === 'far-sale' && cargoTotal(ship) === 0 && !state.ships.some((s) => [s.order?.spec, ...s.queue].some((spec) => spec?.type === 'sell' && systemOf(spec.stationId) !== HOME_SYSTEM.id))) {
+        const guided = farTrade(state, ship, now);
+        if (guided && guided.profit > 0) {
+          const given = giveOrders(state, ship, [
+            { type: 'buy', stationId: guided.fromId, good: guided.good, qty: guided.qty },
+            { type: 'sell', stationId: guided.destId, good: guided.good },
+          ]);
+          if (given.ok) {
+            click(5, 'plan haulers');
+            return;
+          }
+        }
+      }
       // A player after "Sell steel or glass" (or a tier 4 good) sends a hauler on such a run, even if another route pays more.
       const goalTier = { 'sell-processed': 3, 'sell-component': 4 }[currentGoalId()];
       const forGoal = goalTier && canCarry(ship, goalTier === 3 ? 'steel' : 'circuits') ? bestTrade(ship, now, false, goalTier) : null;
@@ -1043,6 +1083,164 @@ function play(profileName, days, { from = null, saveAt = {}, fleets = true, haul
   return report;
 }
 
+// ---------- What each goal's completing action made ----------
+
+/**
+ * Watches the company log for the action that completed each goal (the
+ * entry just before "Goal complete", at the same moment) and works out what
+ * that action made:
+ *   sale      the sale, less what the goods cost and the jump fees the ship
+ *             paid since its last sale, and the fees back to where it set
+ *             out from when it sold in another system
+ *   contract  the reward, less the goods and fees of the ship that brought
+ *             the last tonnes
+ *   survey    the chart pay, less the fees the scout paid on its way
+ *   mission   what the mission brought in, fees paid (its captain's log)
+ * A buy, a salvage or anything else a ship did is settled at that ship's
+ * next sale. Research, builds and the like are investments, not trades:
+ * they are listed without a figure. Each `actions[goal]` is
+ * { kind, net, by, at }.
+ */
+// Goals a trade, a survey, a salvage or a mission completes. The rest are
+// research, ships, standing totals and the like: money spent, not made.
+const ACTION_GOALS = ['first-sale', 'carry-goods', 'first-contract', 'first-survey', 'far-sale', 'survey-5', 'friendly-2', 'sell-processed', 'hazard-survey', 'first-mission', 'sell-component', 'first-salvage', 'survey-100'];
+
+function goalLedger(state, actions) {
+  const tapped = [];
+  // The game keeps the last 200 log entries; a copy of every push keeps them all.
+  class TapLog extends Array {
+    push(...items) {
+      tapped.push(...items);
+      return super.push(...items);
+    }
+  }
+  state.log = TapLog.from(state.log);
+  const stationByName = new Map(allStations().map((s) => [s.name, s.id]));
+  const titles = new Map(GOALS.map((g) => [g.title, g.id]));
+  // Per ship (by name): fees and buys since its last sale, and where that was.
+  const books = new Map();
+  const book = (name) => {
+    if (!books.has(name)) books.set(name, { fees: 0, buys: 0, base: YARD });
+    return books.get(name);
+  };
+  const pending = new Map();
+  const surveyors = new Map();
+  // What each scout's last order was: only a survey's jumps count toward it.
+  const purpose = new Map();
+  // Surveys since the last goal: survey-5 and survey-100 count all of theirs.
+  let surveyRun = { net: 0, n: 0 };
+  let done = 0;
+
+  const ownerOf = (text) => state.ships.map((s) => s.name).sort((a, b) => b.length - a.length).find((name) => text.startsWith(`${name} `) || text.startsWith(`${name},`)) ?? null;
+  const stationIn = (text) => {
+    const m = text.match(/ at (.+?): [+−]/) ?? text.match(/ for (.+?): \+/);
+    return m ? stationByName.get(m[1]) ?? null : null;
+  };
+  const settle = (name, gross, stationId) => {
+    const b = book(name);
+    const ship = state.ships.find((s) => s.name === name);
+    const back = ship && stationId ? feesBack(state, ship, stationId, b.base) : 0;
+    const net = gross + b.fees - back;
+    for (const goal of pending.get(name) ?? []) actions[goal] = { ...actions[goal], net, back };
+    pending.delete(name);
+    books.set(name, { fees: 0, buys: 0, base: stationId ?? b.base });
+    return { net, back };
+  };
+
+  function record(goal, entry, at) {
+    if (!entry) {
+      actions[goal] = { kind: 'other', net: null, at };
+      return;
+    }
+    const owner = ownerOf(entry.text);
+    if (entry.text.startsWith('Survey done:')) {
+      const count = goal === 'survey-5' || goal === 'survey-100';
+      actions[goal] = count
+        ? { kind: `${surveyRun.n} surveys`, net: surveyRun.net, by: 'scouts', at }
+        : { kind: 'survey', net: entry.net ?? null, by: entry.by ?? 'a fleet', at };
+    } else if (entry.text.startsWith('Contract complete:')) {
+      actions[goal] = { kind: 'contract', net: entry.lastNet ?? entry.amount, by: entry.by, at };
+    } else if (owner && entry.kind === 'sale') {
+      actions[goal] = { kind: 'sale', net: entry.net, back: entry.back, by: owner, at };
+    } else if (owner && entry.text.includes(' mission around ')) {
+      actions[goal] = { kind: 'mission', net: null, by: owner, at };
+      pending.set(owner, [...(pending.get(owner) ?? []), goal]);
+    } else if (owner && entry.amount != null && entry.kind !== 'trade' && entry.kind !== 'purchase') {
+      actions[goal] = { kind: 'other', net: null, by: owner, at };
+    } else if (owner) {
+      // Settled at the ship's next sale.
+      actions[goal] = { kind: 'trip', net: null, by: owner, at };
+      pending.set(owner, [...(pending.get(owner) ?? []), goal]);
+    } else {
+      actions[goal] = { kind: 'other', net: null, at };
+    }
+  }
+
+  return {
+    surveyBy(systemId, scout) {
+      surveyors.set(allSystems().find((s) => s.id === systemId)?.name, scout.name);
+      purpose.set(scout.name, 'survey');
+    },
+    /** A scout sent on something other than a survey: its jumps don't count toward the next survey. */
+    elsewhere(scout) {
+      purpose.set(scout.name, 'other');
+    },
+    digest() {
+      for (; done < tapped.length; done += 1) {
+        const entry = tapped[done];
+        const owner = ownerOf(entry.text);
+        if (entry.text.startsWith('Goal complete: ')) {
+          const goal = titles.get(entry.text.slice(15).replace(/ \(\+.*\)$/, ''));
+          // A goal right after another one at the same moment was met before it was the goal: nothing pushed it.
+          const chained = tapped[done - 1]?.at === entry.at && tapped[done - 1].text.startsWith('Goal complete: ');
+          let k = done - 1;
+          while (k >= 0 && tapped[k].at === entry.at && / reached level /.test(tapped[k].text)) k -= 1;
+          if (ACTION_GOALS.includes(goal)) {
+            if (chained) actions[goal] = { kind: 'earlier', net: null, at: entry.at };
+            else record(goal, k >= 0 && tapped[k].at === entry.at ? tapped[k] : null, entry.at);
+          }
+          surveyRun = { net: 0, n: 0 };
+          continue;
+        }
+        if (entry.text.startsWith('Survey done:')) {
+          // The chart pay, less the fees the scout paid on its way there.
+          const scout = surveyors.get(entry.text.slice(13).split('.')[0]);
+          if (scout) {
+            entry.by = scout;
+            entry.net = (entry.amount ?? 0) + book(scout).fees;
+            books.set(scout, { ...book(scout), fees: 0 });
+            surveyRun = { net: surveyRun.net + entry.net, n: surveyRun.n + 1 };
+          }
+          continue;
+        }
+        if (owner && entry.kind === 'purchase' && / paid .* to jump to /.test(entry.text)) {
+          if (purpose.get(owner) !== 'other') book(owner).fees += entry.amount;
+        }
+        else if (owner && entry.kind === 'trade') book(owner).buys += entry.amount;
+        else if (owner && entry.kind === 'sale') {
+          // A hauler's sale says its profit over what the goods cost; a miner's ore cost nothing.
+          const profit = Number((entry.text.match(/profit ([−-]?[\d,.]+) cr/)?.[1] ?? '').replace(/,/g, '').replace('−', '-'));
+          const gross = Number.isFinite(profit) && /profit/.test(entry.text) ? profit : entry.amount;
+          Object.assign(entry, settle(owner, gross, stationIn(entry.text)));
+        } else if (owner && entry.kind === 'fleet') {
+          // A captain's log: what the mission brought in, fees paid.
+          for (const goal of pending.get(owner) ?? []) actions[goal] = { ...actions[goal], net: entry.amount ?? 0 };
+          pending.delete(owner);
+        } else if (owner && / delivered .* to /.test(entry.text)) {
+          const next = tapped[done + 1];
+          if (next?.text.startsWith('Contract complete:') && next.at === entry.at) {
+            // The reward, less the goods this ship bought for it and its fees.
+            const b = book(owner);
+            next.by = owner;
+            Object.assign(next, settle(owner, next.amount + b.buys, stationIn(next.text)));
+            next.lastNet = next.net;
+          }
+        }
+      }
+    },
+  };
+}
+
 // ---------- Printing ----------
 
 const median = (xs) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] : null);
@@ -1114,10 +1312,12 @@ function print(report) {
       `  day ${d.day}: earned ${String(d.earned).padStart(8)} cr, ${String(d.ships).padStart(2)} ships, ${d.points.padStart(5)} points, credits ${String(d.credits).padStart(8)}, ${clicks} clicks a look, miner queues ${median(spans)?.toFixed(0) ?? '-'} min, fleet busy ${idle?.toFixed(0) ?? '-'} min after the last look, ${d.contracts} contracts paid ${d.contractPay} cr, ${d.surveyed}/${d.enterable} systems surveyed/open`,
     );
   }
-  console.log('  goals:');
+  console.log('  goals, and what the action that completed each made (sales and contracts after cost and jump fees both ways):');
   for (const goal of GOALS) {
     const at = report.goals[goal.id];
-    console.log(`    ${goal.title.padEnd(42)} ${at == null ? 'not reached' : at === -Infinity ? 'before the save' : clock(report, at)}`);
+    const action = report.goalActions[goal.id];
+    const made = action ? `${action.kind.padEnd(8)} ${action.net == null ? 'not settled' : `${Math.round(action.net) >= 0 ? '+' : ''}${Math.round(action.net)} cr`}${action.by ? ` (${action.by})` : ''}` : '';
+    console.log(`    ${goal.title.padEnd(42)} ${(at == null ? 'not reached' : at === -Infinity ? 'before the save' : clock(report, at)).padEnd(13)} ${made}`);
   }
   console.log(`  total clicks ${report.clicks}, credits ${Math.round(state.credits)}, earned ${Math.round(state.stats.earned)}, research ${state.research.done.length}/${RESEARCH.length}`);
   for (const act of [1, 2, 3]) {
@@ -1201,7 +1401,24 @@ const names = first === 'all' ? Object.keys(PROFILES) : [first];
 const days = Number(second ?? 6);
 const from = flag('from')[0] ?? null;
 const saveAt = Object.fromEntries(flag('save-at').map((s) => [s.slice(0, s.indexOf(':')), s.slice(s.indexOf(':') + 1)]));
-for (const name of names) {
-  if (!PROFILES[name]) throw new Error(`Unknown profile "${name}". Try: ${Object.keys(PROFILES).join(', ')}, all`);
-  print(play(name, days, { from, saveAt: { ...saveAt }, fleets: !args.includes('--no-fleets'), haulers: flag('haulers')[0] ?? null }));
+// npm run balance -- goals: the worker and the casual player through act 3,
+// failing when the action that completed a goal lost money.
+const goalsCheck = first === 'goals';
+const profiles = goalsCheck ? ['worker', 'casual'] : names;
+const runDays = goalsCheck ? Number(second ?? 30) : days;
+const losses = [];
+for (const name of profiles) {
+  if (!PROFILES[name]) throw new Error(`Unknown profile "${name}". Try: ${Object.keys(PROFILES).join(', ')}, all, goals`);
+  const report = play(name, runDays, { from, saveAt: { ...saveAt }, fleets: !args.includes('--no-fleets'), haulers: flag('haulers')[0] ?? null });
+  print(report);
+  for (const [goal, action] of Object.entries(report.goalActions)) {
+    if (action.net == null && !['other', 'earlier'].includes(action.kind)) losses.push(`${name}: ${GOALS.find((g) => g.id === goal).title}: ${action.kind} by ${action.by} not settled by the end of the run`);
+    else if (action.net != null && action.net < 0) losses.push(`${name}: ${GOALS.find((g) => g.id === goal).title}: ${action.kind} by ${action.by}, ${Math.round(action.net)} cr`);
+  }
+}
+if (losses.length) {
+  console.log(`\nGoals whose completing action lost money:\n  ${losses.join('\n  ')}`);
+  if (goalsCheck) process.exitCode = 1;
+} else {
+  console.log('\nEvery goal completed by a trade, survey or mission made money.');
 }

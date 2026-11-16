@@ -27,6 +27,14 @@ export function signedCredits(value) {
   return rounded >= 0 ? plusCredits(rounded) : minusCredits(-rounded);
 }
 
+/**
+ * "Net −1,992 cr after jump fees both ways": what a trade into another
+ * system leaves once the goods and the jumps there and back are paid.
+ */
+export function netAfterFees(profit) {
+  return `Net ${signedCredits(profit)} after jump fees both ways`;
+}
+
 /** "3 min" for travel times. */
 export function trip(ms) {
   return formatDuration(ms);

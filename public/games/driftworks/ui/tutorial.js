@@ -10,9 +10,9 @@ import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { allSystems, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { cargoTotal } from '../systems/cargo.js';
 import { commandersComing, joiningOf, mapShips, wingOf } from '../systems/commanders.js';
-import { knownStations, surveyable } from '../systems/explore.js';
+import { farSale, farTrade } from '../systems/advisor.js';
+import { surveyable } from '../systems/explore.js';
 import { tutorialGoal } from '../systems/goals.js';
-import { findEntry, marketEntries } from '../systems/market.js';
 import { canCopy, projectShip } from '../systems/orders.js';
 import { holdOf } from '../systems/modules.js';
 import { isResearched } from '../systems/research.js';
@@ -233,13 +233,25 @@ function nextSurvey(state, scout) {
   return best ? findSystem(best.id) : null;
 }
 
-/** A station in another surveyed system that buys something sold where `ship` is. */
-function farBuyer(state, ship) {
-  const here = systemOf(ship.at);
-  const sold = marketEntries(ship.at).filter((e) => e.side === 'sells').map((e) => e.good);
-  const carried = Object.keys(ship.cargo).filter((g) => ship.cargo[g] > 0);
-  const wanted = carried.length ? carried : sold;
-  return knownStations(state).find((station) => systemOf(station.id) !== here && wanted.some((g) => findEntry(station.id, g)?.side === 'buys')) ?? null;
+/**
+ * The hauler and trade the far-sale guide points at: a hauler whose cargo
+ * sells in another system for more than it cost and the jumps there and
+ * back, else an empty hauler and the trade into another system that leaves
+ * most. { hauler, sale } or { hauler, trade }, or null when nothing pays.
+ */
+function farPlan(state) {
+  const haulers = mapShips(state).filter(isHauler);
+  let best = null;
+  for (const hauler of haulers) {
+    const carries = Object.values(projectShip(state, hauler).cargo).some((qty) => qty >= 1);
+    const plan = carries ? { hauler, sale: farSale(state, hauler) } : { hauler, trade: farTrade(state, hauler) };
+    const profit = (plan.sale ?? plan.trade)?.profit ?? -Infinity;
+    if (!(profit > 0)) continue;
+    // An idle hauler first, then the most profit.
+    const better = !best || (!hauler.order && best.hauler.order) || (Boolean(hauler.order) === Boolean(best.hauler.order) && profit > best.profit);
+    if (better) best = { ...plan, profit };
+  }
+  return best;
 }
 
 Object.assign(GUIDES, {
@@ -278,31 +290,33 @@ Object.assign(GUIDES, {
         return { text: `${ship.name} jumps to ${where.name} and sells there. Each faction pays more for some goods: the Galaxy panel lists them.` };
       }
     }
-    const hauler = state.ships.find((ship) => isHauler(ship) && ship.at && !ship.order) ?? state.ships.find((ship) => isHauler(ship) && ship.at);
-    if (!hauler) return null;
-    const buyer = farBuyer(state, hauler);
-    if (!buyer) return null;
-    const system = findSystem(systemOf(buyer.id));
+    const plan = farPlan(state);
+    if (!plan) return null;
+    const { hauler } = plan;
     const selected = (ui.selection?.kind === 'ship' && ui.selection.id === hauler.id) || (ui.selection?.kind === 'ships' && ui.selection.ids.includes(hauler.id));
     if (!selected) {
       if (inGalaxy(ui)) return pickOnGalaxy(state, ui, hauler, '');
-      return { text: `Select ${hauler.name}: click it on the map.`, map: ui.systemId === systemOf(hauler.at) ? { kind: 'ship', id: hauler.id } : null, selector: ui.systemId === systemOf(hauler.at) ? null : '[data-view="galaxy"]' };
+      const here = ui.systemId === shipSystem(hauler, state.now);
+      return { text: `Select ${hauler.name}: click it on the map.`, map: here ? { kind: 'ship', id: hauler.id } : null, selector: here ? null : '[data-view="galaxy"]' };
     }
-    // First something to sell: bought where the hauler is.
-    const cargo = projectShip(state, hauler).cargo;
-    const carries = Object.keys(cargo).some((good) => cargo[good] >= 1 && findEntry(buyer.id, good)?.side === 'buys');
-    if (!carries) {
-      const station = findStation(hauler.at);
-      const home = findSystem(systemOf(station.id));
-      if (menuOn(ui, station.id)) return { text: `Pick a Buy order. Its note says where the goods sell best.`, selector: '[data-key^="menu-buy-"]' };
+    // First something to sell: the good the trade buys, where it is cheap.
+    if (plan.trade) {
+      const { fromId, destId, good } = plan.trade;
+      const station = findStation(fromId);
+      const home = findSystem(systemOf(fromId));
+      const name = goodName(good).toLowerCase();
+      const why = `${findStation(destId).name} is short of ${name} and pays well for it. `;
+      if (menuOn(ui, fromId)) return { text: `Pick Buy ${name}. Its note gives the best sale in range, after the jump fees there and back.`, selector: key(`menu-buy-${good}`) };
       if (inGalaxy(ui)) {
         if (ui.menu?.target.kind === 'system' && ui.menu.target.id === home.id) return { text: `Pick ${station.name}.`, selector: key(`menu-place-${station.id}`) };
-        return { text: `First something to sell. Right-click ${home.name} and pick ${station.name}, where ${hauler.name} is.`, map: { kind: 'system', id: home.id } };
+        return { text: `${why}Right-click ${home.name} and pick ${station.name}, which sells ${name}.`, map: { kind: 'system', id: home.id } };
       }
       if (ui.systemId !== home.id) return OPEN_GALAXY;
-      return { text: `First something to sell. Right-click ${station.name}, where ${hauler.name} is, and pick a Buy order.`, map: { kind: 'station', id: station.id } };
+      return { text: `${why}Right-click ${station.name} and pick Buy ${name}.`, map: { kind: 'station', id: station.id } };
     }
-    if (menuOn(ui, buyer.id)) return { text: `Pick Sell. ${hauler.name} jumps to ${system.name} and sells there. The menu shows the jumps and fees on the way.`, selector: '[data-key^="menu-sell-"]' };
+    const buyer = findStation(plan.sale.destId);
+    const system = findSystem(systemOf(buyer.id));
+    if (menuOn(ui, buyer.id)) return { text: `Pick Sell. ${hauler.name} jumps to ${system.name} and sells there. The menu shows the jumps, and what the sale leaves after the fees there and back.`, selector: '[data-key^="menu-sell-"]' };
     if (ui.view === 'system' && ui.systemId === system.id) return { text: `Right-click ${buyer.name} and pick Sell.`, map: { kind: 'station', id: buyer.id } };
     if (!inGalaxy(ui)) return OPEN_GALAXY;
     if (ui.menu?.target.kind === 'system' && ui.menu.target.id === system.id) return { text: `Pick ${buyer.name}.`, selector: key(`menu-place-${buyer.id}`) };

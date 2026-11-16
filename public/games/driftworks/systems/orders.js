@@ -45,7 +45,7 @@ import { HOME_SYSTEM } from '../content/homeSystem.js';
 import { findField, findPlace, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { formatCredits, formatNumber } from '../../../shared/js/format.js';
 import { MINUTE, SECOND } from '../core/time.js';
-import { findEntry } from './market.js';
+import { findEntry, quote } from './market.js';
 import { canCarry, cargoTotal, holdNote } from './cargo.js';
 import { contractFor, stillNeeded } from './contracts.js';
 import { holdOf, laserOf, refitCost, refitGoods, refitTarget } from './modules.js';
@@ -353,19 +353,33 @@ export function buildOrder(state, view, spec, start = state.now) {
  * Applies an order's remaining steps to a projection. The sim applies the
  * same steps for real (core/sim.js); this is the estimate.
  */
-function applySteps(view, order, from = 0) {
+function applySteps(view, order, from = 0, state = null) {
+  // What the cargo cost: a share comes off with each tonne that leaves the hold.
+  const unload = (good, qty) => {
+    const held = view.cargo[good] ?? 0;
+    if (view.basis?.[good] == null) return;
+    if (held - qty <= 1e-9) delete view.basis[good];
+    else view.basis[good] *= (held - qty) / held;
+  };
   for (const step of order.steps.slice(from)) {
     if (step.kind === 'mined') {
       view.cargo[step.good] = (view.cargo[step.good] ?? 0) + Math.min(step.amount, freeIn(view));
       view.at = step.field;
     } else if (step.kind === 'sell') {
-      for (const good of sellable(view, step.station, step.good)) delete view.cargo[good];
+      for (const good of sellable(view, step.station, step.good)) {
+        delete view.cargo[good];
+        if (view.basis) delete view.basis[good];
+      }
       view.at = step.station;
     } else if (step.kind === 'buy') {
-      view.cargo[step.good] = (view.cargo[step.good] ?? 0) + Math.min(step.qty, freeIn(view));
+      const qty = Math.min(step.qty, freeIn(view));
+      view.cargo[step.good] = (view.cargo[step.good] ?? 0) + qty;
+      // An estimate at today's price, like the rest of the projection.
+      if (state && view.basis) view.basis[step.good] = (view.basis[step.good] ?? 0) + quote(state, step.station, step.good, qty).total;
       view.at = step.station;
     } else if (step.kind === 'deliver') {
       const qty = Math.min(step.qty, view.cargo[step.good] ?? 0);
+      unload(step.good, qty);
       view.cargo[step.good] = (view.cargo[step.good] ?? 0) - qty;
       if (view.cargo[step.good] <= 0) delete view.cargo[step.good];
       view.delivered = { ...view.delivered, [step.contract]: (view.delivered?.[step.contract] ?? 0) + qty };
@@ -373,6 +387,7 @@ function applySteps(view, order, from = 0) {
     } else if (step.kind === 'store') {
       for (const [good, wanted] of Object.entries(step.goods)) {
         const qty = Math.min(wanted, view.cargo[good] ?? 0);
+        unload(good, qty);
         view.cargo[good] = (view.cargo[good] ?? 0) - qty;
         if (view.cargo[good] <= 0) delete view.cargo[good];
         const key = `${step.station}:${good}`;
@@ -403,6 +418,8 @@ export function projectShip(state, ship, built = null) {
     hull: ship.hull,
     at: ship.at,
     cargo: { ...ship.cargo },
+    // What the cargo cost to buy, by good (estimates for goods still to buy).
+    basis: { ...ship.costBasis },
     modules: { ...ship.modules },
     // Tonnes its orders will deliver to each contract: { [contractId]: t }.
     delivered: {},
@@ -411,14 +428,14 @@ export function projectShip(state, ship, built = null) {
     time: state.now,
   };
   if (ship.order) {
-    applySteps(view, ship.order, ship.order.stepIndex);
+    applySteps(view, ship.order, ship.order.stepIndex, state);
     view.at = ship.order.target;
   }
   for (const spec of ship.queue) {
     const next = buildOrder(state, view, spec, view.time);
     if (!next.ok) continue;
     built?.push(next.order);
-    applySteps(view, next.order);
+    applySteps(view, next.order, 0, state);
   }
   return view;
 }

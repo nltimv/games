@@ -23,7 +23,7 @@ import { h } from './dom.js';
 import { fieldIcon, gateIcon, signalIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
 import { richnessLabel } from './panels/field.js';
-import { at, minusCredits, plural, plusCredits, routeText, span, timing, tonnes } from './format.js';
+import { at, minusCredits, netAfterFees, plural, plusCredits, routeText, signedCredits, span, timing, tonnes } from './format.js';
 
 /** Note parts joined with dots, leaving out the empty ones. */
 const joinNote = (...parts) => parts.filter(Boolean).join(' · ');
@@ -92,7 +92,7 @@ function describe(option) {
       return {
         label: option.goods.length === 1 ? `Sell ${goodName(option.goods[0]).toLowerCase()}` : 'Sell all cargo',
         value: blocked ?? `${option.now ? '' : 'about '}${plusCredits(option.total)}`,
-        note: option.now ? 'Right now' : timing(option),
+        note: joinNote(option.now ? 'Right now' : timing(option), option.fees || option.back ? netAfterFees(option.profit) : null),
         good: option.goods[0],
       };
     case 'deliver':
@@ -126,7 +126,12 @@ function describe(option) {
     case 'investigate':
       return { label: 'Investigate the signal', value: blocked ?? `done ${at(option.endsAt)}`, note: timing(option, 'investigating') };
     case 'salvage':
-      return { label: `Salvage ${tonnes(option.qty, option.good)}`, value: blocked ?? `done ${at(option.endsAt)}`, note: timing(option, 'salvaging'), good: option.good };
+      return {
+        label: `Salvage ${tonnes(option.qty, option.good)}`,
+        value: blocked ?? `done ${at(option.endsAt)}`,
+        note: joinNote(timing(option, 'salvaging'), option.resale ? `Best sale: ${placeName(option.resale.stationId, option.signalId)}, ${lowerFirst(netAfterFees(option.resale.profit))}` : null),
+        good: option.good,
+      };
     default:
       return { label: option.kind, value: '', note: '' };
   }
@@ -159,8 +164,12 @@ function storeValue(option) {
 function buyUse(option) {
   if (option.contract) return `For the contract at ${placeName(option.destId, option.stationId)}${option.completes ? `, which pays ${formatCredits(option.reward)}` : ''}`;
   if (option.build) return `For ${option.build.name} at ${placeName(option.destId, option.stationId)}`;
-  if (!option.buyers) return 'No buyer in range pays more';
-  return `${option.buyers === 1 ? '1 buyer' : `${option.buyers} buyers`} in range ${option.buyers === 1 ? 'pays' : 'pay'} more`;
+  const resale = option.resale;
+  if (!option.buyers || !resale) return 'No buyer in range pays more';
+  // The best sale in range, after the purchase and any jump fees there and back.
+  const where = placeName(resale.stationId, option.stationId);
+  if (systemOf(resale.stationId) === systemOf(option.stationId)) return `Best sale in range: ${signedCredits(resale.profit)} at ${where}`;
+  return `Best sale in range: ${signedCredits(resale.profit)} at ${where}, after jump fees both ways`;
 }
 
 /** "40 t of 120 t delivered": how far a contract is. */
@@ -374,6 +383,7 @@ function describeGroup(option) {
       return {
         label: option.goods.length === 1 ? `Sell ${goodName(option.goods[0]).toLowerCase()}` : 'Sell all cargo',
         value: blocked ?? `about ${plusCredits(option.total)}`,
+        note: option.away && !option.disabled ? netAfterFees(option.profit) : null,
         good: option.goods.length === 1 ? option.goods[0] : null,
       };
     case 'deliver':

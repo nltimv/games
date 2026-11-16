@@ -10,6 +10,7 @@ import { acceptContract } from '../../public/games/driftworks/systems/contracts.
 import { planBuild } from '../../public/games/driftworks/systems/shipyard.js';
 import { HOME_SYSTEM } from '../../public/games/driftworks/content/homeSystem.js';
 import { currentGuide } from '../../public/games/driftworks/ui/tutorial.js';
+import { farTrade, orderOptions } from '../../public/games/driftworks/systems/advisor.js';
 import { newGame, firstShip, MINUTE, T0 } from './helpers.mjs';
 
 const onMap = (selection = null) => ({ view: 'system', selection, menu: null });
@@ -47,12 +48,30 @@ test('the act 2 guide covers the scout, the survey and the first far sale, and c
   giveOrder(state, lark, { type: 'survey', systemId: survey.map.id });
   assert.match(currentGuide(state, galaxy()).text, /surveys it/);
   advance(state, lark.order.endsAt);
-  // Survey a neighbour with a station that buys refined goods, for the far sale.
-  for (const id of ['brennan', 'dace', 'elm', 'fenn']) markSurveyed(state, id, state.now);
+  // The far sale: a neighbour is short of a good Aurel's refinery makes, and
+  // the guide points at the trade that pays most after the jumps both ways.
+  markSurveyed(state, 'dace', state.now);
   state.goals.push('first-survey');
+  // By act 2 a player's haulers have bigger racks than the starting Kite.
+  state.research.done.push('hold-1', 'hold-2', 'hold-3', 'hold-4');
+  const kite = createShip(state, 'kite', 'halcyon-refinery');
   const sale = currentGuide(state, galaxy());
   assert.equal(sale.goal.id, 'far-sale');
-  assert.match(sale.text, /Kite-1/);
+  assert.match(sale.text, new RegExp(`Select ${kite.name}`));
+  const picked = { view: 'system', systemId: 'aurel', selection: { kind: 'ship', id: kite.id }, menu: null };
+  assert.match(currentGuide(state, picked).text, /short of (iron|silicon)/);
+  const menu = { ...picked, menu: { target: { kind: 'station', id: 'halcyon-refinery' } } };
+  const pick = currentGuide(state, menu);
+  const good = pick.selector.match(/menu-buy-(\w+)/)[1];
+  const trade = farTrade(state, kite);
+  assert.equal(trade.good, good);
+  assert.ok(trade.profit > 0);
+  assert.ok(giveOrder(state, kite, { type: 'buy', stationId: 'halcyon-refinery', good, qty: trade.qty }).ok);
+  // Then the sale where it pays, which the menu shows after the fees there and back.
+  const there = currentGuide(state, galaxy({ kind: 'ship', id: kite.id }));
+  assert.deepEqual(there.map, { kind: 'system', id: 'dace' });
+  const sell = orderOptions(state, kite, { kind: 'station', id: trade.destId }).find((o) => o.kind === 'sell');
+  assert.ok(sell.profit > 0 && sell.back > 0);
   // Skipping hides only act 2's guide.
   skipGuide(state, 2);
   assert.equal(currentGuide(state, galaxy()), null);

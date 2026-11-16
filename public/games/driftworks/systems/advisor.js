@@ -183,6 +183,116 @@ export function tradePlan(state, ship, good, qty, destId, at = state.now, fromId
 }
 
 /**
+ * The jump fees from `destId` back to `homeId`'s system, for a ship that
+ * set out from there: a trip into another system has to come back. 0 in the
+ * same system, or when no known route leads back.
+ */
+export function feesBack(state, ship, destId, homeId) {
+  if (!destId || !homeId || systemOf(destId) === systemOf(homeId)) return 0;
+  const course = plotCourse(state, ship, destId, homeId);
+  return course.ok ? course.fees : 0;
+}
+
+/**
+ * What selling `goods` from a projected ship (see projectShip) at a station
+ * leaves: the sale, less what the goods cost and the jump fees there and
+ * back to where the ship sets out from. { total, cost, fees, back, profit }.
+ */
+export function saleProfit(state, view, stationId, goods, feesThere = 0, at = state.now) {
+  const total = goods.reduce((sum, g) => sum + saleValue(state, stationId, g, view.cargo[g] ?? 0, at).total, 0);
+  const cost = goods.reduce((sum, g) => sum + (view.basis?.[g] ?? 0), 0);
+  const back = feesBack(state, view, stationId, view.at);
+  return { total, cost, fees: feesThere, back, profit: total - cost - feesThere - back };
+}
+
+/**
+ * The best sale of `qty` of `good` bought at `fromId`, among the stations in
+ * range that buy it: { stationId, profit } after the purchase and the jump
+ * fees there and back, or null when no station in range buys it.
+ */
+export function bestResale(state, ship, good, qty, fromId, at = state.now) {
+  let best = null;
+  for (const station of stationsInRange(state, fromId)) {
+    if (station.id === fromId || findEntry(station.id, good)?.side !== 'buys') continue;
+    const plan = tradePlan(state, ship, good, qty, station.id, at, fromId);
+    if (!plan.reachable) continue;
+    const profit = plan.profit - feesBack(state, ship, station.id, fromId);
+    if (!best || profit > best.profit) best = { stationId: station.id, profit };
+  }
+  return best;
+}
+
+/**
+ * The trade into another system that leaves the most after the jump fees
+ * there and back, for an empty hauler: buy at a station in the system it
+ * is in (as much as the menu's Buy order would), sell at a known station in
+ * range in another system. { fromId, destId, good, qty, profit }, or null.
+ */
+export function farTrade(state, ship, at = state.now) {
+  const view = projectShip(state, ship);
+  if (!view.at || HULLS[view.hull].role !== 'hauler') return null;
+  const here = systemOf(view.at);
+  const free = Math.max(0, holdOf(view) - cargoTotal(view));
+  const away = stationsInRange(state, view.at).filter((station) => systemOf(station.id) !== here);
+  let best = null;
+  for (const from of findSystem(here)?.stations ?? []) {
+    for (const entry of marketEntries(from.id)) {
+      if (entry.side !== 'sells' || !canCarry(view, entry.good)) continue;
+      const qty = affordableQty(state, from.id, entry.good, state.credits, free, knownAt(state, from.id, at));
+      if (qty < 1) continue;
+      for (const dest of away) {
+        if (findEntry(dest.id, entry.good)?.side !== 'buys') continue;
+        const plan = tradePlan(state, view, entry.good, qty, dest.id, at, from.id);
+        if (!plan.reachable) continue;
+        const profit = plan.profit - feesBack(state, view, dest.id, from.id);
+        if (!best || profit > best.profit) best = { fromId: from.id, destId: dest.id, good: entry.good, qty: plan.qty, profit };
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Where a hauler's cargo (as its orders leave it) sells in another system
+ * for the most after cost and the jump fees there and back:
+ * { destId, goods, profit }, or null.
+ */
+export function farSale(state, ship, at = state.now) {
+  const view = projectShip(state, ship);
+  if (!view.at) return null;
+  const here = systemOf(view.at);
+  const carried = Object.keys(view.cargo).filter((g) => view.cargo[g] >= 1);
+  let best = null;
+  for (const station of stationsInRange(state, view.at)) {
+    if (systemOf(station.id) === here) continue;
+    const goods = carried.filter((g) => findEntry(station.id, g)?.side === 'buys');
+    if (!goods.length) continue;
+    const course = plotCourse(state, view, view.at, station.id);
+    if (!course.ok) continue;
+    const { profit } = saleProfit(state, view, station.id, goods, course.fees, at);
+    if (!best || profit > best.profit) best = { destId: station.id, goods, profit };
+  }
+  return best;
+}
+
+/**
+ * Where `qty` of a derelict's goods sell best once salvaged, after the jump
+ * fees out to it (`feesThere`), on to the buyer and back to where the ship
+ * set out from: { stationId, profit }, or null when nobody known buys them.
+ */
+export function salvageResale(state, view, signal, qty, feesThere = 0, at = state.now) {
+  let best = null;
+  for (const { station } of buyersOf(state, signal.good, at)) {
+    const course = plotCourse(state, view, signal.id, station.id);
+    if (!course.ok) continue;
+    const sale = saleValue(state, station.id, signal.good, qty, at).total;
+    const profit = sale - feesThere - course.fees - feesBack(state, view, station.id, view.at);
+    if (!best || profit > best.profit) best = { stationId: station.id, profit };
+  }
+  return best;
+}
+
+/**
  * The quantity with the best expected profit for a trade. Buying more
  * raises the buy price and lowers the sell price, so past some point each
  * extra tonne loses money.
@@ -210,7 +320,10 @@ function slotNote(free, needed) {
  * worked out from where it will be then. Each option has a `kind`:
  *   mine         { fieldId, amount: null, qty, value, endsAt }   a full hold
  *   mine-amount  { fieldId, max }                                opens the slider
- *   sell         { stationId, total, endsAt, now }               `now`: sells on the spot
+ *   sell         { stationId, total, profit, back, endsAt, now } `now`: sells on the spot;
+ *                                                                `profit`: after the goods' cost
+ *                                                                and the jump fees there and
+ *                                                                `back`
  *   deliver      { stationId, good, qty, contract, completes,    hands cargo to a contract
  *                  reward, endsAt, now }                         here; `completes`: the last
  *                                                                tonnes it needs
@@ -222,7 +335,10 @@ function slotNote(free, needed) {
  *                                                                planned build (`build`), else
  *                                                                a full hold or what the
  *                                                                credits cover; `buyers`: how
- *                                                                many in range pay more
+ *                                                                many in range pay more;
+ *                                                                `resale`: the best sale in
+ *                                                                range { stationId, profit }
+ *                                                                after fees there and back
  *   refit        { stationId, cost, modules, endsAt }            at a shipyard
  *   fly          { stationId, endsAt }                           any place in its system
  *   jump         { systemId, stationId, endsAt, jumps, fees }    to another system's gate
@@ -309,10 +425,11 @@ export function orderOptions(state, ship, target, at = state.now) {
   // Sell what it carries (or will carry).
   const goods = Object.keys(view.cargo).filter((g) => view.cargo[g] > 0 && findEntry(stationId, g)?.side === 'buys');
   if (goods.length) {
-    const total = goods.reduce((sum, g) => sum + saleValue(state, stationId, g, view.cargo[g], at).total, 0);
     const now = !queued && ship.at === stationId;
     const times = now ? { endsAt: at } : timesOf({ type: 'sell', stationId });
-    const option = { kind: 'sell', stationId, goods, total, ...times, now };
+    // What is left after the goods' cost and the jump fees there and back.
+    const { total, profit, back } = saleProfit(state, view, stationId, goods, times.fees ?? 0, at);
+    const option = { kind: 'sell', stationId, goods, total, profit, back, ...times, now };
     options.push(now ? { ...option, queued, disabled: false, note: null } : gated(option));
   }
 
@@ -349,7 +466,9 @@ function signalOptions(state, view, signalId, timesOf, gated) {
   if (role === 'hauler' && signal.kind === 'derelict' && isInvestigated(state, signal) && derelictLeft(state, signal) > 0) {
     const room = Math.max(0, Math.floor(holdOf(view) - cargoTotal(view)));
     const qty = Math.min(room, derelictLeft(state, signal));
-    options.push(gated({ kind: 'salvage', signalId, good: signal.good, qty, ...timesOf({ type: 'salvage', signalId }) }));
+    const times = timesOf({ type: 'salvage', signalId });
+    const resale = qty >= 1 ? salvageResale(state, view, signal, qty, times.fees ?? 0) : null;
+    options.push(gated({ kind: 'salvage', signalId, good: signal.good, qty, resale, ...times }));
   }
   if (view.at !== signalId) options.push(gated({ kind: 'fly', stationId: signalId, ...timesOf({ type: 'fly', stationId: signalId }) }));
   return options;
@@ -374,7 +493,9 @@ function buyOptions(state, view, stationId, free, at, timesOf) {
     const there = timesOf({ type: 'buy', stationId, good, qty: max });
     const use = contractUse(state, view, stationId, good, max, there, at) ?? buildUse(state, view, good, max) ?? { qty: max };
     const cost = quote(state, stationId, good, use.qty, known).total;
-    options.push({ kind: 'buy', stationId, good, cost, buyers: buyersAbove(state, good, stationId, at).length, ...use, ...timesOf({ type: 'buy', stationId, good, qty: use.qty }) });
+    // The best sale in range, after the purchase and the jump fees there and back.
+    const resale = use.contract || use.build ? null : bestResale(state, view, good, use.qty, stationId, at);
+    options.push({ kind: 'buy', stationId, good, cost, buyers: buyersAbove(state, good, stationId, at).length, resale, ...use, ...timesOf({ type: 'buy', stationId, good, qty: use.qty }) });
   }
   const rank = (option) => (option.contract ? 2 : option.build ? 1 : 0);
   return options.sort((a, b) => rank(b) - rank(a));
@@ -517,7 +638,7 @@ function sharePurchase(state, ships, group, at) {
     left -= take;
   }
   const cost = quote(state, stationId, good, qty, known).total;
-  const use = { contract: first.contract ?? null, build: first.build ?? null, destId: first.destId ?? null, buyers: first.buyers };
+  const use = { contract: first.contract ?? null, build: first.build ?? null, destId: first.destId ?? null, buyers: first.buyers, resale: first.resale ?? null };
   if (first.build) return { ...group, ...use, members, qty, cost, completes: qty >= stillNeededAt(state, first.build.stationId, good) };
   if (first.contract) return { ...group, ...use, members, qty, cost, completes: qty >= stillNeeded(first.contract), reward: first.contract.reward };
   return { ...group, ...use, members, qty, cost };
@@ -542,7 +663,7 @@ export function groupOrderOptions(state, ships, target, at = state.now) {
       const key = groupKey(option);
       if (!groups.has(key)) {
         const { kind, good, stationId, systemId } = option;
-        groups.set(key, { kind, good, stationId, systemId, members: [], notes: [], goods: new Set(), value: 0, total: 0, cost: 0, contract: null });
+        groups.set(key, { kind, good, stationId, systemId, members: [], notes: [], goods: new Set(), value: 0, total: 0, profit: 0, away: false, cost: 0, contract: null });
       }
       const group = groups.get(key);
       if (option.disabled) {
@@ -552,6 +673,9 @@ export function groupOrderOptions(state, ships, target, at = state.now) {
       group.members.push({ shipId: ship.id, option });
       group.value += option.value ?? 0;
       group.total += option.total ?? 0;
+      // Sales: what they leave after cost and jump fees, and whether any ship jumps for it.
+      group.profit += option.profit ?? 0;
+      group.away ||= Boolean(option.fees || option.back);
       group.cost += option.cost ?? 0;
       group.contract ??= option.contract ?? null;
       // Sales name their goods; a delivery's are counted in shareStore.

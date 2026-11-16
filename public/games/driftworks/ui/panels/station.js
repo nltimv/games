@@ -20,7 +20,7 @@ import { giveOrder, orderRefit, refitAll, refitOffer } from '../../systems/order
 import { bestModules } from '../../systems/research.js';
 import { canJump, plotCourse } from '../../systems/travel.js';
 import { standingLevel } from '../../systems/standing.js';
-import { bestTradeQty, maxPurchase, saleHere, stationsInRange, tradePlan } from '../../systems/advisor.js';
+import { bestTradeQty, feesBack, maxPurchase, saleHere, stationsInRange, tradePlan } from '../../systems/advisor.js';
 import { bar, countdown, h } from '../dom.js';
 import { buildTag, button, chip, contractMark, line, panelHead, sectionTitle, shipGlyph, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
@@ -30,6 +30,13 @@ import { hireSection } from './commander.js';
 const isHauler = (ship) => HULLS[ship.hull].role === 'hauler';
 const isMiner = (ship) => HULLS[ship.hull].role === 'miner';
 
+/** "Short of iron and graphite, which it pays well for.": a station's imports (see HOME_IMPORTS). */
+function importsNote(station) {
+  if (!station.imports?.length) return null;
+  const names = station.imports.map((good) => goodName(good).toLowerCase());
+  return `${STATION_TYPES[station.type].label}. Short of ${names.join(' and ')}, which it pays well for.`;
+}
+
 export function stationPanel(ctx, stationId) {
   const { state } = ctx;
   const station = findStation(stationId);
@@ -38,7 +45,7 @@ export function stationPanel(ctx, stationId) {
   const incoming = mapShips(state).filter((s) => s.order?.target === stationId);
 
   return [
-    panelHead({ icon: stationIcon(station.type, { tint: stationTint(station) }), title: station.name, subtitle: type.description, onClose: ctx.close }),
+    panelHead({ icon: stationIcon(station.type, { tint: stationTint(station) }), title: station.name, subtitle: importsNote(station) ?? type.description, onClose: ctx.close }),
     h(
       'div',
       { class: 'dw-chips' },
@@ -187,6 +194,8 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
   const half = Math.max(1, Math.floor(maxQty / 2));
   const chosen = buyers.find((row) => row.dest.id === trade.dest) ?? null;
   const plan = chosen ? tradePlan(state, hauler, good, qty, chosen.dest.id, now, station.id, chosen.course) : null;
+  // A trip into another system pays its jumps back here too.
+  const back = chosen ? feesBack(state, hauler, chosen.dest.id, station.id) : 0;
   const cost = quote(state, station.id, good, qty, knownAt(state, station.id, now));
   // Where the chosen buyer's price stops paying for one more tonne.
   const stopsAt = chosen ? bestTradeQty(state, hauler, good, chosen.dest.id, maxQty, now).qty : null;
@@ -211,6 +220,7 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     { class: 'dw-choices', role: 'group', 'aria-label': 'Sell at' },
     buyers.map(({ dest, course }) => {
       const p = tradePlan(state, hauler, good, qty, dest.id, now, station.id, course);
+      const net = p.profit - feesBack(state, hauler, dest.id, station.id);
       const price = marketView(state, dest.id, good, knownAt(state, dest.id, now)).price;
       return h(
         'button',
@@ -221,7 +231,7 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
           dataset: { key: `trade-dest-${dest.id}` },
           onClick: () => ctx.update({ trade: { ...trade, dest: dest.id === chosen?.dest.id ? null : dest.id } }),
         },
-        h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name), h('strong', { class: p.profit > 0 ? 'is-good' : '' }, signedCredits(p.profit))),
+        h('span', { class: 'dw-choice-row' }, h('strong', null, dest.name), h('strong', { class: net > 0 ? 'is-good' : '' }, signedCredits(net))),
         h('span', null, `${formatPrice(price)} · ${p.jumps ? routeText({ jumps: p.jumps, time: p.travel, fees: p.fees }) : `${trip(p.travel)} away`}`),
       );
     }),
@@ -243,7 +253,8 @@ function tradeCard(ctx, station, hauler, trade, haulers) {
     line(`Buy ${tonnes(cost.qty, good)} here`, minusCredits(cost.total)),
     plan ? line(`Sell at ${chosen.dest.name}`, `about ${plusCredits(plan.sell.total)}`) : null,
     plan?.fees ? line(`Jump fees · ${plural(plan.jumps, 'jump')}`, minusCredits(plan.fees)) : null,
-    plan ? line('Expected profit', signedCredits(plan.profit), `is-total${plan.profit < 0 ? ' is-loss' : ''}`) : null,
+    back ? line('Jump fees back', minusCredits(back)) : null,
+    plan ? line('Expected profit', signedCredits(plan.profit - back), `is-total${plan.profit - back < 0 ? ' is-loss' : ''}`) : null,
     h(
       'div',
       { class: 'dw-row-actions' },
