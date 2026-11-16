@@ -21,8 +21,8 @@ let server;
 let base;
 const sent = [];
 const mailer = {
-  async sendCodes(to, saves) {
-    sent.push({ kind: 'recovery', to, saves });
+  async sendCodes(to, { game, saves }) {
+    sent.push({ kind: 'recovery', to, game, saves });
   },
   async sendEmailLinked(to, save) {
     sent.push({ kind: 'linked', to, save });
@@ -170,7 +170,7 @@ test('linking an email stores only its hash and mails a confirmation with the co
   await call('PUT', '/saves/driftworks', { code, body: { baseRevision: 0, data: save(1), summary: { name: 'Aurel Mining' } } });
   assert.equal((await call('PUT', '/saves/driftworks/email', { code, body: { email: 'Player@Example.com ' } })).status, 204);
   await waitForMail();
-  assert.deepEqual(sent, [{ kind: 'linked', to: 'player@example.com', save: { name: 'Aurel Mining', code } }]);
+  assert.deepEqual(sent, [{ kind: 'linked', to: 'player@example.com', save: { game: 'Driftworks', name: 'Aurel Mining', code } }]);
   const row = (await pool.query('SELECT email_hash FROM saves')).rows[0];
   assert.deepEqual(row.email_hash, createHasher(PEPPER).email('player@example.com'));
   assert.equal((await call('GET', '/saves/driftworks', { code })).body.hasEmail, true);
@@ -195,6 +195,7 @@ test('recovery mails the existing codes of every save of the address, and they k
   assert.equal(sent.length, 1);
   assert.equal(sent[0].kind, 'recovery');
   assert.equal(sent[0].to, 'player@example.com');
+  assert.equal(sent[0].game, 'Driftworks');
   assert.deepEqual(sent[0].saves.map((s) => s.code).sort(), [one, two].sort());
   assert.equal(sent[0].saves.find((s) => s.code === one).name, 'First');
 
@@ -256,6 +257,23 @@ test('changing the code revokes the old one, keeps the save, and recovery mails 
   await call('POST', '/recovery', { body: { email: 'change@example.com' } });
   await waitForMail();
   assert.deepEqual(sent[0].saves, [{ name: 'Leaked', code: res.body.code }]);
+});
+
+test('recovery sends one mail per game, in that game\'s name', { skip }, async () => {
+  const drift = await newSave();
+  const snake = (await call('POST', '/saves/snake', { body: {} })).body.code;
+  await call('PUT', '/saves/driftworks/email', { code: drift, body: { email: 'two@example.com' } });
+  await call('PUT', '/saves/snake/email', { code: snake, body: { email: 'two@example.com' } });
+  await waitForMail();
+  assert.deepEqual(sent.map((m) => m.save.game).sort(), ['Driftworks', 'Snake']);
+  sent.length = 0;
+
+  await call('POST', '/recovery', { body: { email: 'two@example.com' } });
+  for (let i = 0; i < 50 && sent.length < 2; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(sent.map((m) => [m.game, m.saves.map((s) => s.code)]).sort(), [
+    ['Driftworks', [drift]],
+    ['Snake', [snake]],
+  ]);
 });
 
 test('recovery is rate limited per address', { skip }, async () => {

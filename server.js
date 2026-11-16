@@ -47,6 +47,15 @@ if (process.env.CLOUD_SAVES === 'true') {
   app.get('/api/config', (_req, res) => res.json({ cloud: false, recovery: false }));
 }
 
+/** Game id → name from the registry, so mails go out in the game's name. */
+function gameTitles() {
+  try {
+    return Object.fromEntries(JSON.parse(fs.readFileSync(GAMES_MANIFEST, 'utf8')).map((game) => [game.id, game.title]));
+  } catch {
+    return {};
+  }
+}
+
 function startCloudSaves() {
   const { createPool, migrate } = require('./server/db');
   const { createCloudRouter } = require('./server/cloud');
@@ -60,6 +69,7 @@ function startCloudSaves() {
       pool,
       pepper: process.env.CLOUD_PEPPER,
       mailer: createMailer(),
+      gameTitles: gameTitles(),
       maxSaveBytes: Number(process.env.MAX_SAVE_BYTES) || 1024 * 1024,
       isReady: () => ready,
     }),

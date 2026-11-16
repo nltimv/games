@@ -203,6 +203,7 @@ mail:
   port: 587
   # -- true for implicit TLS (usually port 465); STARTTLS is used otherwise when offered.
   secure: false
+  # -- Sender address. Mails go out in the game's name (e.g. "Driftworks"), so a display name here is ignored.
   from: "Games Hub <noreply@example.com>"
   # -- Secret with the SMTP login under usernameKey and passwordKey. Leave
   # empty for a server that needs no login.

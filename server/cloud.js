@@ -40,9 +40,11 @@ function cleanDevice(input) {
  * @param {number} options.maxSaveBytes
  * @param {object} [options.limits]      override rate limits (tests)
  * @param {() => boolean} [options.isReady]
+ * @param {Record<string, string>} [options.gameTitles]  game id → name, for mails ("driftworks" → "Driftworks")
  */
-function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 1024, limits = {}, isReady = () => true }) {
+function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 1024, limits = {}, isReady = () => true, gameTitles = {} }) {
   const hash = createHasher(pepper);
+  const gameTitle = (id) => gameTitles[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
   const limiters = {
     // New saves per address.
     create: createRateLimiter({ limit: 20, windowMs: 60 * 60 * 1000, ...limits.create }),
@@ -204,7 +206,7 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
       const { rows } = await pool.query("UPDATE saves SET email_hash = $2 WHERE id = $1 RETURNING summary->>'name' AS name", [req.save.id, hash.email(email)]);
       res.status(204).end();
       if (!mailer) return;
-      await mailer.sendEmailLinked(email, { name: rows[0]?.name, code: formatCode(req.save.code) }).catch((err) => console.error(`Confirmation mail failed: ${err.message}`));
+      await mailer.sendEmailLinked(email, { game: gameTitle(req.params.game), name: rows[0]?.name, code: formatCode(req.save.code) }).catch((err) => console.error(`Confirmation mail failed: ${err.message}`));
     }),
   );
 
@@ -263,12 +265,12 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
     const saves = [];
     try {
       await client.query('BEGIN');
-      const { rows } = await client.query("SELECT id, summary->>'name' AS name, code_enc FROM saves WHERE email_hash = $1 ORDER BY updated_at DESC LIMIT 50 FOR UPDATE", [
+      const { rows } = await client.query("SELECT id, game, summary->>'name' AS name, code_enc FROM saves WHERE email_hash = $1 ORDER BY updated_at DESC LIMIT 50 FOR UPDATE", [
         emailHash,
       ]);
       for (const row of rows) {
         const code = hash.decryptCode(row.code_enc) ?? (await assignNewCode(client, row.id));
-        saves.push({ name: row.name, code: formatCode(code) });
+        saves.push({ game: row.game, name: row.name, code: formatCode(code) });
       }
       await client.query(rows.length ? 'COMMIT' : 'ROLLBACK');
     } catch (err) {
@@ -277,7 +279,10 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
     } finally {
       client.release();
     }
-    if (saves.length) await mailer.sendCodes(email, saves);
+    // One mail per game, in that game's name.
+    const byGame = new Map();
+    for (const { game, ...save } of saves) byGame.set(game, [...(byGame.get(game) ?? []), save]);
+    for (const [game, list] of byGame) await mailer.sendCodes(email, { game: gameTitle(game), saves: list });
   }
 
   router.use((err, _req, res, _next) => {

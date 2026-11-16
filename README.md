@@ -276,7 +276,8 @@ Server settings: `CLOUD_SAVES`, `CLOUD_PEPPER` (32+ characters),
 `DATABASE_URL` or the usual `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`,
 `DB_SSL`, `MAX_SAVE_BYTES`, `TRUST_PROXY`, and for mail
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`,
-`MAIL_FROM`.
+`MAIL_FROM` (only its address is used: mails go out in the name of the
+game, such as "Driftworks", from `src/games.json`).
 
 ## CI/CD
 

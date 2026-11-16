@@ -5,26 +5,40 @@
 
 const nodemailer = require('nodemailer');
 
-function createMailer(env = process.env) {
-  if (!env.SMTP_HOST) return null;
+/** "Driftworks <noreply@example.com>": the game's name with MAIL_FROM's address. */
+function senderFor(mailFrom, game) {
+  const address = /<([^>]+)>/.exec(mailFrom)?.[1] ?? mailFrom.trim();
+  const name = String(game || 'Games Hub').replace(/["\\\r\n<>]/g, '');
+  return { name, address };
+}
+
+/**
+ * Mails go out in the name of the game the save belongs to (its title from
+ * src/games.json), from the address in MAIL_FROM.
+ */
+function createMailer(env = process.env, { transport: injected } = {}) {
+  if (!env.SMTP_HOST && !injected) return null;
   const port = Number(env.SMTP_PORT) || 587;
-  const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port,
-    secure: env.SMTP_SECURE ? env.SMTP_SECURE === 'true' : port === 465,
-    auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } : undefined,
-  });
-  const from = env.MAIL_FROM || 'Games Hub <noreply@localhost>';
+  const transport =
+    injected ??
+    nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port,
+      secure: env.SMTP_SECURE ? env.SMTP_SECURE === 'true' : port === 465,
+      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD } : undefined,
+    });
+  const mailFrom = env.MAIL_FROM || 'noreply@localhost';
   const line = (save) => `${save.name || 'Save'}: ${save.code}`;
   return {
-    /** Confirms a recovery email for a save, with its code. */
+    /** Confirms a recovery email for a save ({ game, name, code }), with its code. */
     async sendEmailLinked(to, save) {
-      await transport.sendMail({
-        from,
+      const game = save.game || 'Games Hub';
+      return transport.sendMail({
+        from: senderFor(mailFrom, game),
         to,
-        subject: 'Your Games Hub save code',
+        subject: `Your ${game} save code`,
         text: [
-          'This address is now the recovery email for a Games Hub save.',
+          `This address is now the recovery email for a ${game} save.`,
           '',
           line(save),
           '',
@@ -34,14 +48,14 @@ function createMailer(env = process.env) {
         ].join('\n'),
       });
     },
-    /** Sends the codes of every save linked to the address. */
-    async sendCodes(to, saves) {
-      await transport.sendMail({
-        from,
+    /** Sends the codes of the saves of one game ({ game, saves }) linked to the address. */
+    async sendCodes(to, { game = 'Games Hub', saves }) {
+      return transport.sendMail({
+        from: senderFor(mailFrom, game),
         to,
-        subject: saves.length > 1 ? 'Your Games Hub save codes' : 'Your Games Hub save code',
+        subject: saves.length > 1 ? `Your ${game} save codes` : `Your ${game} save code`,
         text: [
-          'Someone asked for the codes of the Games Hub saves linked to this email address.',
+          `Someone asked for the codes of the ${game} saves linked to this email address.`,
           '',
           ...saves.map(line),
           '',
@@ -53,4 +67,4 @@ function createMailer(env = process.env) {
   };
 }
 
-module.exports = { createMailer };
+module.exports = { createMailer, senderFor };
