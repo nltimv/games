@@ -2933,6 +2933,21 @@ button.dw-price-row[aria-pressed='true'] {
   font-variant-numeric: tabular-nums;
 }
 
+.dw-cloud-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dw-cloud-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--aqua);
+}
+
 .dw-save-list {
   display: flex;
   flex-direction: column;

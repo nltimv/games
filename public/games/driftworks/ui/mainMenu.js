@@ -154,7 +154,7 @@ export function showMainMenu(dialog, { config }) {
         pageHead('Saves have changed', { eyebrow: `Driftworks ${GAME_VERSION}` }),
         h('p', { class: 'dw-note' }, `Your company is now a save called "${slot?.name ?? LEGACY_SAVE_NAME}". Nothing is lost.`),
         config.cloud
-          ? h('p', { class: 'dw-note' }, 'When you continue, it is also saved online and gets a save code. With that code you can load it on any device. You find the code under Load game.')
+          ? h('p', { class: 'dw-note' }, 'When you continue, it is also saved online and gets a save code, which loads it on any device. You see the code next, and later under Load game.')
           : null,
         h('p', { class: 'dw-note' }, 'You can now keep several saves, name them, and pick one in this menu each time you open the game.'),
         h('div', { class: 'dw-row-actions' }, button('Continue', { variant: 'primary', onClick: start, key: 'legacy-continue' }), button('Main menu', { onClick: () => (slots.dismissLegacyNotice(), go('main')) })),

@@ -52,7 +52,12 @@ function fakeServer() {
     }
     const save = server.saves.get((headers.authorization ?? '').replace('Code ', ''));
     if (!save) return reply(401, { error: 'No save has that code.' });
-    if (method === 'GET') return reply(200, { ...save, hasEmail: false });
+    if (path === '/saves/game/email' && method === 'PUT') {
+      if (!/@/.test(json.email ?? '')) return reply(400, { error: 'That is not an email address.' });
+      save.hasEmail = true;
+      return reply(204);
+    }
+    if (method === 'GET') return reply(200, { ...save, hasEmail: Boolean(save.hasEmail) });
     if (method === 'PUT') {
       if (json.baseRevision !== save.revision) return reply(409, { revision: save.revision });
       Object.assign(save, { revision: save.revision + 1, data: json.data, summary: json.summary, device: json.device });
@@ -246,4 +251,54 @@ test('a code that stopped working is replaced by a new one, and the save is kept
   assert.notEqual(code, first);
   assert.equal(codeReplaced, true);
   assert.equal(server.saves.get(code).data.credits, 120);
+});
+
+test('a save that just got its code says so until the player has seen it, also after a reload', async () => {
+  const server = fakeServer();
+  const phone = device(server, company(100));
+  await phone.cloud.start();
+  assert.equal(phone.cloud.status().codeUnseen, true);
+
+  // The tab closed before the player saw the code: it is still unseen.
+  const reopened = createCloudSync({ game: 'game', saveKey: KEY, metaKey: META, storage: phone.storage, fetchFn: server.fetch, summarize: (d) => ({ credits: d.credits, fresh: !d.played }) });
+  await reopened.start();
+  assert.equal(reopened.status().codeUnseen, true);
+  reopened.codeSeen();
+  assert.equal(reopened.status().codeUnseen, false);
+  assert.equal(JSON.parse(phone.storage.getItem(META)).codeUnseen, false);
+});
+
+test('a save added with its code, or one that had a code already, is not shown as new', async () => {
+  const server = fakeServer();
+  const phone = device(server, company(100));
+  await phone.cloud.start();
+  const { code } = phone.cloud.status();
+  const laptop = device(server, null, { code });
+  await laptop.cloud.start();
+  assert.equal(laptop.cloud.status().codeUnseen, false);
+});
+
+test('a replaced code is shown again as new', async () => {
+  const server = fakeServer();
+  const phone = device(server, company(100));
+  await phone.cloud.start();
+  phone.cloud.codeSeen();
+  server.saves.delete(phone.cloud.status().code);
+  phone.play(120);
+  await phone.cloud.sync();
+  await phone.cloud.sync();
+  assert.equal(phone.cloud.status().codeUnseen, true);
+});
+
+test('linking a recovery email marks the save as having one; a bad address says why', async () => {
+  const server = fakeServer();
+  const phone = device(server, company(100));
+  await phone.cloud.start();
+  assert.equal(phone.cloud.status().hasEmail, false);
+  assert.deepEqual(await phone.cloud.linkEmail('nope'), { ok: false, error: 'That is not an email address.' });
+  assert.equal(phone.cloud.status().hasEmail, false);
+  assert.deepEqual(await phone.cloud.linkEmail('player@example.com'), { ok: true });
+  assert.equal(phone.cloud.status().hasEmail, true);
+  server.online = false;
+  assert.equal((await phone.cloud.linkEmail('player@example.com')).ok, false);
 });
