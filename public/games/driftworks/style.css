@@ -2980,9 +2980,179 @@ button.dw-price-row[aria-pressed='true'] {
   gap: 6px;
 }
 
-/* The main menu covers the game, which has not started yet. */
+/* The main menu covers the game, which has not started yet, with the
+   title scene (ui/titleScreen.js). */
 .dw-modal.is-main-menu::backdrop {
-  background: rgba(2, 6, 20, 0.82);
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.dw-title {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 28% 30%, #15407a 0%, rgba(21, 64, 122, 0) 60%), #040a1d;
+}
+
+.dw-title canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* The first page: the logo floats over the scene and the menu sits on a
+   glass card, instead of the whole page being one card. */
+.dw-modal.is-title {
+  width: min(460px, calc(100% - 32px));
+  padding: 8px 4px;
+  gap: 14px;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.dw-title-card {
+  padding: 14px;
+  border-radius: 26px;
+}
+
+.dw-modal.is-title .dw-gm-version {
+  color: var(--glass-muted);
+  text-shadow: 0 1px 6px rgba(2, 6, 20, 0.9);
+}
+
+.dw-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  animation: dw-logo-in 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.dw-logo-emblem {
+  width: 104px;
+  height: 104px;
+  margin-bottom: -4px;
+  filter: drop-shadow(0 6px 18px rgba(46, 197, 192, 0.45));
+  animation: dw-logo-bob 7s ease-in-out infinite;
+}
+
+.dw-modal .dw-logo-word {
+  margin: 0;
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: 0.12em;
+  /* Letter spacing trails the last letter: balance it so the word centres. */
+  padding-left: 0.12em;
+  text-transform: uppercase;
+  background: linear-gradient(100deg, #ffffff 0%, #e4fffa 38%, #ffffff 46%, #e4fffa 54%, #8ff3e2 100%) 0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 14px rgba(111, 240, 216, 0.35)) drop-shadow(0 2px 2px rgba(2, 6, 20, 0.6));
+  animation: dw-logo-sheen 9s ease-in-out infinite;
+}
+
+.dw-logo-tag {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--glass-muted);
+  text-shadow: 0 1px 8px rgba(2, 6, 20, 0.9);
+}
+
+@keyframes dw-logo-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+}
+
+@keyframes dw-logo-bob {
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+/* A highlight sweeps across the name now and then. */
+@keyframes dw-logo-sheen {
+  0%,
+  60% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: 0 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .dw-modal.is-title {
+    width: calc(100% - 24px);
+    gap: 10px;
+  }
+
+  .dw-title-card {
+    padding: 10px;
+    border-radius: 22px;
+  }
+
+  .dw-logo-emblem {
+    width: 72px;
+    height: 72px;
+  }
+
+  .dw-modal .dw-logo-word {
+    font-size: 34px;
+  }
+
+  .dw-logo-tag {
+    font-size: 13px;
+  }
+}
+
+/* Short screens (phones held sideways): a small logo on one line, so the
+   menu stays in view. */
+@media (max-height: 560px) {
+  .dw-modal.is-title {
+    gap: 8px;
+  }
+
+  .dw-logo {
+    flex-direction: row;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .dw-logo-emblem {
+    width: 52px;
+    height: 52px;
+    margin: 0;
+  }
+
+  .dw-modal .dw-logo-word {
+    font-size: 28px;
+  }
+
+  .dw-logo-tag {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dw-logo,
+  .dw-logo-emblem,
+  .dw-modal .dw-logo-word {
+    animation: none;
+  }
 }
 
 .dw-cloud-cards {
