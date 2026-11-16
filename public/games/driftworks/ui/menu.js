@@ -112,7 +112,7 @@ export function createGameMenu({ dialog, session, toast }) {
         { class: 'dw-gm-list', 'aria-label': 'Game menu' },
         menuItem({ icon: 'play', label: 'Continue', sub: 'Back to your company', onClick: close, key: 'menu-continue' }),
         menuItem({ icon: 'news', label: "What's new", sub: `Changes in version ${GAME_VERSION}`, onClick: () => goTo('whats-new'), key: 'menu-whats-new', chevron: true, badge: fresh ? 'New' : null }),
-        menuItem({ icon: 'settings', label: 'Settings', sub: 'Start over', onClick: () => goTo('settings'), key: 'menu-settings', chevron: true }),
+        menuItem({ icon: 'settings', label: 'Settings', sub: 'Streamer mode, start over', onClick: () => goTo('settings'), key: 'menu-settings', chevron: true }),
         cloudSaveItem({ session, toast, menuItem, pageHead, show, close, back: () => goTo('menu') }),
         menuItem({ icon: 'back', label: 'Main menu', sub: 'New game, load another save', onClick: toMainMenu, key: 'menu-main' }),
         menuItem({ icon: 'hub', label: 'Back to Games Hub', sub: 'Your company keeps working while you are away', href: HUB_URL, key: 'menu-hub' }),

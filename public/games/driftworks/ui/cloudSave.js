@@ -5,7 +5,7 @@
 // Picking, naming and adding saves is the main menu's job (mainMenu.js).
 
 import { formatCredits, formatDuration } from '../../../shared/js/format.js';
-import { formatCode } from '../../../shared/js/cloudSync.js';
+import { codeBox, codeText } from './streamer.js';
 import { h } from './dom.js';
 import { button } from './components.js';
 import { currentSave, reloadIntoSave, slots } from '../core/saves.js';
@@ -97,7 +97,7 @@ export function cloudSaveItem({ toast, menuItem, pageHead, show, back }) {
     if (view === 'conflict' && status.conflict) {
       return show([pageHead('Choose a save', { eyebrow: name(), onBack: back }), conflictBody(cloud, { toast, onDone: () => ((view = 'home'), render()), onLater: back })]);
     }
-    const code = status.code ? formatCode(status.code) : null;
+    const code = status.code;
     const state = !status.enabled
       ? 'This save is kept in this browser.'
       : {
@@ -125,7 +125,7 @@ export function cloudSaveItem({ toast, menuItem, pageHead, show, back }) {
             'div',
             { class: 'dw-section' },
             h('h3', { class: 'dw-section-title' }, h('span', null, 'Save code')),
-            h('output', { class: 'dw-cloud-number', 'aria-label': 'Save code' }, code),
+            codeBox(code),
             h('p', { class: 'dw-note' }, 'Enter this code on another device (Load game, Add a save with a code) to play this save there.'),
             h(
               'div',
@@ -160,7 +160,7 @@ export function cloudSaveItem({ toast, menuItem, pageHead, show, back }) {
   return menuItem({
     icon: CLOUD_ICON,
     label: 'Save',
-    sub: s.code ? `${name()} · ${formatCode(s.code)}` : name(),
+    sub: s.code ? `${name()} · ${codeText(s.code)}` : name(),
     badge: s.enabled ? BADGES[s.state] : null,
     key: 'menu-cloud',
     chevron: true,

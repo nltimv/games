@@ -3,9 +3,9 @@
 // and asks the player to note it down, then (when the server can send mail)
 // offers to link a recovery email, with a warning when they skip it.
 
-import { formatCode } from '../../../shared/js/cloudSync.js';
 import { h } from './dom.js';
 import { button } from './components.js';
+import { codeBox } from './streamer.js';
 
 async function copyText(text) {
   try {
@@ -77,7 +77,7 @@ export function showSaveCode(dialog, { cloud, name, toast }) {
             ? `The old code of "${name}" stopped working, so it is now saved under a new code:`
             : `"${name}" is now saved online. Its save code:`,
         ),
-        h('output', { class: 'dw-cloud-number', 'aria-label': 'Save code' }, formatCode(code)),
+        codeBox(code),
         button('Copy code', {
           block: true,
           key: 'code-copy',

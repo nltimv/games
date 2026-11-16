@@ -1,11 +1,12 @@
 // The "while you were away" dialog, and the Settings page of the game
-// menu (starting over; see menu.js).
+// menu (streamer mode and starting over; see menu.js).
 
 import { formatClock, formatDuration } from '../../../shared/js/format.js';
 import { logSince } from '../systems/log.js';
 import { h } from './dom.js';
 import { button } from './components.js';
 import { plusCredits } from './format.js';
+import { streamerToggle } from './streamer.js';
 
 const AWAY_KINDS = new Set(['arrival', 'sale', 'goal', 'warning', 'purchase']);
 
@@ -74,6 +75,13 @@ export function settingsPage({ session, onToast, onDone, head }) {
 
     body.replaceChildren(
       ...[
+        h(
+          'div',
+          { class: 'dw-section' },
+          h('h3', { class: 'dw-section-title' }, h('span', null, 'Privacy')),
+          streamerToggle(),
+          h('p', { class: 'dw-note' }, 'For streams and screenshots: save codes show as dots until you press Show, and email fields are masked. Applies on this device.'),
+        ),
         h('p', { class: 'dw-note' }, 'Starting over replaces this save with a new company. To keep it and start another, use New game in the main menu.'),
         h(
           'div',

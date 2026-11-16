@@ -2933,6 +2933,31 @@ button.dw-price-row[aria-pressed='true'] {
   font-variant-numeric: tabular-nums;
 }
 
+/* Streamer mode (ui/streamer.js): codes as dots, email and code fields masked. */
+.dw-code-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.dw-code-wrap .dw-cloud-number {
+  width: 100%;
+}
+
+.dw-streamer .dw-cloud-input[type='email'],
+.dw-streamer .dw-cloud-input[data-secret] {
+  -webkit-text-security: disc;
+}
+
+@supports not (-webkit-text-security: disc) {
+  .dw-streamer .dw-cloud-input[type='email'],
+  .dw-streamer .dw-cloud-input[data-secret] {
+    color: transparent;
+    text-shadow: 0 0 9px var(--glass-ink);
+  }
+}
+
 .dw-cloud-check {
   display: flex;
   align-items: center;

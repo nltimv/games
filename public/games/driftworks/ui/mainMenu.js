@@ -6,12 +6,12 @@
 // resolves with the id of the save to play.
 
 import { formatCredits, formatDuration } from '../../../shared/js/format.js';
-import { formatCode } from '../../../shared/js/cloudSync.js';
 import { MAX_NAME_LENGTH, cleanName } from '../../../shared/js/saveSlots.js';
 import { GAME_VERSION } from '../content/changelog.js';
 import { LEGACY_SAVE_NAME, canLoadSave, cloudApi, slotSummary, slots } from '../core/saves.js';
 import { h } from './dom.js';
 import { button } from './components.js';
+import { codeBox, codeText, streamerToggle } from './streamer.js';
 import { menuItem, pageHead } from './menu.js';
 import { startTitleScreen, titleLogo } from './titleScreen.js';
 
@@ -183,7 +183,7 @@ export function showMainMenu(dialog, { config }) {
       return h(
         'div',
         { class: 'dw-save-card' },
-        h('div', { class: 'dw-save-info' }, h('strong', null, slot.name), h('span', null, describeSave(slotSummary(slot.id))), h('span', { class: 'dw-save-code' }, meta.code ? formatCode(meta.code) : config.cloud ? 'Gets a save code when loaded' : 'On this device only')),
+        h('div', { class: 'dw-save-info' }, h('strong', null, slot.name), h('span', null, describeSave(slotSummary(slot.id))), h('span', { class: 'dw-save-code' }, meta.code ? codeText(meta.code) : config.cloud ? 'Gets a save code when loaded' : 'On this device only')),
         h(
           'div',
           { class: 'dw-save-actions' },
@@ -203,11 +203,12 @@ export function showMainMenu(dialog, { config }) {
           : config.offline
             ? h('p', { class: 'dw-note' }, 'Offline: adding a save with a code needs a connection.')
             : null,
+        config.cloud || saves.some((slot) => slots.meta(slot.id).code) ? h('div', { class: 'dw-section' }, streamerToggle({ onChange: () => render() })) : null,
       ];
     }
 
     function addPage() {
-      const input = field({ label: 'Save code', inputmode: 'numeric', autocomplete: 'off', placeholder: '0000 0000 0000 0000', maxlength: 24 });
+      const input = field({ label: 'Save code', inputmode: 'numeric', autocomplete: 'off', placeholder: '0000 0000 0000 0000', maxlength: 24, 'data-secret': true });
       const submit = (e) => {
         e.preventDefault();
         const code = input.querySelector('input').value.replace(/\D/g, '');
@@ -263,7 +264,7 @@ export function showMainMenu(dialog, { config }) {
       const slot = slots.get(slotId);
       if (!slot) return loadPage();
       const meta = slots.meta(slot.id);
-      const code = meta.code ? formatCode(meta.code) : null;
+      const code = meta.code ? codeText(meta.code) : null;
 
       const nameInput = field({ label: 'Name', maxlength: MAX_NAME_LENGTH, value: slot.name, autocomplete: 'off' });
       const rename = (e) => {
@@ -328,7 +329,7 @@ export function showMainMenu(dialog, { config }) {
               'div',
               { class: 'dw-section' },
               h('h3', { class: 'dw-section-title' }, h('span', null, 'Save code')),
-              h('output', { class: 'dw-cloud-number', 'aria-label': 'Save code' }, code),
+              codeBox(meta.code),
               h('p', { class: 'dw-note' }, 'Enter this code on another device to load this save there. Anyone with the code can play the save, so keep it to yourself.'),
               h(
                 'div',
