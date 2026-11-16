@@ -11,7 +11,8 @@ import { GAME_VERSION } from '../content/changelog.js';
 import { LEGACY_SAVE_NAME, canLoadSave, cloudApi, slotSummary, slots } from '../core/saves.js';
 import { h } from './dom.js';
 import { button } from './components.js';
-import { codeBox, codeText, streamerToggle } from './streamer.js';
+import { codeBox, codeText } from './streamer.js';
+import { settingsPage } from './modals.js';
 import { menuItem, pageHead } from './menu.js';
 import { startTitleScreen, titleLogo } from './titleScreen.js';
 
@@ -138,6 +139,7 @@ export function showMainMenu(dialog, { config }) {
             key: 'main-load',
             chevron: true,
           }),
+          menuItem({ icon: 'settings', label: 'Settings', sub: 'Streamer mode', onClick: () => go('settings'), key: 'main-settings', chevron: true }),
           menuItem({ icon: 'hub', label: 'Back to Games Hub', href: HUB_URL, key: 'main-hub' }),
         ),
         h('p', { class: 'dw-gm-version' }, `Driftworks ${GAME_VERSION}`),
@@ -203,7 +205,6 @@ export function showMainMenu(dialog, { config }) {
           : config.offline
             ? h('p', { class: 'dw-note' }, 'Offline: adding a save with a code needs a connection.')
             : null,
-        config.cloud || saves.some((slot) => slots.meta(slot.id).code) ? h('div', { class: 'dw-section' }, streamerToggle({ onChange: () => render() })) : null,
       ];
     }
 
@@ -409,7 +410,7 @@ export function showMainMenu(dialog, { config }) {
     }
 
     function render() {
-      const pages = { main: mainPage, legacy: legacyPage, new: newPage, load: loadPage, add: addPage, recover: recoverPage, manage: managePage };
+      const pages = { settings: () => settingsPage({ head: pageHead('Settings', { onBack: () => go('main') }) }), main: mainPage, legacy: legacyPage, new: newPage, load: loadPage, add: addPage, recover: recoverPage, manage: managePage };
       show((pages[page] ?? mainPage)());
     }
 

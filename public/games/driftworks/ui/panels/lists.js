@@ -242,7 +242,7 @@ export function companyPanel(ctx) {
       ),
     ),
     h('div', { class: 'dw-section' }, sectionTitle('Log'), h('ul', { class: 'dw-log' }, log)),
-    button('Settings and backups', { key: 'open-settings', block: true, onClick: ctx.openSettings }),
+    button('Settings', { key: 'open-settings', block: true, onClick: ctx.openSettings }),
   ];
 }
 
