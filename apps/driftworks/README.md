@@ -30,15 +30,15 @@ What differs from the website:
 
 The app's pages have their own origin (`capacitor://localhost` on iOS,
 `https://localhost` on Android), so the app needs to know where the Games
-Hub server is. Set the repository **variable** (not a secret)
-`DRIFTWORKS_API_URL` to the public address of your Games Hub, for example
-`https://games.example.com`. It must be `https://` with no path.
+Hub server is. By default it uses the live hub, **https://games.nltimv.com**,
+so save codes, the cloud save page and recovery mail work in the app as
+they do on the site. The server lets the app's origins call `/api` (server
+setting `APP_ORIGINS`, on by default), so the hub must run a version with
+this change for the app's cloud saves to work.
 
-- Set: save codes, the cloud save page and recovery mail work in the app as
-  they do on the site. The server lets the app's origins call `/api`
-  (server setting `APP_ORIGINS`, on by default).
-- Not set: the app plays with saves on the device only, and the menus say
-  so, as on a site without cloud saves.
+To point a build somewhere else, set `DRIFTWORKS_API_URL` (locally, or as
+a repository **variable** in CI) to another `https://` origin with no path,
+or to `none` for an app that keeps saves on the device only.
 
 ## Building locally
 
@@ -48,7 +48,7 @@ Xcode 26 on a Mac.
 ```bash
 cd apps/driftworks
 npm install
-DRIFTWORKS_API_URL=https://games.example.com npm run android   # or: npm run ios
+npm run android   # or: npm run ios
 ```
 
 `npm run sync` copies the game into both native projects without opening

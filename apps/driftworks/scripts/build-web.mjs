@@ -10,8 +10,9 @@
 // paths in the page (/games/driftworks/..., /shared/...) work unchanged.
 //
 // Environment:
-//   DRIFTWORKS_API_URL  Games Hub server for cloud saves, e.g. https://games.example.
-//                       Unset: the app keeps saves on the device only.
+//   DRIFTWORKS_API_URL  Games Hub server for cloud saves. Unset or empty: the
+//                       live hub, https://games.nltimv.com. "none": the app
+//                       keeps saves on the device only.
 //   APP_PLATFORM        android | ios. Set by `cap sync` hooks below; defaults to "app".
 
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -24,7 +25,9 @@ const repo = join(appDir, '..', '..');
 const www = join(appDir, 'www');
 const game = join(repo, 'public', 'games', 'driftworks');
 
-const apiUrl = (process.env.DRIFTWORKS_API_URL ?? '').trim().replace(/\/+$/, '');
+const DEFAULT_API_URL = 'https://games.nltimv.com';
+const apiSetting = (process.env.DRIFTWORKS_API_URL ?? '').trim() || DEFAULT_API_URL;
+const apiUrl = apiSetting === 'none' ? '' : apiSetting.replace(/\/+$/, '');
 if (apiUrl && !/^https:\/\/[^/\s"'<>]+$/.test(apiUrl)) {
   console.error(`DRIFTWORKS_API_URL must be an https:// origin with no path, got "${apiUrl}"`);
   process.exit(1);
