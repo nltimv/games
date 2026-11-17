@@ -15,6 +15,7 @@ export const CHANGELOG = [
     changes: [
       'Driftworks now also comes as an app for Android and iOS. Save codes work there too: enter yours in the app to carry on with the same company.',
       'The map now frames your system correctly when the screen around it has borders, such as a phone’s notch.',
+      'On a phone, press and hold a ship to pick several at once: tap more ships to add them (or take them out), then hold a place to give them all an order.',
     ],
   },
   {
@@ -27,7 +28,6 @@ export const CHANGELOG = [
       'Scouts come with the warp drive. The Scout licence research is gone, and if it was still in your lab, its credits are back in your account.',
       'Cloud saves: every save gets a save code. Enter the code on another device to play the same save there, with autosave. No account or personal details needed, and playing offline still works. Save codes replace backup codes.',
       'Research on a computer now shows the whole research tree, grouped by act, with what each research needs.',
-      'On a phone, press and hold a ship to pick several at once: tap more ships to add them (or take them out), then hold a place to give them all an order.',
       'This list shows up after each update, and the menu keeps it for later.',
     ],
   },
