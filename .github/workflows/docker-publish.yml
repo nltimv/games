@@ -266,9 +266,11 @@ jobs:
         env:
           SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
+          # The app shows the game's own version; the build number follows the release.
+          name=$(node scripts/game-version.mjs)
           code=$(node scripts/build-number.mjs "$VERSION" "$GITHUB_RUN_NUMBER")
-          echo "Version $VERSION, versionCode $code"
-          props=(-PappVersionName="$VERSION" -PappVersionCode="$code")
+          echo "Driftworks $name, versionCode $code (release $VERSION)"
+          props=(-PappVersionName="$name" -PappVersionCode="$code")
           mkdir -p dist
           cd android
           if [ "$SIGNED" = "true" ]; then
@@ -350,8 +352,8 @@ jobs:
         id: setup
         run: |
           echo "build=$(node scripts/build-number.mjs "$VERSION" "$GITHUB_RUN_NUMBER")" >> "$GITHUB_OUTPUT"
-          # App Store versions are numbers only: 1.4.2-rc.1 ships as 1.4.2.
-          echo "marketing=${VERSION%%-*}" >> "$GITHUB_OUTPUT"
+          # The app shows the game's own version; the build number follows the release.
+          echo "marketing=$(node scripts/game-version.mjs)" >> "$GITHUB_OUTPUT"
           if [ -n "$IOS_CERTIFICATE_P12_BASE64" ] && [ -n "$IOS_CERTIFICATE_PASSWORD" ] && [ -n "$IOS_PROVISIONING_PROFILE_BASE64" ] && [ -n "$APPLE_TEAM_ID" ]; then
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else

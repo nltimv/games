@@ -12,6 +12,7 @@ apps/driftworks/
 ├── capacitor.config.json   # App id, name, colors
 ├── scripts/build-web.mjs   # Copies the game into www/ and adds the app tags
 ├── scripts/build-number.mjs# Store build number from the release version
+├── scripts/game-version.mjs# Prints GAME_VERSION, the version the apps show
 ├── scripts/ios-signing.sh  # CI: manual signing for the App target
 ├── scripts/render-assets.cjs # Icons and splash screens from assets/*.svg
 ├── web/app.css             # App-only CSS: safe areas, no text selection
@@ -71,11 +72,14 @@ Every run uploads its builds as workflow artifacts (`android-app`,
 and IPA, or the debug APK, to the GitHub release. If an app fails to build,
 the release still goes out without it.
 
-Versions: the app version is the tag (`1.4.2`; iOS drops a prerelease
-suffix). The build number is worked out from it by
-[`scripts/build-number.mjs`](scripts/build-number.mjs) (`1.4.2` →
-`1040299`, `1.4.2-rc.3` → `1040203`), so every release sorts above the
-last. Builds that are not releases use the workflow run number.
+Versions: the apps carry Driftworks' own version, `GAME_VERSION` in
+`public/games/driftworks/content/changelog.js` (for example `0.5.1`), so
+the stores show the same version as the game's What's new. The build
+number comes from the release tag instead, by
+[`scripts/build-number.mjs`](scripts/build-number.mjs) (`v1.8.0` →
+`1080099`, `v1.8.0-rc.3` → `1080003`), so every release sorts above the
+last even when the game version stays the same. Builds that are not
+releases use the workflow run number.
 
 ## Secrets to add
 
