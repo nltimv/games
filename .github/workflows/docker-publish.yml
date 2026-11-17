@@ -292,7 +292,7 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: io.github.nltimv.driftworks
+          packageName: com.nltimv.driftworks
           releaseFiles: apps/driftworks/dist/driftworks-${{ env.VERSION }}.aab
           track: ${{ vars.PLAY_TRACK || 'internal' }}
           status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}
@@ -315,7 +315,7 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       APP_PLATFORM: ios
       DRIFTWORKS_API_URL: ${{ vars.DRIFTWORKS_API_URL }}
-      BUNDLE_ID: io.github.nltimv.driftworks
+      BUNDLE_ID: com.nltimv.driftworks
       IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
       IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}

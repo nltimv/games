@@ -11,10 +11,10 @@ def keystoreFile = System.getenv('ANDROID_KEYSTORE_FILE')
 def canSign = keystoreFile && file(keystoreFile).exists()
 
 android {
-    namespace = "io.github.nltimv.driftworks"
+    namespace = "com.nltimv.driftworks"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "io.github.nltimv.driftworks"
+        applicationId "com.nltimv.driftworks"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode appVersionCode

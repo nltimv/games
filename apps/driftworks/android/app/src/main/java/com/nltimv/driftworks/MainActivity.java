@@ -1,4 +1,4 @@
-package io.github.nltimv.driftworks;
+package com.nltimv.driftworks;
 
 import com.getcapacitor.BridgeActivity;
 

@@ -103,7 +103,7 @@ base64 -w0 driftworks-upload.jks   # macOS: base64 -i driftworks-upload.jks
 ### Google Play upload (optional)
 
 1. Create the app in the [Play Console](https://play.google.com/console)
-   with package name `io.github.nltimv.driftworks`, and turn on Play App
+   with package name `com.nltimv.driftworks`, and turn on Play App
    Signing.
 2. Upload the first AAB by hand (Play does not accept the first upload
    through the API). Take it from a release or the `android-app` artifact.
@@ -125,7 +125,7 @@ reviewed, which Play requires).
 Needs a paid Apple Developer account.
 
 1. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources),
-   register the App ID `io.github.nltimv.driftworks`.
+   register the App ID `com.nltimv.driftworks`.
 2. Create an **Apple Distribution** certificate, install it in Keychain
    Access on a Mac, and export it with its private key as a `.p12` with a
    password.
@@ -142,7 +142,7 @@ Needs a paid Apple Developer account.
 ### TestFlight upload (optional)
 
 1. Create the app in [App Store Connect](https://appstoreconnect.apple.com)
-   with bundle ID `io.github.nltimv.driftworks`.
+   with bundle ID `com.nltimv.driftworks`.
 2. Under **Users and Access → Integrations → App Store Connect API**,
    create a team key with the **App Manager** role and download the `.p8`
    (it can be downloaded once).
@@ -158,7 +158,7 @@ HTTPS), so TestFlight builds need no export compliance answer.
 
 ## Changing the app id
 
-The app id `io.github.nltimv.driftworks` is in `capacitor.config.json`,
+The app id `com.nltimv.driftworks` is in `capacitor.config.json`,
 `android/app/build.gradle` (`namespace`, `applicationId`, plus the Java
 package under `android/app/src/main/java`), the Xcode project
 (`PRODUCT_BUNDLE_IDENTIFIER`) and the workflow (`packageName`, `BUNDLE_ID`).
