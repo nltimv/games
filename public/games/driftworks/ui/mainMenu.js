@@ -6,6 +6,7 @@
 // resolves with the id of the save to play.
 
 import { formatCredits, formatDuration } from '../../../shared/js/format.js';
+import { isApp } from '../../../shared/js/platform.js';
 import { MAX_NAME_LENGTH, cleanName } from '../../../shared/js/saveSlots.js';
 import { GAME_VERSION } from '../content/changelog.js';
 import { LEGACY_SAVE_NAME, canLoadSave, cloudApi, slotSummary, slots } from '../core/saves.js';
@@ -140,7 +141,7 @@ export function showMainMenu(dialog, { config }) {
             chevron: true,
           }),
           menuItem({ icon: 'settings', label: 'Settings', sub: 'Streamer mode', onClick: () => go('settings'), key: 'main-settings', chevron: true }),
-          menuItem({ icon: 'hub', label: 'Back to Games Hub', href: HUB_URL, key: 'main-hub' }),
+          isApp() ? null : menuItem({ icon: 'hub', label: 'Back to Games Hub', href: HUB_URL, key: 'main-hub' }),
         ),
         h('p', { class: 'dw-gm-version' }, `Driftworks ${GAME_VERSION}`),
       ];

@@ -5,10 +5,18 @@
 // The What's new card shows the entries newer than the version the save
 // last saw (state.seenVersion), once, and the game menu shows them any time.
 
-export const GAME_VERSION = '0.5.0';
+export const GAME_VERSION = '0.5.1';
 
 /** Newest first. `title` is optional; `changes` are short sentences. */
 export const CHANGELOG = [
+  {
+    version: '0.5.1',
+    title: 'Driftworks as an app',
+    changes: [
+      'Driftworks now also comes as an app for Android and iOS. Save codes work there too: enter yours in the app to carry on with the same company.',
+      'The map now frames your system correctly when the screen around it has borders, such as a phone’s notch.',
+    ],
+  },
   {
     version: '0.5.0',
     title: 'A proper menu, and a map that knows the way up',

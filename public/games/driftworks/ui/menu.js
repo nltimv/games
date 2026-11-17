@@ -3,6 +3,7 @@
 // bottom. It opens in the shared modal dialog; What's new and Settings open
 // as pages inside it, with a Back button to the menu.
 
+import { isApp } from '../../../shared/js/platform.js';
 import { CHANGELOG, GAME_VERSION, unseenChanges } from '../content/changelog.js';
 import { h, svgIcon } from './dom.js';
 import { button } from './components.js';
@@ -115,7 +116,7 @@ export function createGameMenu({ dialog, session, toast }) {
         menuItem({ icon: 'settings', label: 'Settings', sub: 'Streamer mode', onClick: () => goTo('settings'), key: 'menu-settings', chevron: true }),
         cloudSaveItem({ session, toast, menuItem, pageHead, show, close, back: () => goTo('menu') }),
         menuItem({ icon: 'back', label: 'Main menu', sub: 'New game, load another save', onClick: toMainMenu, key: 'menu-main' }),
-        menuItem({ icon: 'hub', label: 'Back to Games Hub', sub: 'Your company keeps working while you are away', href: HUB_URL, key: 'menu-hub' }),
+        isApp() ? null : menuItem({ icon: 'hub', label: 'Back to Games Hub', sub: 'Your company keeps working while you are away', href: HUB_URL, key: 'menu-hub' }),
       ),
       h('p', { class: 'dw-gm-version' }, `Driftworks ${GAME_VERSION}`),
     ]);

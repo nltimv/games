@@ -1,0 +1,20 @@
+{
+  "appId": "com.nltimv.driftworks",
+  "appName": "Driftworks",
+  "webDir": "www",
+  "backgroundColor": "#040a1d",
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "native",
+      "initialViewportFitValueHint": "cover",
+      "style": "DARK"
+    }
+  }
+}

@@ -29,6 +29,7 @@ entry to [`src/games.json`](src/games.json).
 │   │   ├── css/glass.css     # Frosted glass building blocks for full-screen games
 │   │   └── js/               # ES modules: storage.js (safe localStorage), format.js
 │   └── games/<id>/           # One folder per game
+├── apps/driftworks/          # Driftworks as an Android and iOS app (Capacitor)
 ├── test/                     # node:test suites (shared code, Driftworks) and balance sims
 ├── eslint.config.mjs
 ├── Dockerfile                # Multi-stage, non-root, healthchecked image
@@ -274,7 +275,9 @@ TEST_DATABASE_URL=postgres://games:games@localhost:5432/games_test npm test
 
 Server settings: `CLOUD_SAVES`, `CLOUD_PEPPER` (32+ characters),
 `DATABASE_URL` or the usual `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`,
-`DB_SSL`, `MAX_SAVE_BYTES`, `TRUST_PROXY`, and for mail
+`DB_SSL`, `MAX_SAVE_BYTES`, `TRUST_PROXY`, `APP_ORIGINS` (origins allowed to
+call `/api` from another origin; defaults to the Driftworks apps,
+`capacitor://localhost,https://localhost`; `none` turns that off), and for mail
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`,
 `MAIL_FROM` (only its address is used: mails go out in the name of the
 game, such as "Driftworks", from `src/games.json`).
@@ -300,9 +303,15 @@ anything; every other run builds and checks without pushing.
 - **`package-and-push-chart`** lints the Helm chart and packages it with
   `version` and `appVersion` set to the release version. On a release it
   pushes it as an OCI artifact to `ghcr.io/<owner>/helm/games-hub`.
+- **`android`** and **`ios`** build the Driftworks apps from
+  [`apps/driftworks`](apps/driftworks/README.md). Without signing secrets
+  they build a debug APK and an iOS Simulator build; with them, a signed
+  APK, AAB and IPA, which a release also sends to Google Play and
+  TestFlight when the store keys are set. A failed app build does not hold
+  up the release.
 - **`release`** creates a GitHub release for the tag, with install
   instructions, notes generated from the pull requests merged since the
-  previous tag, and the packaged chart attached.
+  previous tag, and the packaged chart and the apps attached.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md#releases) for how to cut a release.
 
