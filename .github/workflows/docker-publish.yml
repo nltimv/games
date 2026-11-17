@@ -4,6 +4,10 @@ name: Build and Publish
 # the Helm chart are only published, and a GitHub release only created, when
 # a vX.Y.Z tag is pushed on a commit that is on main. The version comes from
 # the tag; package.json and Chart.yaml keep a 0.0.0-dev placeholder.
+#
+# The Driftworks Android and iOS apps (apps/driftworks) build on every run
+# too. They are signed, attached to the release and sent to the stores only
+# when the signing secrets exist; see apps/driftworks/README.md.
 
 on:
   push:
@@ -197,10 +201,263 @@ jobs:
           helm push "dist/games-hub-${VERSION}.tgz" \
             "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/helm"
 
+  android:
+    name: Build Driftworks Android app
+    needs: [check, version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/driftworks
+    env:
+      RELEASE: ${{ needs.version.outputs.release }}
+      VERSION: ${{ needs.version.outputs.version }}
+      APP_PLATFORM: android
+      DRIFTWORKS_API_URL: ${{ vars.DRIFTWORKS_API_URL }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/driftworks/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the game into the app
+        run: npm run build:web && npx cap sync android
+
+      - name: Set up release signing
+        id: signing
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No Android signing secrets: building a debug APK. See apps/driftworks/README.md."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          code=$(node scripts/build-number.mjs "$VERSION" "$GITHUB_RUN_NUMBER")
+          echo "Version $VERSION, versionCode $code"
+          props=(-PappVersionName="$VERSION" -PappVersionCode="$code")
+          mkdir -p dist
+          cd android
+          if [ "$SIGNED" = "true" ]; then
+            ./gradlew --no-daemon "${props[@]}" assembleRelease bundleRelease
+            cp app/build/outputs/apk/release/app-release.apk "../dist/driftworks-${VERSION}.apk"
+            cp app/build/outputs/bundle/release/app-release.aab "../dist/driftworks-${VERSION}.aab"
+          else
+            ./gradlew --no-daemon "${props[@]}" assembleDebug
+            cp app/build/outputs/apk/debug/app-debug.apk "../dist/driftworks-${VERSION}-debug.apk"
+          fi
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-app
+          path: apps/driftworks/dist/*
+          if-no-files-found: error
+
+      - name: Send to Google Play
+        if: env.RELEASE == 'true' && steps.signing.outputs.signed == 'true' && env.PLAY_SERVICE_ACCOUNT_JSON != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: io.github.nltimv.driftworks
+          releaseFiles: apps/driftworks/dist/driftworks-${{ env.VERSION }}.aab
+          track: ${{ vars.PLAY_TRACK || 'internal' }}
+          status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+  ios:
+    name: Build Driftworks iOS app
+    needs: [check, version]
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/driftworks
+    env:
+      RELEASE: ${{ needs.version.outputs.release }}
+      VERSION: ${{ needs.version.outputs.version }}
+      APP_PLATFORM: ios
+      DRIFTWORKS_API_URL: ${{ vars.DRIFTWORKS_API_URL }}
+      BUNDLE_ID: io.github.nltimv.driftworks
+      IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/driftworks/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the game into the app
+        run: npm run build:web && npx cap sync ios
+
+      - name: Work out version and signing
+        id: setup
+        run: |
+          echo "build=$(node scripts/build-number.mjs "$VERSION" "$GITHUB_RUN_NUMBER")" >> "$GITHUB_OUTPUT"
+          # App Store versions are numbers only: 1.4.2-rc.1 ships as 1.4.2.
+          echo "marketing=${VERSION%%-*}" >> "$GITHUB_OUTPUT"
+          if [ -n "$IOS_CERTIFICATE_P12_BASE64" ] && [ -n "$IOS_CERTIFICATE_PASSWORD" ] && [ -n "$IOS_PROVISIONING_PROFILE_BASE64" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No iOS signing secrets: building for the iOS Simulator only. See apps/driftworks/README.md."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build for the iOS Simulator (unsigned)
+        if: steps.setup.outputs.signed != 'true'
+        run: |
+          xcodebuild build \
+            -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            MARKETING_VERSION="${{ steps.setup.outputs.marketing }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.setup.outputs.build }}" \
+            CODE_SIGNING_ALLOWED=NO
+          mkdir -p dist
+          (cd build/Build/Products/Release-iphonesimulator && zip -qry "$GITHUB_WORKSPACE/apps/driftworks/dist/driftworks-${VERSION}-simulator.zip" App.app)
+
+      - name: Install signing certificate and profile
+        if: steps.setup.outputs.signed == 'true'
+        id: profile
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          echo "$IOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/app.mobileprovision"
+
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychain -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+          security cms -D -i "$RUNNER_TEMP/app.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")
+          name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$RUNNER_TEMP/app.mobileprovision" "$dir/$uuid.mobileprovision"
+          done
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Archive and export the signed app
+        if: steps.setup.outputs.signed == 'true'
+        env:
+          PROFILE_NAME: ${{ steps.profile.outputs.name }}
+        run: |
+          scripts/ios-signing.sh "$APPLE_TEAM_ID" "$PROFILE_NAME"
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive \
+            MARKETING_VERSION="${{ steps.setup.outputs.marketing }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.setup.outputs.build }}"
+
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict><key>${BUNDLE_ID}</key><string>${PROFILE_NAME}</string></dict>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/App.xcarchive -exportOptionsPlist build/ExportOptions.plist -exportPath build/export
+          mkdir -p dist
+          cp build/export/App.ipa "dist/driftworks-${VERSION}.ipa"
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app
+          path: apps/driftworks/dist/*
+          if-no-files-found: error
+
+      - name: Send to TestFlight
+        if: env.RELEASE == 'true' && steps.setup.outputs.signed == 'true' && env.APP_STORE_CONNECT_KEY_ID != '' && env.APP_STORE_CONNECT_ISSUER_ID != '' && env.APP_STORE_CONNECT_KEY_BASE64 != ''
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$APP_STORE_CONNECT_KEY_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          xcrun altool --upload-app --type ios --file "dist/driftworks-${VERSION}.ipa" \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/app.mobileprovision" "$RUNNER_TEMP/profile.plist"
+          rm -rf "$HOME/.appstoreconnect/private_keys"
+
   release:
     name: Create GitHub release
-    needs: [version, build-and-push, package-and-push-chart]
-    if: needs.version.outputs.release == 'true'
+    needs: [version, build-and-push, package-and-push-chart, android, ios]
+    # The apps do not hold up a server release: if one fails, the release
+    # still goes out, without that app.
+    if: >-
+      always() && needs.version.outputs.release == 'true' &&
+      needs.build-and-push.result == 'success' && needs.package-and-push-chart.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -216,6 +473,14 @@ jobs:
           name: helm-chart
           path: dist
 
+      - name: Download apps
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: '*-app'
+          merge-multiple: true
+          path: apps
+
       - name: Create release
         run: |
           image="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
@@ -226,9 +491,30 @@ jobs:
           - Image: \`${image}\`
           - Helm chart: \`helm upgrade --install games-hub ${chart} --version ${VERSION} --set image.repository=${REGISTRY}/${IMAGE_NAME}\`
           EOF
+          # Store-ready apps when signed; a debug APK otherwise. The iOS
+          # Simulator build is not attached: it only runs in Xcode's simulator.
+          files=("dist/games-hub-${VERSION}.tgz")
+          for f in apps/driftworks-"${VERSION}".apk apps/driftworks-"${VERSION}".aab apps/driftworks-"${VERSION}".ipa apps/driftworks-"${VERSION}"-debug.apk; do
+            if [ -f "$f" ]; then files+=("$f"); fi
+          done
+          if [ ${#files[@]} -gt 1 ]; then
+            {
+              echo
+              echo "## Driftworks apps"
+              echo
+              for f in "${files[@]:1}"; do
+                case "$f" in
+                  *-debug.apk) echo "- Android, debug build (not for the Play Store): \`$(basename "$f")\`" ;;
+                  *.apk) echo "- Android, installable APK: \`$(basename "$f")\`" ;;
+                  *.aab) echo "- Android, Play Store bundle: \`$(basename "$f")\`" ;;
+                  *.ipa) echo "- iOS, App Store build: \`$(basename "$f")\`" ;;
+                esac
+              done
+            } >> notes.md
+          fi
           flags=()
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" "dist/games-hub-${VERSION}.tgz" \
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \

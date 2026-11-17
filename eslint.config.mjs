@@ -1,12 +1,13 @@
 // ESLint flat config. The older games are classic browser scripts; shared
 // code and Driftworks are ES modules; the server is CommonJS; tests are
-// Node ES modules.
+// Node ES modules. The app shells in apps/ have Node build scripts; their
+// native projects and www/ hold copies of the game and are not linted.
 
 import js from '@eslint/js';
 import globals from 'globals';
 
 export default [
-  { ignores: ['node_modules/**', 'helm/**'] },
+  { ignores: ['node_modules/**', 'helm/**', 'apps/*/www/**', 'apps/*/android/**', 'apps/*/ios/**'] },
   js.configs.recommended,
   {
     rules: {
@@ -35,7 +36,11 @@ export default [
     languageOptions: { sourceType: 'commonjs', globals: globals.node },
   },
   {
-    files: ['test/**/*.mjs', 'eslint.config.mjs'],
+    files: ['apps/*/scripts/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs', globals: globals.node },
+  },
+  {
+    files: ['test/**/*.mjs', 'eslint.config.mjs', 'apps/*/scripts/**/*.mjs'],
     languageOptions: { sourceType: 'module', globals: globals.node },
   },
 ];

@@ -58,7 +58,8 @@ function createCloudRouter({ pool, pepper, mailer = null, maxSaveBytes = 1024 * 
   router.use(express.json({ limit: maxSaveBytes + 4096 }));
 
   // Writes must be JSON: a cross-site form cannot send that without a CORS
-  // preflight, which this server never allows.
+  // preflight, which this server only allows for the game's own apps
+  // (server/cors.js).
   router.use((req, res, next) => {
     if (req.method !== 'POST' && req.method !== 'PUT') return next();
     if (!req.is('application/json')) return res.status(415).json({ error: 'Send JSON' });

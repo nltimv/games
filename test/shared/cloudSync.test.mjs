@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../public/shared/js/storage.js';
-import { createCloudSync, decideSync, formatCode } from '../../public/shared/js/cloudSync.js';
+import { createCloudApi, createCloudSync, decideSync, formatCode } from '../../public/shared/js/cloudSync.js';
 
 const played = { fresh: false };
 const meta = (patch) => ({ revision: 3, dirty: false, device: 'me', ...patch });
@@ -301,4 +301,23 @@ test('linking a recovery email marks the save as having one; a bad address says 
   assert.equal(phone.cloud.status().hasEmail, true);
   server.online = false;
   assert.equal((await phone.cloud.linkEmail('player@example.com')).ok, false);
+});
+
+test('createCloudApi: the apps call the Games Hub server at its own address', async () => {
+  const urls = [];
+  const fetchFn = async (url) => {
+    urls.push(url);
+    return { status: 200, json: async () => ({ cloud: true, recovery: true }) };
+  };
+  await createCloudApi({ game: 'driftworks', fetchFn }).config();
+  await createCloudApi({ game: 'driftworks', fetchFn, base: 'https://games.example', app: true }).load('1234');
+  assert.deepEqual(urls, ['/api/config', 'https://games.example/api/saves/driftworks']);
+});
+
+test('createCloudApi: an app built without a server address keeps saves on the device', async () => {
+  let called = false;
+  const api = createCloudApi({ game: 'driftworks', fetchFn: async () => ((called = true), { status: 200, json: async () => ({}) }), base: '', app: true });
+  assert.deepEqual(await api.config(), { cloud: false, recovery: false });
+  await assert.rejects(api.create(), /offline/);
+  assert.equal(called, false);
 });
