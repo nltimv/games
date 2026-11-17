@@ -24,6 +24,7 @@ import { drawGalaxy, galaxyExtent, renderGalaxyBackground } from './galaxyMap.js
 
 const DRAG_THRESHOLD = 6;
 const LONG_PRESS_MS = 480;
+const SHIP_TARGETS = new Set(['ship', 'flock', 'ships-at']);
 // Fastest a ship crosses the map, in map units per second (the best engines
 // on the fastest hull, at the middle of an eased flight), and how fast
 // docked ships circle.
@@ -52,6 +53,8 @@ const REVEAL_MARGIN = 40;
  *   getStartView(scene)      { zoom, x, y } a map opens at (default: all of it)
  *   onSelect(target, mods)   called with { kind, id } or null on a click;
  *                            mods.additive when Shift was held
+ *   isPicking()              true while a touch player is picking ships:
+ *                            a tap then prefers a ship under the finger
  *   onDoubleClick(target)    a double click on { kind, id }
  *   onBoxSelect(ids, mods)   the ship ids inside a dragged box (mouse)
  *   onContextMenu(target, p) right-click or long-press on { kind, id } (or
@@ -344,12 +347,15 @@ export function createMapView(canvas, options) {
     } else if (wasDrag.which === 'right' && !wasDrag.moved) {
       options.onContextMenu?.(menuAt(wasDrag.start.x, wasDrag.start.y), { x: e.clientX, y: e.clientY });
     } else if ((wasDrag.which === 'left' || wasDrag.which === 'touch') && !wasDrag.moved) {
-      options.onSelect(mods.additive ? hitTest(targets, p.x, p.y) : pickAt(p.x, p.y), mods);
+      const pick = mods.additive ? hitTest(targets, p.x, p.y) : (options.isPicking?.() && shipAt(p.x, p.y)) || pickAt(p.x, p.y);
+      options.onSelect(pick, mods);
     }
   }
 
   const pickAt = (x, y) => pickNext(hitsAt(targets, x, y), options.getSelection());
   const menuAt = (x, y) => menuHit(targets, x, y, options.getSelection());
+  // While picking ships, a ship under the finger wins over the place it sits at.
+  const shipAt = (x, y) => hitsAt(targets, x, y).find((hit) => SHIP_TARGETS.has(hit.kind)) ?? null;
 
   // A double click acts on what its second click picked (see pickAt).
   canvas.addEventListener('dblclick', (e) => {
@@ -360,6 +366,24 @@ export function createMapView(canvas, options) {
     const target = (selection && hits.find((hit) => isPicked(hit, selection))) || hits[0];
     if (target) options.onDoubleClick?.(target);
   });
+
+  // A tap's click comes after the tap has been handled. If the tap changed
+  // what covers the map (closing a selection brings the dock back), that
+  // click would land on whatever is there now: swallow it.
+  let ghostUntil = 0;
+  canvas.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'mouse') ghostUntil = performance.now() + 400;
+  });
+  canvas.ownerDocument.addEventListener(
+    'click',
+    (e) => {
+      if (performance.now() > ghostUntil || canvas.contains(e.target)) return;
+      ghostUntil = 0;
+      e.stopPropagation();
+      e.preventDefault();
+    },
+    true,
+  );
 
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', endPointer);
