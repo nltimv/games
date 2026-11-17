@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="glow" cx="512" cy="512" r="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe3a3" stop-opacity="0.6"/>
+      <stop offset="0.4" stop-color="#ffb45e" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ff9a3d" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="sun" cx="0.4" cy="0.38" r="0.7">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.35" stop-color="#fff1c2"/>
+      <stop offset="0.8" stop-color="#ffbd5c"/>
+      <stop offset="1" stop-color="#ff9b3a"/>
+    </radialGradient>
+    <linearGradient id="hex" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9fffb"/>
+      <stop offset="0.5" stop-color="#7fe9de"/>
+      <stop offset="1" stop-color="#1b9aa8"/>
+    </linearGradient>
+    <radialGradient id="ice" cx="0.35" cy="0.3" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.3" stop-color="#bdf4ff"/>
+      <stop offset="1" stop-color="#155a86"/>
+    </radialGradient>
+  </defs>
+  <circle cx="512" cy="512" r="300" fill="url(#glow)"/>
+  <g fill="none" stroke="#bedcff">
+    <circle cx="512" cy="512" r="150" stroke-opacity="0.28" stroke-width="5"/>
+    <circle cx="512" cy="512" r="250" stroke-opacity="0.18" stroke-width="5"/>
+  </g>
+  <circle cx="512" cy="512" r="72" fill="url(#sun)"/>
+  <!-- Stations on the orbits -->
+  <g stroke="#ffffff" stroke-width="5" fill="url(#hex)">
+    <polygon transform="translate(618 406)" points="44,0 22,38 -22,38 -44,0 -22,-38 22,-38"/>
+    <polygon transform="translate(335 689)" points="36,0 18,31 -18,31 -36,0 -18,-31 18,-31"/>
+  </g>
+  <circle cx="730" cy="640" r="26" fill="url(#ice)"/>
+  <circle cx="762" cy="608" r="13" fill="url(#ice)"/>
+  <!-- A ship on its way -->
+  <path d="M618 406 Q 700 470 730 640" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="5" stroke-dasharray="12 16"/>
+  <path d="M676 490 l40 6 -30 24 z" fill="#d9fff8"/>
+</svg>

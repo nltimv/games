@@ -573,19 +573,26 @@ export function createApp(session, doc = document) {
     onGesture: () => sheet?.fold(),
     getSafeArea(width, height) {
       const gap = 12;
-      let top = els.top.getBoundingClientRect().bottom + gap;
+      // In map coordinates: the apps inset the game from the notch and the
+      // home bar, so the map does not always start at the viewport's corner.
+      const origin = els.map.getBoundingClientRect();
+      const rect = (el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top - origin.top, bottom: r.bottom - origin.top, left: r.left - origin.left };
+      };
+      let top = rect(els.top).bottom + gap;
       if (isPhone()) {
         // On phones the tutorial card spans the width: keep the map below it.
-        if (!els.guide.hidden) top = els.guide.getBoundingClientRect().bottom + gap;
+        if (!els.guide.hidden) top = rect(els.guide).bottom + gap;
         // Scale by width so the map keeps its size when the sheet opens;
         // the free area above the sheet (or the dock) sets the center.
         const cover = els.panel.hidden ? els.dock : els.panel;
-        const bottom = Math.min(height, cover.getBoundingClientRect().top) - gap;
+        const bottom = Math.min(height, rect(cover).top) - gap;
         return { x: gap, y: top, width: width - gap * 2, height: Math.max(80, bottom - top), fitSize: width - gap * 2 };
       }
       let right = width - gap;
-      const bottom = els.nav.getBoundingClientRect().top - gap;
-      if (!els.panel.hidden) right = els.panel.getBoundingClientRect().left - gap;
+      const bottom = rect(els.nav).top - gap;
+      if (!els.panel.hidden) right = rect(els.panel).left - gap;
       const left = 64;
       return { x: left, y: top, width: Math.max(80, right - left), height: Math.max(80, bottom - top) };
     },

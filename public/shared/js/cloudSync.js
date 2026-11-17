@@ -13,6 +13,9 @@
 
 // `codeUnseen`: the save got a code that the player has not been shown yet
 // (a new save, a save from before cloud saves, or a replaced code).
+
+import { apiBase, isApp } from './platform.js';
+
 const META_DEFAULTS = { code: null, revision: 0, dirty: false, device: '', backup: null, hasEmail: false, codeUnseen: false };
 
 /**
@@ -61,21 +64,25 @@ function defaultStorage() {
 
 /**
  * The server calls, one per function. Each resolves to { status, body };
- * a network failure rejects.
+ * a network failure rejects. `base` is the server's origin: '' on the
+ * website, the Games Hub address in the Android and iOS apps.
  */
-export function createCloudApi({ game, fetchFn = globalThis.fetch?.bind(globalThis) }) {
+export function createCloudApi({ game, fetchFn = globalThis.fetch?.bind(globalThis), base = apiBase(), app = isApp() }) {
+  // An app build without a server address plays with local saves only.
+  const noServer = app && !base;
   async function request(method, path, { code, body, keepalive = false } = {}) {
-    if (!fetchFn) throw new Error('offline');
+    if (!fetchFn || noServer) throw new Error('offline');
     const headers = {};
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (code) headers.authorization = `Code ${String(code).replace(/\D/g, '')}`;
-    const res = await fetchFn(`/api${path}`, { method, keepalive, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const res = await fetchFn(`${base}/api${path}`, { method, keepalive, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: res.status, body: await res.json().catch(() => null) };
   }
   const saves = `/saves/${game}`;
   return {
     /** { cloud, recovery }; cloud is false when the server has no cloud saves or cannot be reached. */
     async config() {
+      if (noServer) return { cloud: false, recovery: false };
       try {
         const res = await request('GET', '/config');
         return res.status === 200 && res.body ? res.body : { cloud: false, recovery: false };

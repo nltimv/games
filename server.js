@@ -18,6 +18,10 @@ if (process.env.TRUST_PROXY && process.env.TRUST_PROXY !== 'false') {
   app.set('trust proxy', Number.isInteger(hops) ? hops : process.env.TRUST_PROXY);
 }
 
+// The Android and iOS apps call /api from their own origin.
+const { createAppCors, parseOrigins } = require('./server/cors');
+app.use('/api', createAppCors(parseOrigins(process.env.APP_ORIGINS)));
+
 // Liveness/readiness probe endpoint for container orchestration.
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ status: 'ok' });
