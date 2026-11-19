@@ -50,6 +50,13 @@ Rules of thumb:
 `public/package.json` sets `"type": "module"` so Node treats the browser
 modules as ES modules in tests. The browser ignores it.
 
+## Usage data
+
+Games report anonymous usage events with `track()` from
+`shared/js/telemetry.js`. A new event must be added to
+`server/telemetryEvents.js` first, and never carries names, codes, emails
+or text a player typed. See [docs/analytics.md](docs/analytics.md).
+
 ## Storage keys
 
 Every `localStorage` key starts with the game id: `snake-best`,

@@ -40,7 +40,7 @@ export default [
     languageOptions: { sourceType: 'commonjs', globals: globals.node },
   },
   {
-    files: ['test/**/*.mjs', 'eslint.config.mjs', 'apps/*/scripts/**/*.mjs'],
+    files: ['test/**/*.mjs', 'eslint.config.mjs', 'scripts/**/*.mjs', 'apps/*/scripts/**/*.mjs'],
     languageOptions: { sourceType: 'module', globals: globals.node },
   },
 ];

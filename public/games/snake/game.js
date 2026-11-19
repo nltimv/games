@@ -23,6 +23,10 @@
   let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
   let loopHandle = null;
   let running = false;
+  let startedAt = 0;
+
+  // Usage data (see /privacy); does nothing when it is off.
+  const track = (name, props) => window.gamesTelemetry?.track(name, props);
 
   bestEl.textContent = best;
 
@@ -106,6 +110,7 @@
       bestEl.textContent = best;
       localStorage.setItem(STORAGE_KEY, String(best));
     }
+    track('game_ended', { result: 'lost', score, length_s: Math.round((Date.now() - startedAt) / 1000) });
     overlayMessage.textContent = `Game over! Score: ${score}`;
     startBtn.textContent = 'Play again';
     overlay.classList.remove('hidden');
@@ -113,6 +118,8 @@
 
   function start() {
     resetState();
+    startedAt = Date.now();
+    track('game_started');
     overlay.classList.add('hidden');
     running = true;
     draw();

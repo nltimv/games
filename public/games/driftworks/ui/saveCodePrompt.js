@@ -3,6 +3,7 @@
 // and asks the player to note it down, then (when the server can send mail)
 // offers to link a recovery email, with a warning when they skip it.
 
+import { track } from '../../../shared/js/telemetry.js';
 import { h } from './dom.js';
 import { button } from './components.js';
 import { codeBox } from './streamer.js';
@@ -114,7 +115,10 @@ export function showSaveCode(dialog, { cloud, name, toast }) {
         render();
         const result = await cloud.linkEmail(email);
         pending = false;
-        if (result.ok) done('Email linked. The save code is on its way there.');
+        if (result.ok) {
+          track('cloud_code_prompt', { choice: 'email_added' });
+          done('Email linked. The save code is on its way there.');
+        }
         else go('email', say(result.error, true));
       };
       return [
@@ -145,7 +149,7 @@ export function showSaveCode(dialog, { cloud, name, toast }) {
           'div',
           { class: 'dw-row-actions' },
           button('Add email', { variant: 'primary', onClick: () => go('email'), key: 'skip-add' }),
-          button('Continue without', { onClick: () => done(), key: 'skip-continue' }),
+          button('Continue without', { onClick: () => (track('cloud_code_prompt', { choice: 'skipped' }), done()), key: 'skip-continue' }),
         ),
       ];
     }

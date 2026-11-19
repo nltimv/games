@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="What the Games Hub and its games collect, why, and how to turn it off." />
+  <title>Privacy - Games Hub</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔒</text></svg>" />
+  <link rel="stylesheet" href="/shared/css/site.css" />
+</head>
+<body>
+  <div class="bg-decor" aria-hidden="true">
+    <div class="bg-blob bg-blob-a"></div>
+    <div class="bg-blob bg-blob-b"></div>
+    <div class="bg-blob bg-blob-c"></div>
+    <div class="bg-aurora"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-stars"></div>
+  </div>
+
+  <header class="site-header">
+    <h1>🔒 Privacy</h1>
+    <a class="back-link" href="/">&larr; Back to Games Hub</a>
+  </header>
+
+  <main class="prose">
+    <section class="prose-card" aria-labelledby="usage-setting">
+      <h2 id="usage-setting">Anonymous usage data</h2>
+      <label class="prose-toggle">
+        <input type="checkbox" id="usage-toggle" />
+        <span>Share anonymous usage data from this browser</span>
+      </label>
+      <p class="prose-note" id="usage-status" role="status"></p>
+    </section>
+
+    <section class="prose-card">
+      <h2>In short</h2>
+      <p>
+        The Games Hub and its games (including the Driftworks apps for Android and iOS) send anonymous
+        usage data to this site's own server, so we can see which games are played and where players get
+        stuck, and make the games better. Nothing goes to advertisers, Google or any other company.
+        There are no cookies, and no account is needed.
+      </p>
+    </section>
+
+    <section class="prose-card">
+      <h2>What is collected</h2>
+      <ul>
+        <li><strong>A random id</strong> made by your browser or app the first time you play, kept on your device. It is not based on anything about you or your device, and it is not linked to a save code or an email address.</li>
+        <li><strong>When you play</strong>: when a page opens, a heartbeat every few minutes while it is on screen, and how long you were away.</li>
+        <li><strong>Your device, roughly</strong>: phone, tablet or desktop; operating system; browser; screen size rounded to 50 pixels; whether it has a touch screen; its language and time zone; and which site linked you here, if any.</li>
+        <li><strong>What happens in the games</strong>: for example a round of Snake started and its score, or in Driftworks the goals you complete, research, ships built, missions, and choices in the menus. Save names, save codes and email addresses are never sent.</li>
+        <li><strong>Errors</strong>: the first few script errors on a page, without personal details.</li>
+      </ul>
+      <p>
+        Your IP address is used to deliver the data, as with any web request, and to stop abuse with a
+        short-lived rate limit kept in memory. It is not stored.
+      </p>
+    </section>
+
+    <section class="prose-card">
+      <h2>Why, and on what basis</h2>
+      <p>
+        To find out how the games are played and improve them: which parts are too slow or too hard, what
+        nobody discovers, what breaks on which devices. The legal basis is our legitimate interest in
+        improving the games (GDPR article 6(1)(f)). The data is only used for this, is looked at in
+        totals, and is never sold, shared or used for advertising.
+      </p>
+    </section>
+
+    <section class="prose-card">
+      <h2>Where it is kept, and for how long</h2>
+      <p>
+        On the Games Hub's own servers in the European Union. Usage data is deleted automatically after 13 months.
+      </p>
+    </section>
+
+    <section class="prose-card">
+      <h2>Your choices</h2>
+      <p>
+        You can object at any time by turning usage data off: with the switch above on this site, or in
+        Driftworks under Settings, Privacy (also in the apps). Turning it off sends one last note that it
+        was turned off, then nothing more, and deletes the random id from your device. If your browser
+        sends a Global Privacy Control or Do Not Track signal, nothing is collected at all.
+      </p>
+      <p>
+        Because the id is random and stays on your device, we cannot tell which data is yours. That means
+        we cannot look it up or delete it on request; turning usage data off is how you stop it. Turning it
+        on again starts with a new id.
+      </p>
+    </section>
+
+    <section class="prose-card">
+      <h2>Cloud saves</h2>
+      <p>
+        Cloud saves are separate from usage data. A cloud save stores your game with its save code, which
+        is kept only as a keyed hash. An email address you link for recovery is kept as a keyed hash too,
+        and used only to send you your save codes. Deleting a save in the game deletes it from the server.
+      </p>
+    </section>
+
+    <section class="prose-card">
+      <h2>Questions</h2>
+      <p>
+        Open an issue on <a href="https://github.com/nltimv/games/issues" target="_blank" rel="noopener noreferrer">GitHub</a>.
+        You also have the right to complain to the Dutch data protection authority, the Autoriteit Persoonsgegevens.
+      </p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>&copy; <span id="year">2026</span> nltimv</p>
+  </footer>
+
+  <script type="module">
+    import { analyticsBlockedByBrowser, analyticsEnabled, initTelemetry, setAnalyticsEnabled } from '/shared/js/telemetry.js';
+
+    const toggle = document.getElementById('usage-toggle');
+    const status = document.getElementById('usage-status');
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    function render() {
+      const blocked = analyticsBlockedByBrowser();
+      toggle.checked = analyticsEnabled();
+      toggle.disabled = blocked;
+      status.textContent = blocked
+        ? 'Your browser asks sites not to track you, so nothing is collected.'
+        : toggle.checked
+          ? 'On. Thank you: it helps make the games better.'
+          : 'Off. Nothing is collected from this browser.';
+    }
+
+    toggle.addEventListener('change', () => {
+      setAnalyticsEnabled(toggle.checked);
+      if (toggle.checked) initTelemetry({ game: 'hub', page: 'privacy' });
+      render();
+    });
+
+    initTelemetry({ game: 'hub', page: 'privacy' });
+    render();
+  </script>
+</body>
+</html>

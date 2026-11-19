@@ -3,6 +3,7 @@
 // lives here; game state lives in the session and only changes through
 // session.act().
 
+import { bucketMinutes, track } from '../../../shared/js/telemetry.js';
 import { MAX_ZOOM } from '../render/camera.js';
 import { createMapView } from '../render/mapView.js';
 import { HOME_SYSTEM } from '../content/homeSystem.js';
@@ -33,6 +34,8 @@ import { signalPanel } from './panels/signal.js';
 import { plannedArea } from './panels/commander.js';
 import { currentGuide, guideCard, markGuided } from './tutorial.js';
 import { createSheet } from './sheet.js';
+import { playedMinutes } from './usage.js';
+import { nextGoalIndex } from '../core/usage.js';
 
 const TOAST_KINDS = new Set(['sale', 'goal', 'arrival', 'warning', 'purchase']);
 const TOAST_MS = 4200;
@@ -487,6 +490,7 @@ export function createApp(session, doc = document) {
     const card = guideCard(ui.guide, {
       onSkip: () => {
         const act = ui.guide?.goal.act ?? 1;
+        track('tutorial_skipped', { goal_id: ui.guide?.goal.id ?? '', goal_index: nextGoalIndex(session.state), act, played_min: Math.round(playedMinutes()) });
         session.act((state) => skipGuide(state, act));
         toast(`${act > 1 ? 'Guide' : 'Tutorial'} skipped. Goals stay in the Company view.`);
       },
@@ -550,7 +554,9 @@ export function createApp(session, doc = document) {
   function showAwayIfNeeded(since, now) {
     if (els.modal.open) return false;
     if (now - since < 3 * 60 * 1000) return false;
-    return showAway(els.modal, session.state, since, now);
+    const shown = showAway(els.modal, session.state, since, now);
+    if (shown) track('away_report_shown', { away_min: bucketMinutes(now - since), log_entries: session.state.log.filter((e) => e.at > since).length });
+    return shown;
   }
 
   /** On opening the game: What's new after an update, then what happened while away. */

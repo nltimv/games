@@ -19,7 +19,8 @@ entry to [`src/games.json`](src/games.json).
 ```
 .
 ├── server.js                 # Express server: static hosting + /api/games + /healthz
-├── server/                   # Cloud saves: save codes, saves API, SQL migrations
+├── server/                   # Cloud saves and usage data: APIs, SQL migrations
+├── docs/analytics.md         # Usage data: privacy rules, events, dashboards
 ├── src/games.json            # Game registry (id, title, description, path, thumbnail)
 ├── public/
 │   ├── index.html            # Lobby page
@@ -34,7 +35,8 @@ entry to [`src/games.json`](src/games.json).
 ├── eslint.config.mjs
 ├── Dockerfile                # Multi-stage, non-root, healthchecked image
 ├── docker-compose.yml        # Local test setup: app + PostgreSQL + Mailpit
-├── helm/games-hub/           # Helm chart for Kubernetes deployment
+├── helm/games-hub/           # Helm chart for Kubernetes deployment (+ Grafana dashboards)
+├── scripts/dashboards.mjs    # Builds the Grafana dashboards
 └── .github/workflows/        # CI: lint and test, then build & publish image + Helm chart
 ```
 
@@ -281,6 +283,25 @@ call `/api` from another origin; defaults to the Driftworks apps,
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`,
 `MAIL_FROM` (only its address is used: mails go out in the name of the
 game, such as "Driftworks", from `src/games.json`).
+
+## Usage data
+
+The hub and its games can send anonymous usage events (players, sessions,
+devices, and how far players get in Driftworks) to the hub's own server,
+for Grafana dashboards. It is off unless the server runs with
+`TELEMETRY=true`, stores no IP addresses or cookies, and players can turn
+it off on [`/privacy`](public/privacy.html) or in Driftworks' Settings. See
+[docs/analytics.md](docs/analytics.md) for the privacy rules, the events
+and the dashboards.
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `telemetry.enabled` | `false` | Accept usage events (needs a database, like cloud saves) |
+| `telemetry.retentionDays` | `395` | Delete events older than this |
+| `telemetry.reader.username` | `games_reader` | Read-only login for Grafana, created by the app |
+| `grafana.enabled` | `false` | Grafana with the dashboards |
+| `grafana.persistence.enabled` | `false` | Keep Grafana's users and settings on a volume |
+| `grafana.ingress.enabled` | `false` | Expose Grafana at `grafana.ingress.host` |
 
 ## CI/CD
 

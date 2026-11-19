@@ -2,6 +2,9 @@
 // menu and the main menu (see menu.js and mainMenu.js).
 
 import { formatClock, formatDuration } from '../../../shared/js/format.js';
+import { apiBase } from '../../../shared/js/platform.js';
+import { GAME_VERSION } from '../content/changelog.js';
+import { analyticsBlockedByBrowser, analyticsEnabled, initTelemetry, setAnalyticsEnabled, track } from '../../../shared/js/telemetry.js';
 import { logSince } from '../systems/log.js';
 import { h } from './dom.js';
 import { button } from './components.js';
@@ -64,9 +67,37 @@ export function settingsPage({ head }) {
       'div',
       { class: 'dw-section' },
       h('h3', { class: 'dw-section-title' }, h('span', null, 'Privacy')),
-      streamerToggle(),
+      streamerToggle({ onChange: (value) => track('settings_changed', { setting: 'streamer', value }) }),
       h('p', { class: 'dw-note' }, 'For streams and screenshots: save codes show as dots until you press Show, and email fields are masked. Applies on this device.'),
+      usageToggle(),
+      h(
+        'p',
+        { class: 'dw-note' },
+        'Anonymous data on how the game is played (goals reached, time played, device type) helps make Driftworks better. No names, codes or emails. ',
+        h('a', { href: `${apiBase()}/privacy`, target: '_blank', rel: 'noopener' }, 'What is collected'),
+      ),
     ),
   );
   return [head, body];
+}
+
+/** Usage data on or off, for this device (see /privacy). */
+function usageToggle() {
+  const blocked = analyticsBlockedByBrowser();
+  return h(
+    'label',
+    { class: 'dw-cloud-check' },
+    h('input', {
+      type: 'checkbox',
+      checked: analyticsEnabled(),
+      disabled: blocked,
+      dataset: { key: 'usage-toggle' },
+      onChange: (e) => {
+        setAnalyticsEnabled(e.target.checked);
+        // On again: start with a new id. Events tie to a save again from the next time it opens.
+        if (e.target.checked && initTelemetry({ game: 'driftworks', version: GAME_VERSION })) track('settings_changed', { setting: 'analytics', value: true });
+      },
+    }),
+    h('span', null, blocked ? 'Share anonymous usage data (off: your browser asks sites not to track)' : 'Share anonymous usage data'),
+  );
 }

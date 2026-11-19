@@ -32,7 +32,7 @@ const mailer = {
 before(async () => {
   if (!URL) return;
   pool = createPool({ connectionString: URL });
-  await pool.query('DROP TABLE IF EXISTS saves, sessions, accounts, schema_migrations CASCADE');
+  await pool.query('DROP TABLE IF EXISTS saves, sessions, accounts, events, schema_migrations CASCADE');
   await migrate(pool);
   const app = express();
   router = createCloudRouter({
@@ -90,7 +90,7 @@ test('migrations are applied once and are safe to run again', { skip }, async ()
   const { rows } = await pool.query('SELECT name FROM schema_migrations');
   assert.deepEqual(
     rows.map((r) => r.name),
-    ['001_init.sql', '002_code_encrypted.sql'],
+    ['001_init.sql', '002_code_encrypted.sql', '003_events.sql'],
   );
 });
 

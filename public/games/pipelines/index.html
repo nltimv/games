@@ -58,6 +58,12 @@
     </p>
   </main>
 
+  <!-- Holds usage events from the first level until the module below has loaded. -->
+  <script>window.gamesTelemetry = { q: [], track: function (name, props) { this.q.push([name, props, Date.now()]); } };</script>
+  <script type="module">
+    import { startPageTelemetry } from '/shared/js/telemetry.js';
+    startPageTelemetry({ game: 'pipelines' });
+  </script>
   <script src="/games/pipelines/game.js"></script>
 </body>
 </html>

@@ -46,6 +46,10 @@
     </div>
   </main>
 
+  <script type="module">
+    import { startPageTelemetry } from '/shared/js/telemetry.js';
+    startPageTelemetry({ game: 'snake' });
+  </script>
   <script src="/games/snake/game.js"></script>
 </body>
 </html>

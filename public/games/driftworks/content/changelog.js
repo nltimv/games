@@ -16,6 +16,7 @@ export const CHANGELOG = [
       'Driftworks now also comes as an app for Android and iOS. Save codes work there too: enter yours in the app to carry on with the same company.',
       'The map now frames your system correctly when the screen around it has borders, such as a phone’s notch.',
       'On a phone, press and hold a ship to pick several at once: tap more ships to add them (or take them out), then hold a place to give them all an order.',
+      'Driftworks now shares anonymous usage data, such as which goals players reach and how long they take, so we can see where the game needs work. No names, save codes or emails, and nothing goes to other companies. Turn it off any time under Settings.',
     ],
   },
   {

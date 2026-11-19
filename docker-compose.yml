@@ -24,6 +24,8 @@ services:
       - "3000:3000"
     environment:
       CLOUD_SAVES: "true"
+      # Usage data into the events table (docs/analytics.md).
+      TELEMETRY: "true"
       # A fixed test pepper, so save codes survive restarts. Changing it
       # makes every test code stop working.
       CLOUD_PEPPER: local-test-pepper-not-secret-0123456789

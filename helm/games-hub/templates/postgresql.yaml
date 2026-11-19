@@ -1,4 +1,4 @@
-{{- if and .Values.cloudSaves.enabled .Values.postgresql.enabled }}
+{{- if and (include "games-hub.needsDatabase" .) .Values.postgresql.enabled }}
 {{- $name := include "games-hub.postgresqlName" . }}
 apiVersion: v1
 kind: Service

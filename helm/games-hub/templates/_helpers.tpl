@@ -85,18 +85,45 @@ Cloud saves: names of the generated secrets and the database host.
 {{- end }}
 
 {{/*
-Fails the render on settings that cannot work with cloud saves.
+"true" when cloud saves or usage data need the database, "" otherwise.
+*/}}
+{{- define "games-hub.needsDatabase" -}}
+{{- if or .Values.cloudSaves.enabled .Values.telemetry.enabled }}true{{ end }}
+{{- end }}
+
+{{/*
+Usage data: the read-only login for Grafana, and Grafana's names.
+*/}}
+{{- define "games-hub.readerSecretName" -}}
+{{- .Values.telemetry.reader.existingSecret | default (printf "%s-reader" (include "games-hub.fullname" .)) }}
+{{- end }}
+
+{{- define "games-hub.grafanaName" -}}
+{{- printf "%s-grafana" (include "games-hub.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "games-hub.grafanaSecretName" -}}
+{{- .Values.grafana.admin.existingSecret | default (include "games-hub.grafanaName" .) }}
+{{- end }}
+
+{{/*
+Fails the render on settings that cannot work with cloud saves or usage data.
 */}}
 {{- define "games-hub.validateCloudSaves" -}}
-{{- if .Values.cloudSaves.enabled }}
-{{- if or (gt (int .Values.replicaCount) 1) .Values.autoscaling.enabled }}
-{{- fail "cloudSaves.enabled needs a single replica: rate limits for save codes and recovery are kept in memory. Set replicaCount: 1 and autoscaling.enabled: false." }}
+{{- if and .Values.grafana.enabled (not .Values.telemetry.enabled) }}
+{{- fail "grafana.enabled shows usage data: set telemetry.enabled: true too." }}
 {{- end }}
+{{- if include "games-hub.needsDatabase" . }}
 {{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.host) }}
-{{- fail "cloudSaves.enabled needs a database: set postgresql.enabled: true, or externalDatabase.host and externalDatabase.existingSecret." }}
+{{- fail "cloudSaves.enabled and telemetry.enabled need a database: set postgresql.enabled: true, or externalDatabase.host and externalDatabase.existingSecret." }}
 {{- end }}
 {{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.existingSecret) }}
 {{- fail "externalDatabase.existingSecret is required: a Secret holding the database password." }}
+{{- end }}
+{{- end }}
+{{- if .Values.cloudSaves.enabled }}
+{{- if or (gt (int .Values.replicaCount) 1) .Values.autoscaling.enabled }}
+{{- fail "cloudSaves.enabled needs a single replica: rate limits for save codes and recovery are kept in memory. Set replicaCount: 1 and autoscaling.enabled: false." }}
 {{- end }}
 {{- if and .Values.mail.enabled (not .Values.mail.host) }}
 {{- fail "mail.enabled needs mail.host." }}

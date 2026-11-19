@@ -4,6 +4,7 @@
 // as pages inside it, with a Back button to the menu.
 
 import { isApp } from '../../../shared/js/platform.js';
+import { track } from '../../../shared/js/telemetry.js';
 import { CHANGELOG, GAME_VERSION, unseenChanges } from '../content/changelog.js';
 import { h, svgIcon } from './dom.js';
 import { button } from './components.js';
@@ -92,6 +93,7 @@ export function createGameMenu({ dialog, session, toast }) {
   }
 
   function goTo(next) {
+    track('menu_view', { view: next, from: 'game' });
     page = next;
     render();
   }
@@ -136,6 +138,7 @@ export function createGameMenu({ dialog, session, toast }) {
 
   return {
     open(start = 'menu') {
+      track('menu_view', { view: start, from: 'game' });
       page = start;
       render();
     },
@@ -143,6 +146,7 @@ export function createGameMenu({ dialog, session, toast }) {
     whatsNew({ then } = {}) {
       if (!unseenChanges(session.state.seenVersion).length) return false;
       afterClose = then ?? null;
+      track('whats_new_viewed', { auto: true });
       page = 'whats-new-alone';
       show(whatsNewPage({ fromMenu: false }));
       return true;

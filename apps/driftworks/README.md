@@ -41,6 +41,15 @@ To point a build somewhere else, set `DRIFTWORKS_API_URL` (locally, or as
 a repository **variable** in CI) to another `https://` origin with no path,
 or to `none` for an app that keeps saves on the device only.
 
+## Usage data in the app
+
+The app sends the same anonymous usage events as the website, to the same
+server as cloud saves (`/api/events`), with `platform` set to `android` or
+`ios`. Players can turn it off in Settings. An app built with
+`DRIFTWORKS_API_URL=none` sends nothing. What to answer in the Play Data
+safety and App Store privacy forms is in
+[docs/analytics.md](../../docs/analytics.md#app-stores).
+
 ## Building locally
 
 Needs Node 22, plus Android Studio (JDK 21, Android SDK 36) and/or

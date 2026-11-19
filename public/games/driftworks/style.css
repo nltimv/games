@@ -364,6 +364,11 @@ button.dw-chip:hover {
   color: var(--glass-muted);
 }
 
+.dw-note a {
+  color: inherit;
+  font-weight: 700;
+}
+
 .dw-note.is-warn {
   color: var(--dw-warn);
 }
