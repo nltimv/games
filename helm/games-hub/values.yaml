@@ -152,8 +152,65 @@ cloudSaves:
   maxSaveBytes: 1048576
   # -- Proxy hops in front of the app (an ingress controller is one), so
   # rate limits see the player's address. Set to "false" when nothing
-  # proxies the app.
+  # proxies the app. Also used by usage data (telemetry).
   trustProxy: "1"
+
+# ---------------------------------------------------------------------------
+# Usage data (anonymous events from the hub and the games, see /privacy and
+# docs/analytics.md). Off by default. Needs a database like cloud saves:
+# the bundled one (postgresql.enabled) or your own (externalDatabase).
+# ---------------------------------------------------------------------------
+telemetry:
+  enabled: false
+  # -- Events older than this are deleted (13 months by default).
+  retentionDays: 395
+  # -- A login that may only read the events table, for Grafana. The app
+  # creates or updates it on start when grafana.enabled is true (with the
+  # bundled database; with your own, the app's user needs CREATEROLE, or
+  # create it by hand, see docs/analytics.md).
+  reader:
+    username: games_reader
+    # -- Secret with the reader's password under passwordKey. Leave empty to
+    # have the chart generate one (kept on upgrades).
+    existingSecret: ""
+    passwordKey: password
+
+# -- Grafana with the usage dashboards (docs/analytics.md), reading the
+# events table through telemetry.reader. Needs telemetry.enabled.
+grafana:
+  enabled: false
+  image:
+    repository: grafana/grafana-oss
+    tag: "13.0.2"
+    pullPolicy: IfNotPresent
+  admin:
+    user: admin
+    # -- Secret with the admin password under passwordKey. Leave empty to
+    # have the chart generate one (kept on upgrades); read it with
+    # `kubectl get secret <release>-games-hub-grafana -o jsonpath='{.data.password}' | base64 -d`.
+    existingSecret: ""
+    passwordKey: password
+  # -- Grafana's own data (users, preferences). The dashboards come from the
+  # chart either way; without persistence a restart only forgets logins.
+  persistence:
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+  service:
+    port: 3000
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    host: grafana.games-hub.local
+    tls: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
 
 # -- A single PostgreSQL instance deployed with the chart (a StatefulSet with
 # the official postgres image and a persistent volume).

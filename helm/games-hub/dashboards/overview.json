@@ -1,0 +1,942 @@
+{
+  "uid": "games-overview",
+  "title": "Games Hub: overview",
+  "description": "Players, sessions, devices and games, for the whole hub.",
+  "tags": [
+    "games-hub",
+    "usage"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "platform",
+        "label": "Platform",
+        "query": "web,android,ios",
+        "options": [],
+        "includeAll": true,
+        "allValue": "'ALL'",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "Games Hub dashboards",
+      "type": "dashboards",
+      "tags": [
+        "games-hub"
+      ],
+      "asDropdown": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Players",
+      "description": "Devices or browsers with any event in the time range.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT count(DISTINCT install_id) AS \"Players\" FROM events WHERE $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "New players",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT count(DISTINCT install_id) AS \"New\" FROM events WHERE name = 'app_open' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND props->>'first_open' = 'true'",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Sessions",
+      "description": "A session ends after 30 minutes without events.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT count(DISTINCT session_id) AS \"Sessions\" FROM events WHERE $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Median session",
+      "description": "First to last event of a session. Heartbeats every 5 minutes while a page is on screen.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY mins) AS \"Minutes\"\nFROM (SELECT extract(epoch FROM max(at) - min(at)) / 60 AS mins FROM events WHERE $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) GROUP BY session_id) s",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Players per day",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT $__timeGroupAlias(at, '1d'), count(DISTINCT install_id) AS \"Players\", count(DISTINCT session_id) AS \"Sessions\"\nFROM events WHERE $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Platform",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT platform AS \"Platform\", count(DISTINCT install_id) AS \"Players\" FROM events WHERE $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Devices",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "barchart",
+      "title": "Device type",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 13
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT coalesce(nullif(props->>'device', ''), 'unknown') AS \"device\", count(DISTINCT install_id) AS \"Players\"\nFROM events WHERE name = 'app_open' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "Operating system",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 13
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT coalesce(nullif(props->>'os', ''), 'unknown') AS \"os\", count(DISTINCT install_id) AS \"Players\"\nFROM events WHERE name = 'app_open' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 10,
+      "type": "barchart",
+      "title": "Browser",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 13
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT coalesce(nullif(props->>'browser', ''), 'unknown') AS \"browser\", count(DISTINCT install_id) AS \"Players\"\nFROM events WHERE name = 'app_open' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 11,
+      "type": "barchart",
+      "title": "Language",
+      "description": "The device language. A rough stand-in for where players are.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT coalesce(nullif(props->>'lang', ''), 'unknown') AS \"lang\", count(DISTINCT install_id) AS \"Players\"\nFROM events WHERE name = 'app_open' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 12,
+      "type": "barchart",
+      "title": "Time zone",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT coalesce(nullif(props->>'tz', ''), 'unknown') AS \"tz\", count(DISTINCT install_id) AS \"Players\"\nFROM events WHERE name = 'app_open' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Screen size",
+      "description": "Rounded to 50 px.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 21
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT coalesce(nullif(props->>'screen', ''), 'unknown') AS \"screen\", count(DISTINCT install_id) AS \"Players\"\nFROM events WHERE name = 'app_open' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Games",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Games played",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT game AS \"Game\",\n  count(DISTINCT install_id) AS \"Players\",\n  count(DISTINCT session_id) AS \"Sessions\",\n  round(sum(mins)::numeric / nullif(count(DISTINCT session_id), 0), 1) AS \"Minutes per session\"\nFROM (\n  SELECT game, install_id, session_id, extract(epoch FROM max(at) - min(at)) / 60 AS mins\n  FROM events WHERE $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND game <> 'hub'\n  GROUP BY game, install_id, session_id\n) s\nGROUP BY game ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 16,
+      "type": "barchart",
+      "title": "Lobby: cards opened",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT props->>'target' AS \"Game\", count(*) AS \"Opened\" FROM events WHERE name = 'game_card_clicked' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 17,
+      "type": "barchart",
+      "title": "Where visitors came from",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT coalesce(nullif(props->>'referrer', ''), 'unknown') AS \"referrer\", count(DISTINCT install_id) AS \"Players\"\nFROM events WHERE name = 'app_open' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Small games: rounds",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT game AS \"Game\", coalesce(props->>'mode', '') AS \"Mode\",\n  count(*) FILTER (WHERE name = 'game_started') AS \"Started\",\n  count(*) FILTER (WHERE name = 'game_ended' AND props->>'result' IN ('won', 'perfect')) AS \"Won\",\n  count(*) FILTER (WHERE name = 'game_ended' AND props->>'result' = 'lost') AS \"Lost\",\n  round(avg((props->>'length_s')::numeric) FILTER (WHERE name = 'game_ended'), 0) AS \"Avg seconds\",\n  max((props->>'level')::int) AS \"Highest level\"\nFROM events WHERE name IN ('game_started', 'game_ended') AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1, 2 ORDER BY 1, 2",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Coming back",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "Retention by week of first visit",
+      "description": "Share of the players first seen that week who played again exactly 1, 7 and 30 days later, and at any time more than a week later. Recent weeks have not had the time yet.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 47
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "WITH first AS (\n  SELECT install_id, min(at) AS first_at FROM events WHERE ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) GROUP BY install_id\n), days AS (\n  SELECT DISTINCT install_id, (at::date) AS day FROM events WHERE ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\n)\nSELECT to_char(date_trunc('week', f.first_at), 'YYYY-MM-DD') AS \"Week\",\n  count(*) AS \"New players\",\n  round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM days d WHERE d.install_id = f.install_id AND d.day = f.first_at::date + 1)) / count(*), 1) AS \"Day 1 %\",\n  round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM days d WHERE d.install_id = f.install_id AND d.day = f.first_at::date + 7)) / count(*), 1) AS \"Day 7 %\",\n  round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM days d WHERE d.install_id = f.install_id AND d.day = f.first_at::date + 30)) / count(*), 1) AS \"Day 30 %\",\n  round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM days d WHERE d.install_id = f.install_id AND d.day > f.first_at::date + 7)) / count(*), 1) AS \"Back after a week %\"\nFROM first f\nWHERE $__timeFilter(f.first_at)\nGROUP BY 1 ORDER BY 1 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 21,
+      "type": "barchart",
+      "title": "Time away between sessions",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 47
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT CASE WHEN m <= 60 THEN '< 1 h' WHEN m <= 240 THEN '1-4 h' WHEN m <= 720 THEN '4-12 h' WHEN m <= 1440 THEN '12-24 h' WHEN m <= 10080 THEN '1-7 days' ELSE '> 7 days' END AS \"Away\",\n  count(*) AS \"Sessions\"\nFROM (SELECT (props->>'away_min')::numeric AS m FROM events WHERE name = 'session_start' AND props ? 'away_min' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))) s\nGROUP BY 1 ORDER BY min(m)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 22,
+      "type": "row",
+      "title": "Health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "panels": []
+    },
+    {
+      "id": 23,
+      "type": "table",
+      "title": "Script errors",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 57
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT game AS \"Game\", version AS \"Version\", props->>'message' AS \"Message\", props->>'source' AS \"Where\",\n  count(*) AS \"Times\", count(DISTINCT install_id) AS \"Players\", max(at) AS \"Last\"\nFROM events WHERE name = 'js_error' AND $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1, 2, 3, 4 ORDER BY 5 DESC LIMIT 50",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Events per day",
+      "description": "Volume, and players turning usage data off.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 57
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT $__timeGroupAlias(at, '1d'), count(*) AS \"Events\", count(*) FILTER (WHERE name = 'analytics_off') AS \"Turned off\"\nFROM events WHERE $__timeFilter(at) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring}))\nGROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ]
+}

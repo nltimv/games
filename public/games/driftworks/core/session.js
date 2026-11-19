@@ -3,6 +3,7 @@
 // simulation, check goals, save, and tell listeners what happened, so the UI
 // never has to remember to do any of that itself.
 
+import { track } from '../../../shared/js/telemetry.js';
 import { useGalaxy } from '../content/galaxy.js';
 import { checkGoals } from '../systems/goals.js';
 import { addLog } from '../systems/log.js';
@@ -19,7 +20,10 @@ function normalize(state) {
 function startFresh(saves, now) {
   const outdated = saves.hasOutdated();
   const state = createGame({ now });
-  if (outdated) addLog(state, now, 'Driftworks changed a lot in this update, so your company starts over.', 'info');
+  if (outdated) {
+    addLog(state, now, 'Driftworks changed a lot in this update, so your company starts over.', 'info');
+    track('save_started_over', { reason: 'outdated_version' });
+  }
   return state;
 }
 

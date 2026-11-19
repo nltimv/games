@@ -1,0 +1,771 @@
+{
+  "uid": "driftworks",
+  "title": "Driftworks",
+  "description": "Progress, drop-off and feature use in Driftworks.",
+  "tags": [
+    "games-hub",
+    "usage"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "version",
+        "label": "Version",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "games-db"
+        },
+        "query": "SELECT DISTINCT version FROM events WHERE game = 'driftworks' AND version IS NOT NULL ORDER BY 1 DESC",
+        "definition": "SELECT DISTINCT version FROM events WHERE game = 'driftworks' AND version IS NOT NULL ORDER BY 1 DESC",
+        "refresh": 2,
+        "sort": 0,
+        "includeAll": true,
+        "allValue": "'ALL'",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      },
+      {
+        "type": "custom",
+        "name": "platform",
+        "label": "Platform",
+        "query": "web,android,ios",
+        "options": [],
+        "includeAll": true,
+        "allValue": "'ALL'",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "Games Hub dashboards",
+      "type": "dashboards",
+      "tags": [
+        "games-hub"
+      ],
+      "asDropdown": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Players",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT count(DISTINCT install_id) AS \"Players\" FROM events WHERE game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "New saves",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT count(DISTINCT save_id) AS \"Saves\" FROM events WHERE name = 'save_opened' AND props->>'kind' = 'new' AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Tutorial finished",
+      "description": "Share of the new saves that completed every act 1 tutorial goal.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "WITH cohort AS (\n  SELECT DISTINCT save_id FROM events\n  WHERE name = 'save_opened' AND props->>'kind' = 'new' AND save_id IS NOT NULL AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)\n), top AS (\n  SELECT c.save_id, coalesce(max((e.props->>'goal_index')::int), -1) AS top\n  FROM cohort c LEFT JOIN events e ON e.save_id = c.save_id AND e.name = 'goal_completed'\n  GROUP BY c.save_id\n)\nSELECT round(100.0 * count(*) FILTER (WHERE top >= 6) / nullif(count(*), 0), 1) AS \"%\" FROM top",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Median play time per player",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY mins) AS \"Minutes\"\nFROM (SELECT install_id, sum(mins) AS mins FROM (\n  SELECT install_id, session_id, extract(epoch FROM max(at) - min(at)) / 60 AS mins FROM events WHERE game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at) GROUP BY 1, 2\n) s GROUP BY install_id) p",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Where players stop",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Goal funnel",
+      "description": "New saves started in the time range, and how many of them completed each goal by now. Goals complete in order. A1, A2, A3 are the acts.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "WITH cohort AS (\n  SELECT DISTINCT save_id FROM events\n  WHERE name = 'save_opened' AND props->>'kind' = 'new' AND save_id IS NOT NULL AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)\n), top AS (\n  SELECT c.save_id, coalesce(max((e.props->>'goal_index')::int), -1) AS top\n  FROM cohort c LEFT JOIN events e ON e.save_id = c.save_id AND e.name = 'goal_completed'\n  GROUP BY c.save_id\n), goals(i, label) AS (VALUES (-1, '00 Started'), (0, '01 A1 Mine ore and sell it'), (1, '02 A1 Carry goods with the Kite'), (2, '03 A1 Research Cargo racks I'), (3, '04 A1 Build your first ship'), (4, '05 A1 Complete a contract'), (5, '06 A1 Research Fleet licence I'), (6, '07 A1 Refit a ship with bigger cargo racks'), (7, '08 A1 Research Order queue I'), (8, '09 A1 Run a fleet of six ships'), (9, '10 A1 Earn 100,000 credits in total'), (10, '11 A1 Research the warp drive'), (11, '12 A2 Build a scout'), (12, '13 A2 Survey a system'), (13, '14 A2 Sell goods in another system'), (14, '15 A2 Survey five systems'), (15, '16 A2 Become Friendly with a second faction'), (16, '17 A2 Earn 2,500,000 credits in total'), (17, '18 A2 Sell steel or glass'), (18, '19 A2 Run a fleet of twelve ships'), (19, '20 A2 Research your first hazard shielding'), (20, '21 A3 Survey a system with a hazard'), (21, '22 A3 Hire a commander'), (22, '23 A3 Send a fleet on a mission'), (23, '24 A3 Sell circuits or hull plating'), (24, '25 A3 Salvage a derelict'), (25, '26 A3 Survey 100 systems'), (26, '27 A3 Raise a commander to level 3'), (27, '28 A3 Research Station blueprints'), (28, '29 All done'))\nSELECT g.label AS \"Goal\", (SELECT count(*) FROM top WHERE top.top >= g.i) AS \"Saves\"\nFROM goals g WHERE g.i < 28 ORDER BY g.i",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 7,
+      "type": "barchart",
+      "title": "Stopped playing at",
+      "description": "Saves started in the time range with no events for 7 days, by the goal they were on when they stopped.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "WITH saves AS (\n  SELECT save_id, max(at) AS last_at, min(at) AS first_at,\n    coalesce(max((props->>'goal_index')::int) FILTER (WHERE name = 'goal_completed'), -1) + 1 AS next\n  FROM events WHERE game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND save_id IS NOT NULL\n  GROUP BY save_id\n), goals(i, label) AS (VALUES (-1, '00 Started'), (0, '01 A1 Mine ore and sell it'), (1, '02 A1 Carry goods with the Kite'), (2, '03 A1 Research Cargo racks I'), (3, '04 A1 Build your first ship'), (4, '05 A1 Complete a contract'), (5, '06 A1 Research Fleet licence I'), (6, '07 A1 Refit a ship with bigger cargo racks'), (7, '08 A1 Research Order queue I'), (8, '09 A1 Run a fleet of six ships'), (9, '10 A1 Earn 100,000 credits in total'), (10, '11 A1 Research the warp drive'), (11, '12 A2 Build a scout'), (12, '13 A2 Survey a system'), (13, '14 A2 Sell goods in another system'), (14, '15 A2 Survey five systems'), (15, '16 A2 Become Friendly with a second faction'), (16, '17 A2 Earn 2,500,000 credits in total'), (17, '18 A2 Sell steel or glass'), (18, '19 A2 Run a fleet of twelve ships'), (19, '20 A2 Research your first hazard shielding'), (20, '21 A3 Survey a system with a hazard'), (21, '22 A3 Hire a commander'), (22, '23 A3 Send a fleet on a mission'), (23, '24 A3 Sell circuits or hull plating'), (24, '25 A3 Salvage a derelict'), (25, '26 A3 Survey 100 systems'), (26, '27 A3 Raise a commander to level 3'), (27, '28 A3 Research Station blueprints'), (28, '29 All done'))\nSELECT g.label AS \"Next goal\", count(s.save_id) AS \"Saves\"\nFROM goals g LEFT JOIN saves s ON s.next = g.i AND s.last_at < now() - interval '7 days' AND $__timeFilter(s.first_at)\nWHERE g.i >= 0\nGROUP BY g.i, g.label ORDER BY g.i",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Goals: reach and time",
+      "description": "Minutes played counts time with the game on screen on that device. Hours since start is real time since the company was founded. Compare with the balance bots (npm run balance).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 24,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "WITH cohort AS (\n  SELECT DISTINCT save_id FROM events\n  WHERE name = 'save_opened' AND props->>'kind' = 'new' AND save_id IS NOT NULL AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)\n), top AS (\n  SELECT c.save_id, coalesce(max((e.props->>'goal_index')::int), -1) AS top\n  FROM cohort c LEFT JOIN events e ON e.save_id = c.save_id AND e.name = 'goal_completed'\n  GROUP BY c.save_id\n), goals(i, label) AS (VALUES (-1, '00 Started'), (0, '01 A1 Mine ore and sell it'), (1, '02 A1 Carry goods with the Kite'), (2, '03 A1 Research Cargo racks I'), (3, '04 A1 Build your first ship'), (4, '05 A1 Complete a contract'), (5, '06 A1 Research Fleet licence I'), (6, '07 A1 Refit a ship with bigger cargo racks'), (7, '08 A1 Research Order queue I'), (8, '09 A1 Run a fleet of six ships'), (9, '10 A1 Earn 100,000 credits in total'), (10, '11 A1 Research the warp drive'), (11, '12 A2 Build a scout'), (12, '13 A2 Survey a system'), (13, '14 A2 Sell goods in another system'), (14, '15 A2 Survey five systems'), (15, '16 A2 Become Friendly with a second faction'), (16, '17 A2 Earn 2,500,000 credits in total'), (17, '18 A2 Sell steel or glass'), (18, '19 A2 Run a fleet of twelve ships'), (19, '20 A2 Research your first hazard shielding'), (20, '21 A3 Survey a system with a hazard'), (21, '22 A3 Hire a commander'), (22, '23 A3 Send a fleet on a mission'), (23, '24 A3 Sell circuits or hull plating'), (24, '25 A3 Salvage a derelict'), (25, '26 A3 Survey 100 systems'), (26, '27 A3 Raise a commander to level 3'), (27, '28 A3 Research Station blueprints'), (28, '29 All done')), started AS (SELECT count(*) AS n FROM top), times AS (\n  SELECT (e.props->>'goal_index')::int AS i,\n    percentile_cont(0.5) WITHIN GROUP (ORDER BY (e.props->>'played_min')::numeric) AS played,\n    percentile_cont(0.5) WITHIN GROUP (ORDER BY (e.props->>'age_h')::numeric) AS age\n  FROM events e JOIN cohort c ON c.save_id = e.save_id\n  WHERE e.name = 'goal_completed' GROUP BY 1\n), skips AS (\n  SELECT (props->>'goal_index')::int AS i, count(*) AS n FROM events WHERE name = 'tutorial_skipped' AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at) GROUP BY 1\n)\nSELECT g.label AS \"Goal\",\n  (SELECT count(*) FROM top WHERE top.top >= g.i) AS \"Saves\",\n  round(100.0 * (SELECT count(*) FROM top WHERE top.top >= g.i) / nullif((SELECT n FROM started), 0), 1) AS \"% of started\",\n  round(100.0 * (SELECT count(*) FROM top WHERE top.top >= g.i) / nullif((SELECT count(*) FROM top WHERE top.top >= g.i - 1), 0), 1) AS \"% of previous\",\n  round(t.played::numeric, 1) AS \"Median minutes played\",\n  round(t.age::numeric, 1) AS \"Median hours since start\",\n  coalesce(s.n, 0) AS \"Guide skipped here\"\nFROM goals g LEFT JOIN times t ON t.i = g.i LEFT JOIN skips s ON s.i = g.i\nWHERE g.i BETWEEN 0 AND 27\nORDER BY g.i",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Acts",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT 'Act ' || (props->>'act') AS \"Act\", count(DISTINCT save_id) AS \"Saves finished\",\n  round(percentile_cont(0.5) WITHIN GROUP (ORDER BY (props->>'played_min')::numeric)::numeric / 60, 1) AS \"Median hours played\",\n  round(percentile_cont(0.5) WITHIN GROUP (ORDER BY (props->>'age_h')::numeric)::numeric / 24, 1) AS \"Median days since start\"\nFROM events WHERE name = 'act_completed' AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)\nGROUP BY props->>'act' ORDER BY 1",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Versions",
+      "description": "Compare a release with the one before it.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "WITH saves AS (\n  SELECT version, save_id, max((props->>'goal_index')::int) FILTER (WHERE name = 'goal_completed') AS top\n  FROM events WHERE game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at) AND save_id IS NOT NULL GROUP BY 1, 2\n)\nSELECT version AS \"Version\", count(*) AS \"Saves played\", round(avg(coalesce(top, -1) + 1), 1) AS \"Avg goals done\"\nFROM saves GROUP BY 1 ORDER BY 1 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "What players do",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 53
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Research",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT props->>'research_id' AS \"Research\",\n  count(*) FILTER (WHERE name = 'research_started') AS \"Started\",\n  count(*) FILTER (WHERE name = 'research_completed') AS \"Done\",\n  round(percentile_cont(0.5) WITHIN GROUP (ORDER BY (props->>'played_min')::numeric) FILTER (WHERE name = 'research_completed')::numeric, 0) AS \"Median minutes played when done\"\nFROM events WHERE name IN ('research_started', 'research_completed') AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)\nGROUP BY 1 ORDER BY 3 DESC, 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Ships built",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 12,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT props->>'hull' AS \"Hull\", count(*) AS \"Built\" FROM events WHERE name = 'ship_built' AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at) GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Activity",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 18,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT name AS \"Event\", count(*) AS \"Times\", count(DISTINCT save_id) AS \"Saves\"\nFROM events WHERE name IN ('contract_accepted', 'contract_completed', 'mission_started', 'commander_hired', 'derelict_salvaged', 'ship_salvaged', 'system_surveyed') AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)\nGROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Shortcuts found (latest snapshot per save)",
+      "description": "The tutorial only offers these as tips. Do players find them?",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 64
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "WITH latest AS (\n  SELECT DISTINCT ON (save_id) save_id, props FROM events\n  WHERE name = 'progress_snapshot' AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at) ORDER BY save_id, at DESC\n)\nSELECT 'Act ' || (props->>'act') AS \"Act\", count(*) AS \"Saves\",\n  round(100.0 * count(*) FILTER (WHERE (props->>'copies')::int > 0) / count(*), 1) AS \"Used Copy orders %\",\n  round(100.0 * count(*) FILTER (WHERE (props->>'repeats')::int > 0) / count(*), 1) AS \"Used Repeat to fill %\",\n  round(avg((props->>'ships')::numeric), 1) AS \"Avg ships\"\nFROM latest GROUP BY props->>'act' ORDER BY 1",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 16,
+      "type": "barchart",
+      "title": "Menus opened",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 64
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT (props->>'from') || ': ' || (props->>'view') AS \"Page\", count(*) AS \"Opened\" FROM events WHERE name = 'menu_view' AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at) GROUP BY 1 ORDER BY 2 DESC LIMIT 15",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "xTickLabelMaxLength": 32
+      }
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Saves and cloud",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Saves",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 71
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT name AS \"Event\", coalesce(props->>'kind', props->>'choice', props->>'reason', props->>'state', '') AS \"Kind\", count(*) AS \"Times\"\nFROM events WHERE name IN ('save_created', 'save_opened', 'save_started_over', 'cloud_code_prompt', 'cloud_conflict', 'cloud_sync_failed', 'whats_new_viewed', 'away_report_shown', 'settings_changed') AND game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)\nGROUP BY 1, 2 ORDER BY 1, 3 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Sessions per day",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "games-db"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 71
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "games-db"
+          },
+          "rawSql": "SELECT $__timeGroupAlias(at, '1d'), count(DISTINCT session_id) AS \"Sessions\", count(DISTINCT install_id) AS \"Players\"\nFROM events WHERE game = 'driftworks' AND ('ALL' IN (${version:sqlstring}) OR version IN (${version:sqlstring})) AND ('ALL' IN (${platform:sqlstring}) OR platform IN (${platform:sqlstring})) AND $__timeFilter(at)\nGROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ]
+}

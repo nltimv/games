@@ -742,6 +742,12 @@
   let undoState = null;
   let solved = false;
   let level = 1;
+  let levelStartedAt = 0;
+
+  // Usage data (see /privacy); does nothing when it is off.
+  function track(name, props) {
+    if (globalThis.gamesTelemetry) globalThis.gamesTelemetry.track(name, props);
+  }
 
   // Building a level means searching for one that has a single solution, which
   // on the biggest boards is a second or so of work. That happens in a worker
@@ -782,6 +788,8 @@
     }
     resetPaths();
     writeStorage(LEVEL_KEY, String(level));
+    levelStartedAt = Date.now();
+    track('game_started', { level: level });
   }
 
   function resetPaths() {
@@ -1072,6 +1080,7 @@
     if (connectedCount() !== paths.length) return;
     if (filledCells() !== cellCount) return;
     solved = true;
+    track('game_ended', { level: level, result: wasPerfect() ? 'perfect' : 'won', score: moves, length_s: Math.round((Date.now() - levelStartedAt) / 1000) });
     showOverlay({
       perfect: wasPerfect(),
       detail: 'Level ' + level + ' in ' + moves + ' move' + (moves === 1 ? '' : 's'),

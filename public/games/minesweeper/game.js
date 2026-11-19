@@ -42,6 +42,9 @@
   let longPressHandle = null;
   let longPressFired = false;
 
+  // Usage data (see /privacy); does nothing when it is off.
+  const track = (name, props) => window.gamesTelemetry?.track(name, props);
+
   const idx = (r, c) => r * cols + c;
 
   // Yields the up-to-8 neighbours of a cell, skipping anything off the board.
@@ -202,6 +205,7 @@
   }
 
   function beginRun(firstIndex) {
+    track('game_started', { mode: difficulty });
     placeMines(firstIndex);
     elapsed = 0;
     timerEl.textContent = '0';
@@ -275,6 +279,7 @@
       if (!cell.mine && cell.flagged) cell.el.classList.add('wrong-flag');
     });
     cells[explodedIndex].el.classList.add('exploded');
+    track('game_ended', { mode: difficulty, result: 'lost', length_s: elapsed });
 
     showOverlay('Boom! You hit a mine.', 'Try again');
   }
@@ -299,6 +304,7 @@
     // 0 is the "no record yet" sentinel, so a sub-second clear still scores 1.
     const time = Math.max(1, elapsed);
     const isRecord = best === 0 || time < best;
+    track('game_ended', { mode: difficulty, result: 'won', length_s: time });
     if (isRecord) {
       localStorage.setItem(bestKey(difficulty), String(time));
       renderBest();

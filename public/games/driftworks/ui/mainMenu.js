@@ -7,6 +7,7 @@
 
 import { formatCredits, formatDuration } from '../../../shared/js/format.js';
 import { isApp } from '../../../shared/js/platform.js';
+import { track } from '../../../shared/js/telemetry.js';
 import { MAX_NAME_LENGTH, cleanName } from '../../../shared/js/saveSlots.js';
 import { GAME_VERSION } from '../content/changelog.js';
 import { LEGACY_SAVE_NAME, canLoadSave, cloudApi, slotSummary, slots } from '../core/saves.js';
@@ -78,6 +79,7 @@ export function showMainMenu(dialog, { config }) {
     }
 
     function go(next, { id = slotId, message = null } = {}) {
+      if (next !== page) track('menu_view', { view: next, from: 'main' });
       page = next;
       slotId = id;
       notice = message;
@@ -172,6 +174,7 @@ export function showMainMenu(dialog, { config }) {
         e.preventDefault();
         const slot = slots.create(cleanName(input.querySelector('input').value) ?? slots.freeName('Company'));
         if (!slot) return go('new', { message: say('This browser has no room for another save.', true) });
+        track('save_created', { kind: 'new', saves_on_device: slots.list().length });
         play(slot.id);
       };
       return [
@@ -229,6 +232,7 @@ export function showMainMenu(dialog, { config }) {
             const slot = slots.create(name, { data: res.body.data, meta: { code, revision: res.body.revision, dirty: false, hasEmail: Boolean(res.body.hasEmail) } });
             if (!slot) notice = say('This browser has no room for another save.', true);
             else {
+              track('save_created', { kind: 'from_code', saves_on_device: slots.list().length });
               page = 'load';
               notice = say(`"${slot.name}" was added to this device.`);
             }

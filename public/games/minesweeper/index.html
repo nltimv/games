@@ -53,6 +53,10 @@
     </p>
   </main>
 
+  <script type="module">
+    import { startPageTelemetry } from '/shared/js/telemetry.js';
+    startPageTelemetry({ game: 'minesweeper' });
+  </script>
   <script src="/games/minesweeper/game.js"></script>
 </body>
 </html>

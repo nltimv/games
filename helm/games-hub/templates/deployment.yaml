@@ -46,7 +46,8 @@ spec:
             - name: http
               containerPort: {{ .Values.containerPort }}
               protocol: TCP
-          {{- if or .Values.env .Values.cloudSaves.enabled }}
+          {{- $db := include "games-hub.needsDatabase" . }}
+          {{- if or .Values.env $db }}
           env:
             {{- if .Values.cloudSaves.enabled }}
             - name: CLOUD_SAVES
@@ -58,6 +59,23 @@ spec:
                   key: {{ .Values.cloudSaves.pepper.key }}
             - name: MAX_SAVE_BYTES
               value: {{ .Values.cloudSaves.maxSaveBytes | int | quote }}
+            {{- end }}
+            {{- if .Values.telemetry.enabled }}
+            - name: TELEMETRY
+              value: "true"
+            - name: TELEMETRY_RETENTION_DAYS
+              value: {{ .Values.telemetry.retentionDays | int | quote }}
+            {{- if .Values.grafana.enabled }}
+            - name: TELEMETRY_READER_USER
+              value: {{ .Values.telemetry.reader.username | quote }}
+            - name: TELEMETRY_READER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "games-hub.readerSecretName" . }}
+                  key: {{ .Values.telemetry.reader.passwordKey }}
+            {{- end }}
+            {{- end }}
+            {{- if $db }}
             - name: TRUST_PROXY
               value: {{ .Values.cloudSaves.trustProxy | quote }}
             {{- if .Values.postgresql.enabled }}
@@ -86,7 +104,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "games-hub.databaseSecretName" . }}
                   key: {{ include "games-hub.databasePasswordKey" . }}
-            {{- if .Values.mail.enabled }}
+            {{- end }}
+            {{- if and .Values.cloudSaves.enabled .Values.mail.enabled }}
             - name: SMTP_HOST
               value: {{ .Values.mail.host | quote }}
             - name: SMTP_PORT
@@ -106,7 +125,6 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.mail.existingSecret }}
                   key: {{ .Values.mail.passwordKey }}
-            {{- end }}
             {{- end }}
             {{- end }}
             {{- with .Values.env }}

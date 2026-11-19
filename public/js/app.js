@@ -31,6 +31,8 @@ function renderCard(game, index) {
   const card = document.createElement('a');
   card.className = 'game-card';
   card.href = game.path;
+  // Usage data (see /privacy): which game cards get opened.
+  card.addEventListener('click', () => window.gamesTelemetry?.track('game_card_clicked', { target: game.id }));
   card.style.setProperty('--delay', `${Math.min(index, 8) * 70}ms`);
 
   const thumbWrap = document.createElement('div');

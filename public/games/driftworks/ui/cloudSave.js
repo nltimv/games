@@ -4,6 +4,7 @@
 //
 // Picking, naming and adding saves is the main menu's job (mainMenu.js).
 
+import { track } from '../../../shared/js/telemetry.js';
 import { formatCredits, formatDuration } from '../../../shared/js/format.js';
 import { codeBox, codeText } from './streamer.js';
 import { h } from './dom.js';
@@ -49,6 +50,7 @@ function conflictBody(cloud, { toast, onDone, onLater }) {
   const { conflict } = cloud.status();
   if (!conflict) return [h('p', { class: 'dw-note' }, 'Nothing to choose: your saves agree.')];
   const pick = async (choice) => {
+    track('cloud_conflict', { choice });
     const result = await cloud.resolve(choice);
     if (!result.ok) return toast(result.error ?? 'Could not reach the cloud. Try again.', 'warning');
     if (result.reload) {
@@ -67,7 +69,7 @@ function conflictBody(cloud, { toast, onDone, onLater }) {
       saveCard('This device', conflict.local, () => pick('device')),
       saveCard(conflict.cloud.otherDevice ? 'Other device' : 'Cloud', conflict.cloud, () => pick('cloud')),
     ),
-    h('div', { class: 'dw-row-actions' }, button('Decide later', { onClick: onLater })),
+    h('div', { class: 'dw-row-actions' }, button('Decide later', { onClick: () => (track('cloud_conflict', { choice: 'later' }), onLater()) })),
     h('p', { class: 'dw-note' }, 'Until you choose, your progress is saved on this device only.'),
   ];
 }
