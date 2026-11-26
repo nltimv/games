@@ -45,8 +45,20 @@ test('a version 6 save drops the Scout licence: done keeps its scouts, one in th
   assert.equal(buildLock(done, 'lark', 'halcyon-shipyard'), null);
   const running = deserialize(v6({ done: ['warp-drive'], active: { id: 'scout-licence', startedAt: 0, endsAt: 1 }, second: { id: 'jump-1', startedAt: 0, endsAt: 1 } }));
   assert.equal(running.research.active, null);
-  assert.equal(running.research.second.id, 'jump-1');
+  // Jump drive I became Engines III in version 8.
+  assert.equal(running.research.second.id, 'engine-3');
   assert.equal(running.credits, 51000);
   assert.match(running.log.at(-1).text, /refunded/);
   assert.ok(MIGRATIONS[6]);
+});
+
+test('a version 7 save turns the Jump drives into Engines III and IV, and its ships keep their jump times', () => {
+  const v7 = (research) => ({ ...JSON.parse(serialize(newGame())), version: 7, research });
+  const both = deserialize(v7({ done: ['engine-1', 'engine-2', 'warp-drive', 'jump-1', 'jump-2'], active: null, second: null }));
+  assert.deepEqual(both.research.done, ['engine-1', 'engine-2', 'warp-drive', 'engine-3', 'engine-4']);
+  assert.ok(both.ships.every((ship) => ship.modules.engine === 4));
+  const running = deserialize(v7({ done: ['engine-1', 'engine-2', 'warp-drive'], active: { id: 'jump-1', startedAt: 0, endsAt: 1 }, second: null }));
+  assert.equal(running.research.active.id, 'engine-3');
+  assert.ok(running.ships.every((ship) => ship.modules.engine === 0), 'nothing fitted for research still in the lab');
+  assert.ok(MIGRATIONS[7]);
 });

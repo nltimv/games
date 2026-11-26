@@ -18,17 +18,17 @@ import { seenAt } from '../../systems/knowledge.js';
 import { findShip } from '../../systems/fleet.js';
 import { mapShips, onMap } from '../../systems/commanders.js';
 import { giveOrder } from '../../systems/orders.js';
-import { canJump, jumpFee, jumpTime, shipSystem } from '../../systems/travel.js';
+import { canJump, jumpFee, shipSystem } from '../../systems/travel.js';
 import { hazardNote, isShielded, shieldingNeeded } from '../../systems/shielding.js';
 import { fieldsOf, signalTitle } from '../../systems/signals.js';
 import { signalPanel } from './signal.js';
 import { h } from '../dom.js';
 import { button, contractMark, fieldIcon, gateIcon, panelHead, sectionTitle, signalIcon, stationIcon, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
-import { ago, formatPrice, plural, span } from '../format.js';
+import { ago, formatPrice, plural, tonnes } from '../format.js';
 
 const lowerFirst = (text) => text.charAt(0).toLowerCase() + text.slice(1);
-import { richnessLabel } from './field.js';
+import { richnessText } from './field.js';
 import { factionRow, specialities } from './factions.js';
 import { shipRow } from './lists.js';
 
@@ -88,8 +88,9 @@ function gateLine(state, system, gate) {
   const far = findSystem(gate.to);
   if (!canJump(state)) return 'Locked';
   if (shieldingNeeded(state, far)) return `${far.name} has ${far.hazard}`;
+  // How long the jump takes depends on the ship's engines: the fee does not.
   const lane = laneBetween(system.id, gate.to);
-  const trip = `${span(jumpTime(state, lane))} jump · ${formatCredits(jumpFee(state, lane))}`;
+  const trip = `${formatCredits(jumpFee(state, lane))} jump fee`;
   return isSurveyed(state, gate.to) ? trip : `${trip} · unsurveyed`;
 }
 
@@ -123,7 +124,7 @@ export function systemPanel(ctx, systemId, { overview = false } = {}) {
   );
   const fields = fieldsOf(state, system);
   const fieldRows = fields.map((field) =>
-    placeRow(ctx, 'field', field, fieldIcon(field.good, 34), `${GOODS[field.good].name} · ${richnessLabel(field.richness).toLowerCase()}`),
+    placeRow(ctx, 'field', field, fieldIcon(field.good, 34), `${GOODS[field.good].name} · ${richnessText(field.richness)}`),
   );
   const gateRows = system.gates.map((gate) =>
     h(
@@ -262,18 +263,24 @@ function marketSection(ctx, surveyed, row) {
         .filter((m) => m[side] != null)
         .sort((a, b) => order * (a[side] - b[side]))
         .slice(0, 3);
-    const list = (title, entries, side) =>
+    // Sellers show their stock too: a cheap price is little use with nothing left to buy.
+    const list = (title, entries, side, hint) =>
       entries.length
-        ? h('div', { class: 'dw-section' }, sectionTitle(title, 'per tonne'), h('div', { class: 'dw-list' }, entries.map((m) => withPrice(row(m.system), formatPrice(m[side])))))
+        ? h(
+            'div',
+            { class: 'dw-section' },
+            sectionTitle(title, hint),
+            h('div', { class: 'dw-list' }, entries.map((m) => withPrice(row(m.system), formatPrice(m[side]), side === 'sells' ? `${tonnes(m.stock)} in stock` : null))),
+          )
         : null;
-    parts.push(list('Sells cheapest', top('sells', 1), 'sells'), list('Pays best', top('buys', -1), 'buys'));
+    parts.push(list('Sells cheapest', top('sells', 1), 'sells', 'per tonne · stock'), list('Pays best', top('buys', -1), 'buys', 'per tonne'));
   }
   return h('div', { class: 'dw-section' }, parts);
 }
 
-/** A system row with a price on its right. */
-function withPrice(rowEl, text) {
-  rowEl.append(h('strong', { class: 'dw-row-price' }, text));
+/** A system row with a price on its right, and a note under the price. */
+function withPrice(rowEl, text, note = null) {
+  rowEl.append(h('span', { class: 'dw-row-price' }, h('strong', null, text), note ? h('small', null, note) : null));
   return rowEl;
 }
 

@@ -8,7 +8,7 @@
 // gradients, no blur.
 
 import { HOME_SYSTEM } from '../content/homeSystem.js';
-import { ancientLaneFrom, findFaction, findPlace, findStation, findSystem, laneBetween, systemOf } from '../content/galaxy.js';
+import { findFaction, findPlace, findStation, findSystem, systemOf } from '../content/galaxy.js';
 import { ANCIENT_TINT, HOME_SKY, sceneryOf, stationTint } from '../content/scenery.js';
 import { GOODS } from '../content/goods.js';
 import { HULLS } from '../content/ships.js';
@@ -16,7 +16,7 @@ import { createRng, hashString } from '../core/rng.js';
 import { SECOND, timeLeft } from '../core/time.js';
 import { contractMarks } from '../systems/contracts.js';
 import { isSurveyed } from '../systems/explore.js';
-import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
+import { canJump, shipPosition } from '../systems/travel.js';
 import { shieldingNeeded } from '../systems/shielding.js';
 import { derelictLeft, fieldsOf, isGateOpen, isInvestigated, signalTitle } from '../systems/signals.js';
 import { orderPhase, projectShip } from '../systems/orders.js';
@@ -137,21 +137,21 @@ function parkingSpots(cam, state, now, u, parked) {
   return spots;
 }
 
-/** What a gate's second label line says: locked, unsurveyed, a hazard or the jump time. */
+/**
+ * What a gate's second label line says: locked, unsurveyed or a hazard.
+ * Jump times depend on each ship's engines, so the map leaves them out.
+ */
 function gateNote(state, system, gate) {
   const far = findSystem(gate.to);
   if (!canJump(state)) return 'locked';
   if (shieldingNeeded(state, far)) return far.hazard;
   if (!isSurveyed(state, gate.to)) return 'unsurveyed';
-  const lane = laneBetween(system.id, gate.to);
-  return lane ? `${Math.round(jumpTime(state, lane) / 60000)} min jump` : '';
+  return '';
 }
 
-/** An ancient gate's second label line: open with its jump time, or closed. */
+/** An ancient gate's second label line: open or closed. */
 function ancientNote(state, signal) {
-  if (!isGateOpen(state, signal)) return 'closed';
-  const lane = ancientLaneFrom(systemOf(signal.id))?.lane;
-  return lane ? `open · ${Math.round(jumpTime(state, lane) / 60000)} min jump` : 'open';
+  return isGateOpen(state, signal) ? 'open' : 'closed';
 }
 
 /**
@@ -226,7 +226,8 @@ export function drawSystem(ctx, cam, state, now, view) {
     const half = (w * 64) / 48 / 2;
     if (!drawAsset(ctx, 'gate', p.x, p.y, w, dpr, { alpha: open ? 1 : 0.7 })) dot(ctx, p.x, p.y, 6 * u, 'rgba(180, 215, 255, 0.4)');
     drawLabel(ctx, compact ? gate.short : gate.name, p.x, p.y + half + 6, dpr, { size: 11, color: open ? 'rgba(220, 238, 255, 0.9)' : 'rgba(200, 225, 255, 0.72)' });
-    if (!compact) drawLabel(ctx, gateNote(state, system, gate), p.x, p.y + half + 20, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.5)' });
+    const note = compact ? '' : gateNote(state, system, gate);
+    if (note) drawLabel(ctx, note, p.x, p.y + half + 20, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.5)' });
     targets.push({ kind: 'gate', id: gate.id, x: p.x, y: p.y, r: Math.max(16, half) });
   }
 

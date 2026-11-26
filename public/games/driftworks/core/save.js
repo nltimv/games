@@ -111,7 +111,24 @@ export const MIGRATIONS = {
     if (refund) addLog(save, save.now, 'Scouts now come with the warp drive: the Scout licence research was refunded', 'info', refund);
     return save;
   },
+  // Engines set jump times now: Jump drive I and II became Engines III and
+  // IV, at the same price. A company that had them keeps its jump times:
+  // its ships get the new engines without a refit, as the jump drives
+  // worked for every ship at once. One still in the lab carries on as
+  // the engines.
+  7(old) {
+    const renamed = (id) => JUMP_TO_ENGINE[id] ?? id;
+    const done = [...new Set((old.research?.done ?? []).map(renamed))];
+    const lab = { ...old.research, done };
+    for (const slot of ['active', 'second']) if (lab[slot]) lab[slot] = { ...lab[slot], id: renamed(lab[slot].id) };
+    const level = done.includes('engine-4') ? 4 : done.includes('engine-3') ? 3 : 0;
+    const ships = (old.ships ?? []).map((ship) => (level > (ship.modules?.engine ?? 0) ? { ...ship, modules: { ...ship.modules, engine: level } } : ship));
+    return { ...old, research: lab, ships };
+  },
 };
+
+// The Jump drive researches removed in version 8, and the engines they became.
+const JUMP_TO_ENGINE = { 'jump-1': 'engine-3', 'jump-2': 'engine-4' };
 
 // The research removed in version 7, and what it cost.
 const SCOUT_LICENCE = { id: 'scout-licence', cost: 50000 };

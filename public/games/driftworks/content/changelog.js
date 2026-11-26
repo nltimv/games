@@ -5,10 +5,21 @@
 // The What's new card shows the entries newer than the version the save
 // last saw (state.seenVersion), once, and the game menu shows them any time.
 
-export const GAME_VERSION = '0.5.1';
+export const GAME_VERSION = '0.6.0';
 
 /** Newest first. `title` is optional; `changes` are short sentences. */
 export const CHANGELOG = [
+  {
+    version: '0.6.0',
+    title: 'Engines through the gates',
+    changes: [
+      'Engines now set how fast a ship jumps through a warp gate, as well as how fast it flies. A Lark jumps quickest, a Heron beats a Kite, and a Mule takes its time.',
+      'Jump drive I and II are now Engines III and IV, at the same price. If you had them, your ships already have the new engines; one still in the lab carries on as the engines.',
+      'Warp lanes and gates no longer show a jump time, as it depends on the ship. Orders still show the whole trip.',
+      'Asteroid fields get richer the further you go: the systems next to Aurel are no richer than its own fields, and the best fields are far out. Fields show their richness, such as ×1.6.',
+      'Market charts on the galaxy map show how much the cheapest seller has in stock.',
+    ],
+  },
   {
     version: '0.5.1',
     title: 'Driftworks as an app',

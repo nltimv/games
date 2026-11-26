@@ -7,7 +7,7 @@
 // course through the gates on their own (see plotCourse). A command ship
 // pays each jump for the ships aboard its fleet as well.
 
-import { DOCK_SECONDS, HULLS } from '../content/ships.js';
+import { DOCK_SECONDS, HULLS, JUMP_SPEED } from '../content/ships.js';
 import { findPlace, findSystem, lanesFrom, systemOf } from '../content/galaxy.js';
 import { MINUTE, SECOND } from '../core/time.js';
 import { isSurveyed } from './explore.js';
@@ -41,9 +41,13 @@ export function flightTimeFrom(ship, point, toId) {
   return Math.round(ms / (5 * SECOND)) * 5 * SECOND;
 }
 
-/** How long a lane's jump takes, after Jump drive research. */
-export function jumpTime(state, lane) {
-  const factor = isResearched(state, 'jump-2') ? 0.6 : isResearched(state, 'jump-1') ? 0.75 : 1;
+/**
+ * How long a ship takes to jump a lane: the lane's minutes at JUMP_SPEED,
+ * shorter for a faster ship. Engines and the hull set it, as in a flight,
+ * so a Lark jumps quicker than a Kite and a Mule slower.
+ */
+export function jumpTime(ship, lane) {
+  const factor = JUMP_SPEED / speedOf(ship);
   return Math.round((lane.minutes * factor * MINUTE) / (5 * SECOND)) * 5 * SECOND;
 }
 
@@ -89,7 +93,7 @@ function systemPath(state, ship, fromSys, toSys, options) {
       // A system we only pass through must be one we know.
       if (to !== toSys && !isSurveyed(state, to)) continue;
       const crossing = entry ? flightTime(ship, entry, exit.id) : 0;
-      const next = cost + crossing + jumpTime(state, lane);
+      const next = cost + crossing + jumpTime(ship, lane);
       if (next < (best.get(to) ?? Infinity)) {
         best.set(to, next);
         back.set(to, { from: id, link });
@@ -164,7 +168,7 @@ export function plotCourse(state, ship, fromId, toId, options = {}) {
       legs.push({ from: at, to: exit.id, start: t, end: t + fly });
       t += fly;
     }
-    const jump = jumpTime(state, lane);
+    const jump = jumpTime(ship, lane);
     const fee = jumpFee(state, lane) * aboard;
     legs.push({ from: exit.id, to: entry.id, start: t, end: t + jump, jump: true, fee });
     t += jump;

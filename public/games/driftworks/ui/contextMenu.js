@@ -22,7 +22,7 @@ import { derelictLeft, fieldsOf, isInvestigated, signalTitle } from '../systems/
 import { h } from './dom.js';
 import { fieldIcon, gateIcon, signalIcon, stationIcon, swatch } from './components.js';
 import { amountSlider } from './amount.js';
-import { richnessLabel } from './panels/field.js';
+import { richnessText } from './panels/field.js';
 import { at, minusCredits, netAfterFees, plural, plusCredits, routeText, signedCredits, span, timing, tonnes } from './format.js';
 
 /** Note parts joined with dots, leaving out the empty ones. */
@@ -312,7 +312,7 @@ function placeItems(ctx, menu, ships) {
   if (!isShielded(ctx.state, system) || !canJump(ctx.state) || !isSurveyed(ctx.state, system.id)) return null;
   const roles = new Set(ships.map((ship) => HULLS[ship.hull].role));
   const places = [
-    ...(roles.has('miner') ? fieldsOf(ctx.state, system).map((field) => ({ kind: 'field', place: field, note: `${goodName(field.good)} · ${richnessLabel(field.richness).toLowerCase()}` })) : []),
+    ...(roles.has('miner') ? fieldsOf(ctx.state, system).map((field) => ({ kind: 'field', place: field, note: `${goodName(field.good)} · ${richnessText(field.richness)}` })) : []),
     ...(roles.has('miner') || roles.has('hauler') ? system.stations.map((station) => ({ kind: 'station', place: station, note: stationNote(station) })) : []),
     ...signalItem(ctx.state, system, roles),
   ];

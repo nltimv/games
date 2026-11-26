@@ -29,7 +29,7 @@ export function researchEffect(research, state = null) {
       return `Mining lasers of ${MODULES.laser.levels[level]} t/min. Fitted at the shipyard.`;
     case 'engine': {
       const gain = Math.round((MODULES.engine.levels[level] / MODULES.engine.levels[level - 1] - 1) * 100);
-      return `Engines ${gain}% faster. Fitted at the shipyard.`;
+      return `Engines ${gain}% faster, in flight and through the gates. Fitted at the shipyard.`;
     }
     case 'queue':
       return `Every ship holds ${ORDER_SLOTS[level]} orders.`;

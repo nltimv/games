@@ -284,11 +284,18 @@ function fieldGoods(depthOf) {
   return pool;
 }
 
+/**
+ * How rich a generated system's fields are, by its depth: the systems next
+ * to Aurel are no richer than Aurel's own fields (0.8 to 1.2), and each
+ * lane further out pays, up to 2.95 from depth 7. Rich lodes (signals, 3
+ * to 4) stay the richest. One draw per field, so the rest of the galaxy is the
+ * same whatever these ranges are.
+ */
+const RICHNESS_BY_DEPTH = [null, [0.8, 1.15], [1.1, 1.4], [1.4, 1.8], [1.7, 2.1], [2.0, 2.5], [2.3, 2.8], [2.6, 2.95]];
+
 function richnessFor(rng, depthOf) {
-  if (depthOf <= 1) return between(rng, 1.0, 1.3);
-  if (depthOf === 2) return between(rng, 1.2, 1.5);
-  if (depthOf <= 4) return between(rng, 1.4, 2.0);
-  return between(rng, 1.8, 2.6);
+  const [low, high] = RICHNESS_BY_DEPTH[Math.min(Math.max(1, depthOf), RICHNESS_BY_DEPTH.length - 1)];
+  return between(rng, low, high);
 }
 
 function fieldName(rng, used) {

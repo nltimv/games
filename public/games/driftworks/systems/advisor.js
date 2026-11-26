@@ -94,19 +94,23 @@ export function bestBuyer(state, good, qty, at = state.now, systemId = null) {
 /**
  * A system's market for `good` at the prices last seen there: the cheapest
  * a station sells it for and the most one pays, { sells, buys } (null
- * where no station does).
+ * where no station does), and `stock`, what the cheapest seller has.
  */
 export function systemMarket(state, systemId, good, at = state.now) {
   let sells = null;
   let buys = null;
+  let stock = null;
   for (const station of findSystem(systemId)?.stations ?? []) {
     const entry = findEntry(station.id, good);
     if (!entry) continue;
-    const price = marketView(state, station.id, good, knownAt(state, station.id, at)).price;
-    if (entry.side === 'sells') sells = Math.min(sells ?? Infinity, price);
-    else buys = Math.max(buys ?? 0, price);
+    const view = marketView(state, station.id, good, knownAt(state, station.id, at));
+    if (entry.side === 'buys') buys = Math.max(buys ?? 0, view.price);
+    else if (sells == null || view.price < sells) {
+      sells = view.price;
+      stock = view.stock;
+    }
   }
-  return { sells, buys };
+  return { sells, buys, stock };
 }
 
 /** Where a docked ship could take `qty` of `good`, with the expected sale. */
