@@ -45,7 +45,7 @@ import { bar, countdown, h } from '../dom.js';
 import { buildTag, button, chip, contractMark, panelHead, removeButton, sectionTitle, shipGlyph, swatch } from '../components.js';
 import { orderToast } from '../contextMenu.js';
 import { at, netAfterFees, plusCredits, rackName, routeText, span, timing, tonnes } from '../format.js';
-import { richnessLabel } from './field.js';
+import { richnessText } from './field.js';
 import { aboardSection, commanderSections, fleetSection } from './commander.js';
 
 export function shipPanel(ctx, shipId) {
@@ -395,7 +395,7 @@ function newOrders(ctx, ship) {
                 onClick: () => give({ type: 'mine', fieldId: field.id, amount: null }),
               },
               h('strong', null, field.name),
-              h('span', null, `${goodName(field.good)} · ${richnessLabel(field.richness).toLowerCase()}`),
+              h('span', null, `${goodName(field.good)} · ${richnessText(field.richness)}`),
               h('span', null, preview.ok ? `${tonnes(preview.amount)} · about ${formatCredits(preview.value)}` : 'Hold full'),
               preview.ok ? h('span', null, timing({ flight: preview.flight, work: preview.work }, 'mining')) : null,
             );

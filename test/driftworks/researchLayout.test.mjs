@@ -64,8 +64,11 @@ test('lines another path implies are left out, and fans sit next to each other',
   assert.ok(has(SHIELDING_HUB, 'fleet-1'));
   assert.ok(!has(SHIELDING_HUB, 'fleet-3'), 'Fleet command III waits for the shieldings through Fleet command I');
   assert.ok(has('fleet-2', 'fleet-3'));
-  // Lane charts and Jump drive I both lead to every shielding: they sit side by side, the shieldings next to them.
-  assert.equal(Math.abs(nodes.get('lane-charts').row - nodes.get('jump-1').row), 1);
+  // Lane charts and Engines III both lead to every shielding: they sit side by side, the shieldings next to them.
+  assert.equal(Math.abs(nodes.get('lane-charts').row - nodes.get('engine-3').row), 1);
   const rows = ['shield-debris', 'shield-ion', 'shield-radiation'].map((id) => nodes.get(id).row).sort((a, b) => a - b);
-  assert.equal(rows[2] - rows[0], 2);
+  // Next to each other, or around Engines IV, which keeps its line's row.
+  const engines = nodes.get('engine-4');
+  const gap = engines.col === nodes.get('shield-ion').col && engines.row > rows[0] && engines.row < rows[2] ? 1 : 0;
+  assert.equal(rows[2] - rows[0], 2 + gap);
 });

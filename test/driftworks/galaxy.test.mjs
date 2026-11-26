@@ -8,6 +8,7 @@ import {
   findSystem,
   gateTo,
   generateGalaxy,
+  laneBetween,
   lanesFrom,
   systemOf,
   useGalaxy,
@@ -23,7 +24,7 @@ import { cancelOrder, feesDue, giveOrder, shipRoute } from '../../public/games/d
 import { orderOptions } from '../../public/games/driftworks/systems/advisor.js';
 import { findEntry } from '../../public/games/driftworks/systems/market.js';
 import { carryOut } from '../../public/games/driftworks/systems/commands.js';
-import { flightTime, plotCourse, shipPosition } from '../../public/games/driftworks/systems/travel.js';
+import { flightTime, jumpTime, plotCourse, shipPosition } from '../../public/games/driftworks/systems/travel.js';
 import { MINUTE, firstShip, newGame } from './helpers.mjs';
 
 function crosses(a, b, c, d) {
@@ -88,6 +89,33 @@ test('every system has a gate per lane, and five factions share the galaxy', () 
   assert.ok(deep.every((f) => f.richness >= 1.4));
 });
 
+test('richer fields are further out: next door is no richer than home, and each depth out pays more', () => {
+  useGalaxy(1234);
+  const home = Math.max(...findSystem('aurel').fields.map((f) => f.richness));
+  const at = (depth) => allSystems().filter((s) => s.depth === depth).flatMap((s) => s.fields.map((f) => f.richness));
+  assert.ok(at(1).every((r) => r <= home), 'one jump out is no richer than Aurel');
+  const average = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  for (let depth = 1; depth < 7; depth += 1) assert.ok(average(at(depth + 1)) > average(at(depth)) + 0.2, `depth ${depth + 1} is richer than ${depth}`);
+  // Rich lodes stay richer than any ordinary field.
+  assert.ok(allSystems().every((s) => s.fields.every((f) => f.richness < 3)));
+});
+
+test('engines set jump times: faster hulls and engines jump quicker, and the gates show no fixed time', () => {
+  const state = newGame();
+  const lane = laneBetween('aurel', 'brennan');
+  const kite = createShip(state, 'kite', 'halcyon-shipyard');
+  const lark = createShip(state, 'lark', 'halcyon-shipyard');
+  const mule = firstShip(state);
+  assert.ok(jumpTime(lark, lane) < jumpTime(kite, lane));
+  assert.ok(jumpTime(kite, lane) < jumpTime(mule, lane));
+  const before = jumpTime(kite, lane);
+  kite.modules.engine = 3;
+  assert.ok(jumpTime(kite, lane) < before);
+  // A Kite with Engines II, as when the warp drive is done, jumps in about the lane's minutes.
+  kite.modules.engine = 2;
+  assert.ok(Math.abs(jumpTime(kite, lane) - lane.minutes * MINUTE) <= 0.05 * lane.minutes * MINUTE);
+});
+
 test('ships cannot jump before the warp drive', () => {
   const state = newGame();
   const mule = firstShip(state);
@@ -118,7 +146,10 @@ test('a course to another system flies to the gate, jumps and flies on', () => {
   assert.equal(toGate.end, flightTime(mule, mule.at, 'gate-brennan'));
   assert.ok(jump.jump);
   assert.equal(jump.to, gateTo('brennan', 'aurel').id);
-  assert.ok(jump.end - jump.start >= 6 * MINUTE && jump.end - jump.start <= 15 * MINUTE);
+  // A Mule's engines are slow: its jump takes longer than the lane's minutes.
+  const lane = laneBetween('aurel', 'brennan');
+  assert.equal(jump.end - jump.start, jumpTime(mule, lane));
+  assert.ok(jump.end - jump.start > lane.minutes * MINUTE);
   assert.equal(onward.to, station.id);
   assert.equal(course.fees, jump.fee);
 

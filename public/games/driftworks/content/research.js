@@ -73,18 +73,20 @@ export const RESEARCH = [
   { id: 'market-charts', name: 'Market charts', needs: ['warp-drive'], cost: 80000, minutes: 45, effect: 'The galaxy map shows where each good sells cheapest and pays best.' },
   { id: 'trade-desk', name: 'Trade desk', needs: ['warp-drive'], cost: 150000, minutes: 90, effect: 'The trade card and Buy notes look at systems up to 2 jumps away.' },
   { id: 'lane-charts', name: 'Lane charts', needs: ['warp-drive'], cost: 300000, minutes: 120, effect: 'Jump fees are halved.' },
-  { id: 'jump-1', name: 'Jump drive I', needs: ['warp-drive'], cost: 400000, minutes: 180, effect: 'Jumps take 25% less time.' },
+  // Engines III and IV replace the old Jump drive researches: engines set
+  // jump times now (save version 8 turns jump-1 and jump-2 into them).
+  { id: 'engine-3', name: 'Engines III', line: 'engine', level: 3, needs: ['engine-2', 'warp-drive'], cost: 400000, minutes: 180 },
   { id: 'scanners', name: 'Long-range scanners', needs: ['warp-drive'], cost: 600000, minutes: 240, effect: 'Surveys take half as long, and systems next to your ships show live prices.' },
   { id: 'hold-6', name: 'Cargo racks VI', line: 'hold', level: 6, needs: ['hold-5', 'warp-drive'], cost: 900000, minutes: 360 },
   { id: 'second-lab', name: 'Second lab', needs: ['warp-drive'], cost: 1000000, minutes: 360, effect: 'Two researches can run at once.' },
   { id: 'sealed-holds', name: 'Sealed holds', line: 'seal', level: 1, needs: ['warp-drive'], cost: 1200000, minutes: 360 },
-  { id: 'jump-2', name: 'Jump drive II', needs: ['jump-1'], cost: 1500000, minutes: 480, effect: 'Jumps take 40% less time than without a jump drive.' },
+  { id: 'engine-4', name: 'Engines IV', line: 'engine', level: 4, cost: 1500000, minutes: 480 },
   // Hazard shielding: one research per hazard, in the order the player
   // picks. Each one costs more than the one before (SHIELDING_STEPS), and
   // the first ends act 2.
-  { id: 'shield-debris', name: 'Debris shielding', hazard: 'dense debris', endsAct: 2, needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
-  { id: 'shield-ion', name: 'Ion shielding', hazard: 'ion storms', endsAct: 2, needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
-  { id: 'shield-radiation', name: 'Radiation shielding', hazard: 'radiation', endsAct: 2, needs: ['lane-charts', 'jump-1'], cost: 2500000, minutes: 600 },
+  { id: 'shield-debris', name: 'Debris shielding', hazard: 'dense debris', endsAct: 2, needs: ['lane-charts', 'engine-3'], cost: 2500000, minutes: 600 },
+  { id: 'shield-ion', name: 'Ion shielding', hazard: 'ion storms', endsAct: 2, needs: ['lane-charts', 'engine-3'], cost: 2500000, minutes: 600 },
+  { id: 'shield-radiation', name: 'Radiation shielding', hazard: 'radiation', endsAct: 2, needs: ['lane-charts', 'engine-3'], cost: 2500000, minutes: 600 },
   // Act 3: Pathfinder.
   { id: 'fleet-1', name: 'Fleet command I', shields: 1, cost: 1000000, minutes: 480, effect: 'Shipyards offer commanders, who lead wings of 4 ships on missions within 1 jump, for up to 16 hours.' },
   { id: 'fleet-2', name: 'Fleet command II', needs: ['fleet-1'], cost: 1500000, minutes: 600, effect: 'Wings of 6, areas of 2 jumps and missions of up to 24 hours.' },

@@ -13,7 +13,7 @@ import { GAME_VERSION } from '../content/changelog.js';
 // Version 5 added sealed holds, hazard shielding, signals and act 3.
 // Version 6 replaced ship prices with the fleet allowance and building.
 // Version 7 folded the Scout licence into the warp drive and added seenVersion.
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 export const OLDEST_SAVE_VERSION = 2;
 export const STARTING_CREDITS = 600;
 

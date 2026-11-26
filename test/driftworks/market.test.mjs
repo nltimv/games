@@ -4,11 +4,13 @@ import {
   RECOVERY_TAU,
   affordableQty,
   buyFromStation,
+  marketEntries,
   marketView,
   quote,
   sellToStation,
   stockAt,
 } from '../../public/games/driftworks/systems/market.js';
+import { allSystems } from '../../public/games/driftworks/content/galaxy.js';
 import { newGame, T0 } from './helpers.mjs';
 
 const REFINERY = 'halcyon-refinery';
@@ -70,4 +72,19 @@ test('stations only trade their own goods', () => {
   const state = newGame();
   assert.equal(marketView(state, REFINERY, 'steel'), null);
   assert.equal(sellToStation(state, REFINERY, 'iron', 10).qty, 0, 'the refinery sells iron, it does not buy it');
+});
+
+test('at every station, buying a good empties the stock and never lowers its price', () => {
+  const state = newGame();
+  for (const station of allSystems().flatMap((system) => system.stations)) {
+    for (const { good } of marketEntries(station.id).filter((entry) => entry.side === 'sells')) {
+      let before = marketView(state, station.id, good);
+      while (before.stock >= 1) {
+        buyFromStation(state, station.id, good, Math.max(1, Math.floor(before.stock / 4)));
+        const after = marketView(state, station.id, good);
+        assert.ok(after.stock < before.stock && after.price >= before.price, `${station.id} ${good}: ${before.price} at ${before.stock} t, then ${after.price} at ${after.stock} t`);
+        before = after;
+      }
+    }
+  }
 });

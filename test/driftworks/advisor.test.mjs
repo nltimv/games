@@ -62,9 +62,10 @@ test('market charts: a system shows the cheapest price its stations ask for a go
   const charts = RESEARCH.find((r) => r.id === 'market-charts');
   assert.deepEqual(charts.needs, ['warp-drive']);
   const price = (stationId, good) => marketView(state, stationId, good).price;
-  assert.deepEqual(systemMarket(state, 'aurel', 'iron'), { sells: price('halcyon-refinery', 'iron'), buys: Math.max(price('halcyon-foundry', 'iron'), price('aurel-post', 'iron')) });
-  assert.deepEqual(systemMarket(state, 'aurel', 'ice'), { sells: price('aurel-post', 'ice'), buys: price('halcyon-refinery', 'ice') });
-  assert.deepEqual(systemMarket(state, 'aurel', 'crystal'), { sells: null, buys: null });
+  const stock = (stationId, good) => marketView(state, stationId, good).stock;
+  assert.deepEqual(systemMarket(state, 'aurel', 'iron'), { sells: price('halcyon-refinery', 'iron'), buys: Math.max(price('halcyon-foundry', 'iron'), price('aurel-post', 'iron')), stock: stock('halcyon-refinery', 'iron') });
+  assert.deepEqual(systemMarket(state, 'aurel', 'ice'), { sells: price('aurel-post', 'ice'), buys: price('halcyon-refinery', 'ice'), stock: stock('aurel-post', 'ice') });
+  assert.deepEqual(systemMarket(state, 'aurel', 'crystal'), { sells: null, buys: null, stock: null });
 });
 
 // Early act 2: the warp drive, and a Kite with the cargo racks a player has by then.

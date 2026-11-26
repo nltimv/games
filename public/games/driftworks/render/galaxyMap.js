@@ -15,7 +15,7 @@ import { HULLS } from '../content/ships.js';
 import { systemMarket } from '../systems/advisor.js';
 import { contractMarks } from '../systems/contracts.js';
 import { chartedSystems } from '../systems/explore.js';
-import { canJump, jumpTime, shipPosition } from '../systems/travel.js';
+import { shipPosition } from '../systems/travel.js';
 import { shieldingNeeded } from '../systems/shielding.js';
 import { derelictLeft, isGateOpen, isInvestigated } from '../systems/signals.js';
 import { shipRoute } from '../systems/orders.js';
@@ -445,7 +445,6 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   const targets = [];
   const chart = chartOf(state);
   const { systems, surveyed } = chart;
-  const open = canJump(state);
   // Only what is on screen (or near it) is drawn.
   const width = ctx.canvas.width / dpr;
   const height = ctx.canvas.height / dpr;
@@ -461,7 +460,6 @@ export function drawGalaxy(ctx, cam, state, now, view) {
 
   // Lanes: solid between surveyed systems, dashed into the unknown, each
   // kind as one path.
-  const times = open && s > 0.5 && !crowded;
   for (const known of [true, false]) {
     ctx.beginPath();
     for (const lane of chart.lanes) {
@@ -479,7 +477,7 @@ export function drawGalaxy(ctx, cam, state, now, view) {
   }
   ctx.setLineDash([]);
   // Open ancient gates: a gold lane straight across the map.
-  for (const { lane, a, b } of ancientLanes(state)) {
+  for (const { a, b } of ancientLanes(state)) {
     const pa = toScreen(cam, a.gx, a.gy);
     const pb = toScreen(cam, b.gx, b.gy);
     if (!crosses(pa, pb)) continue;
@@ -491,17 +489,8 @@ export function drawGalaxy(ctx, cam, state, now, view) {
     ctx.lineTo(pb.x, pb.y);
     ctx.stroke();
     ctx.setLineDash([]);
-    const mid = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
-    if (times && onScreen(mid)) drawLabel(ctx, `${Math.round(jumpTime(state, lane) / 60000)} min`, mid.x, mid.y, dpr, { size: 10, weight: 600, color: 'rgba(255, 230, 180, 0.7)' });
   }
-  if (times) {
-    for (const lane of chart.lanes) {
-      const a = toScreen(cam, lane.a.gx, lane.a.gy);
-      const b = toScreen(cam, lane.b.gx, lane.b.gy);
-      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      if (onScreen(mid)) drawLabel(ctx, `${Math.round(jumpTime(state, lane.lane) / 60000)} min`, mid.x, mid.y, dpr, { size: 10, weight: 600, color: 'rgba(200, 225, 255, 0.55)' });
-    }
-  }
+  // Lanes carry no jump times: they depend on each ship's engines.
 
   drawRoutes(ctx, cam, state, now, view.selection);
 

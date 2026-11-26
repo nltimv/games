@@ -76,7 +76,7 @@ function shieldingStep(state, research) {
   return SHIELDING_STEPS[Math.min(others, SHIELDING_STEPS.length - 1)];
 }
 
-/** What a research waits for, as names: "Lane charts and Jump drive I". */
+/** What a research waits for, as names: "Lane charts and Engines III". */
 export function requirementText(research) {
   const names = prerequisites(research).map((id) => findResearch(id).name);
   if (research.shields) names.push(SHIELDING_COUNT_NAMES[research.shields]);

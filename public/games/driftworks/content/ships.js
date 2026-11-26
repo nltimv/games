@@ -118,11 +118,19 @@ export const HULLS = {
 export const MODULES = {
   hold: { name: 'Cargo racks', levels: [10, 25, 60, 150, 350, 800, 1800] },
   laser: { name: 'Mining laser', levels: [10, 12, 15, 18, 22] },
-  engine: { name: 'Engines', levels: [400, 480, 580] },
+  // Engines III and IV come in act 2, for the jumps (see JUMP_SPEED).
+  engine: { name: 'Engines', levels: [400, 480, 580, 770, 960] },
   seal: { name: 'Hold type', levels: [1, 2] },
 };
 
 export const MODULE_LINES = Object.keys(MODULES);
+
+/**
+ * Engines drive jumps too: a ship at this speed (a Kite with Engines II,
+ * what it has when the warp drive is done) jumps a lane in the lane's
+ * minutes, and a faster ship in proportionally less.
+ */
+export const JUMP_SPEED = 700;
 
 /** Undocking and docking add this to every flight. */
 export const DOCK_SECONDS = 15;

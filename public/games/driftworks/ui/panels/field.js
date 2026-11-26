@@ -14,10 +14,16 @@ import { orderToast } from '../contextMenu.js';
 import { formatPrice } from '../format.js';
 
 export function richnessLabel(richness) {
-  if (richness >= 3) return 'Very rich';
+  if (richness >= 3) return 'Exceptional';
+  if (richness >= 2) return 'Very rich';
   if (richness >= 1.15) return 'Rich';
   if (richness >= 0.95) return 'Average';
   return 'Sparse';
+}
+
+/** A field's richness for a list line: "rich ×1.6", which a miner's rate is multiplied by. */
+export function richnessText(richness) {
+  return `${richnessLabel(richness).toLowerCase()} ×${richness.toFixed(1)}`;
 }
 
 export function fieldPanel(ctx, fieldId) {
@@ -38,7 +44,7 @@ export function fieldPanel(ctx, fieldId) {
 
   return [
     panelHead({ icon: fieldIcon(field.good), title: field.name, subtitle: `Asteroid field · ${good.name.toLowerCase()}`, onClose: ctx.close }),
-    h('div', { class: 'dw-chips' }, chip(`${richnessLabel(field.richness)} field`, field.richness >= 1.15 ? 'aqua' : null), chip('Tier 1 · raw ore')),
+    h('div', { class: 'dw-chips' }, chip(`${richnessLabel(field.richness)} field · ×${field.richness.toFixed(1)}`, field.richness >= 1.15 ? 'aqua' : null), chip('Tier 1 · raw ore')),
     minersSection(ctx, field),
     h('div', { class: 'dw-section' }, sectionTitle(`Who buys ${good.name.toLowerCase()}`, 'Price now'), buyerRows),
   ];

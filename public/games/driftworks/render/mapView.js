@@ -31,8 +31,8 @@ const SHIP_TARGETS = new Set(['ship', 'flock', 'ships-at']);
 const FLIGHT_SPEED = ((Math.max(...MODULES.engine.levels) * Math.max(...Object.values(HULLS).map((hull) => hull.speedScale))) / 60) * 1.5;
 const DRIFT_SPEED = 0.6;
 // How fast a ship in a jump crosses the galaxy map at most (units/s): the
-// longest lanes with the fastest jump drive, at the middle of the jump.
-const GALAXY_SPEED = 1.5;
+// longest lanes with the fastest engines and hull, at the middle of the jump.
+const GALAXY_SPEED = 2;
 const IDLE_MIN_MS = 50;
 const IDLE_MAX_MS = 1000;
 // How far inside the free area a pick must sit to count as in view (px).
